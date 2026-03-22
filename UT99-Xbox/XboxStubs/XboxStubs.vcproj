@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="Windows-1252"?>
+<VisualStudioProject
+	ProjectType="Visual C++"
+	Version="8.00"
+	Name="XboxStubs"
+	ProjectGUID="{B1000020-0000-0000-0000-000000000020}"
+	RootNamespace="XboxStubs"
+	>
+	<Platforms>
+		<Platform Name="Win32"/>
+	</Platforms>
+	<Configurations>
+		<Configuration
+			Name="Debug|Win32"
+			OutputDirectory="$(SolutionDir)build\debug\lib"
+			IntermediateDirectory="$(SolutionDir)build\debug\obj\XboxStubs"
+			ConfigurationType="4"
+			>
+			<Tool
+				Name="VCPreBuildEventTool"
+			/>
+			<Tool
+				Name="VCCLCompilerTool"
+				AdditionalOptions="/MT"
+				Optimization="0"
+				AdditionalIncludeDirectories="C:\XDK\xbox\include"
+				PreprocessorDefinitions="TARGET_XBOX=1;WIN32;_DEBUG"
+				RuntimeLibrary="0"
+				WarningLevel="2"
+				ForcedIncludeFiles="C:\XDK\xbox\include\xtl.h"
+			/>
+			<Tool
+				Name="VCLibrarianTool"
+				OutputFile="$(OutDir)\XboxStubs.lib"
+			/>
+		</Configuration>
+		<Configuration
+			Name="Release|Win32"
+			OutputDirectory="$(SolutionDir)build\release\lib"
+			IntermediateDirectory="$(SolutionDir)build\release\obj\XboxStubs"
+			ConfigurationType="4"
+			>
+			<Tool
+				Name="VCPreBuildEventTool"
+			/>
+			<Tool
+				Name="VCCLCompilerTool"
+				AdditionalOptions="/MT"
+				Optimization="2"
+				AdditionalIncludeDirectories="C:\XDK\xbox\include"
+				PreprocessorDefinitions="TARGET_XBOX=1;WIN32;NDEBUG"
+				RuntimeLibrary="0"
+				WarningLevel="2"
+				ForcedIncludeFiles="C:\XDK\xbox\include\xtl.h"
+			/>
+			<Tool
+				Name="VCLibrarianTool"
+				OutputFile="$(OutDir)\XboxStubs.lib"
+			/>
+		</Configuration>
+	</Configurations>
+	<Files>
+		<Filter Name="Source Files" Filter="cpp">
+			<File
+				RelativePath=".\Src\XboxStubs.cpp"
+			>
+			</File>
+		</Filter>
+	</Files>
+</VisualStudioProject>

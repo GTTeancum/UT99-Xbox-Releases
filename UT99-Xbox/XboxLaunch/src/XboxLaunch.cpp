@@ -9,28 +9,60 @@
 UEngine* InitEngine();
 void     MainLoop( UEngine* Engine );
 
-// GPackage is also defined in Core.lib (Core.obj via IMPLEMENT_PACKAGE).
-// We must NOT redefine it here -- Core owns it.
+// Defined in EngineForceLinks.cpp — forces VS2005 linker to include all Engine
+// class .obj files from UT99Engine.lib so their global constructors run and
+// every native class is registered before appInit() calls ProcessRegistrants().
+void ForceEngineClassLinks();
+
+// ── Static-lib GPackage definitions ──────────────────────────────────────
+// In a DLL build, each DLL's IMPLEMENT_PACKAGE defines its own GPackage.
+// In our static-lib build, IMPLEMENT_PACKAGE only declares (extern).
+// We define ALL package name arrays here so they're always linked in.
+// The #define GPackage GPackage_Xxx in each lib's forced include ensures
+// IMPLEMENT_CLASS references the correct symbol.
+extern "C" TCHAR GPackage[64]           = TEXT("UnrealTournament");
+extern "C" TCHAR GPackage_Core[64]      = TEXT("Core");
+extern "C" TCHAR GPackage_Engine[64]    = TEXT("Engine");
+extern "C" TCHAR GPackage_Render[64]    = TEXT("Render");
+extern "C" TCHAR GPackage_XboxDrv[64]   = TEXT("XboxDrv");
+extern "C" TCHAR GPackage_XboxRender[64]= TEXT("XboxRender");
+extern "C" TCHAR GPackage_XboxAudio[64] = TEXT("XboxAudio");
+
+// Global logger instance — opened before anything Unreal touches
+FXboxLogger GXboxLog;
 
 void __cdecl main()
 {
+    // ── Open log FIRST — before any Unreal code runs ─────────────────────
+    GXboxLog.Open( "D:\\ut99.log" );
+    GXboxLog.Write( "BOOT: main() entered" );
+    GXboxLog.Write( "BOOT: build %s %s", __DATE__, __TIME__ );
+
     // Local platform objects -- named to avoid clashing with UT99 globals
     FMallocXbox          XboxMalloc;
     FOutputDeviceXboxError XboxError;
     FFeedbackContextXbox XboxWarn;
     FFileManagerXbox     XboxFileManager;
 
+    GXboxLog.Write( "BOOT: platform objects created" );
+
+    try
+    {
     GIsStarted  = 1;
     GIsClient   = 1;
     GIsGuarded  = 1;
 
-    appStrcpy( GPackage, TEXT("UnrealTournament") );
+    // Pull all Engine class .obj files into the image so their global
+    // constructors run before ProcessRegistrants() is called inside appInit().
+    ForceEngineClassLinks();
+
+    GXboxLog.Write( "BOOT: calling appInit()" );
 
     appInit(
         GPackage,
         TEXT(""),
         &XboxMalloc,
-        NULL,
+        &XboxWarn,
         &XboxError,
         &XboxWarn,
         &XboxFileManager,
@@ -38,17 +70,48 @@ void __cdecl main()
         1
     );
 
+    GXboxLog.Write( "BOOT: appInit() returned" );
+
     GIsServer     = 1;
     GIsClient     = 1;
     GIsEditor     = 0;
     GIsScriptable = 1;
     GLazyLoad     = 0;
 
-    UEngine* Engine = InitEngine();
-    if( Engine && !GIsRequestingExit )
-        MainLoop( Engine );
+    GXboxLog.Write( "BOOT: calling InitEngine()" );
 
+    UEngine* Engine = InitEngine();
+
+    GXboxLog.Write( "BOOT: InitEngine() returned (Engine=%s)", Engine ? "OK" : "NULL" );
+
+    if( Engine && !GIsRequestingExit )
+    {
+        GXboxLog.Write( "BOOT: entering MainLoop()" );
+        MainLoop( Engine );
+        GXboxLog.Write( "BOOT: MainLoop() exited" );
+    }
+    else
+    {
+        GXboxLog.Write( "BOOT: skipping MainLoop (Engine=%s, GIsRequestingExit=%d)",
+            Engine ? "OK" : "NULL", GIsRequestingExit );
+    }
+
+    GXboxLog.Write( "BOOT: calling appPreExit()" );
     appPreExit();
     GIsGuarded = 0;
+
+    GXboxLog.Write( "BOOT: calling appExit() — goodbye" );
+    GXboxLog.Close();
     appExit();
+    }
+    catch( const TCHAR* Error )
+    {
+        GXboxLog.Write( "BOOT: caught TCHAR exception: %s", TCHAR_TO_ANSI(Error) );
+        GXboxLog.Close();
+    }
+    catch( ... )
+    {
+        GXboxLog.Write( "BOOT: caught unknown C++ exception" );
+        GXboxLog.Close();
+    }
 }

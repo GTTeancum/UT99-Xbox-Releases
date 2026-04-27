@@ -70,9 +70,40 @@
 // so we also hook it via UnVcWin32.h patch (add #ifndef guard there).
 #define IMPLEMENT_PACKAGE_PLATFORM(pkg)
 
+// ── Static-lib GPackage fix ──────────────────────────────────────────────
+// In DLL builds, each DLL has its own GPackage global. In static lib builds
+// all libs link into one EXE, so GPackage collides. We redirect GPackage to
+// a unique symbol per library using the _EXPORTS define from project settings.
+// All GPackage_Xxx arrays are defined in XboxLaunch.cpp (always linked).
+// IMPLEMENT_PACKAGE is overridden to only declare (not define) the symbol.
+#if TARGET_XBOX
+  #if defined(CORE_EXPORTS)
+    #define GPackage GPackage_Core
+  #elif defined(ENGINE_EXPORTS)
+    #define GPackage GPackage_Engine
+  #elif defined(RENDER_EXPORTS)
+    #define GPackage GPackage_Render
+  #endif
+  // XboxDrv and XboxRender have their own forced includes that override this.
+
+  // Override IMPLEMENT_PACKAGE to declaration-only. The actual definitions
+  // live in XboxLaunch.cpp which is always linked into the final EXE.
+  // This prevents static-lib .obj files from defining GPackage_Xxx in a way
+  // the linker might not pull in.
+  #define IMPLEMENT_PACKAGE_XBOX 1
+#endif
+
 // ── Xbox has no HINSTANCE / shell APIs ───────────────────────────────────
 #ifndef _XBOX
 #define _XBOX
+#endif
+
+// ── v469 SDK compatibility shims ─────────────────────────────────────────
+// v469 EngineClasses.h and per-class A*.h headers reference types / macros
+// that don't exist in our v400 Core base.  Provide minimal shims here so
+// the v469 headers compile against our toolchain (VS2003 XDK).
+#ifndef BUGGYINLINE
+#define BUGGYINLINE inline
 #endif
 
 // ── Standard C runtime ───────────────────────────────────────────────────

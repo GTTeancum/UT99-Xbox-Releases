@@ -152,6 +152,7 @@ struct FMeshMaterial
 -----------------------------------------------------------------------------*/
 
 // An actor notification event associated with an animation sequence.
+#if 0 // duplicate of UnAnim.h
 struct FMeshAnimNotify
 {
 	FLOAT	Time;			// Time to occur, 0.0-1.0.
@@ -162,12 +163,15 @@ struct FMeshAnimNotify
 		: Time(0.0), Function(NAME_None) {}
 };
 
+
+#endif
 /*-----------------------------------------------------------------------------
 	FMeshAnimSeq.
 -----------------------------------------------------------------------------*/
 
 // Information about one animation sequence associated with a mesh,
 // a group of contiguous frames.
+#if 0 // duplicate of UnAnim.h
 struct FMeshAnimSeq
 {
 	FName					Name;		// Sequence's name.
@@ -182,6 +186,8 @@ struct FMeshAnimSeq
 		: Name(NAME_None), Group(NAME_None), StartFrame(0), NumFrames(0), Rate(30.0), Notifys() {}
 };
 
+
+#endif
 /*-----------------------------------------------------------------------------
 	FMeshVertConnect.
 -----------------------------------------------------------------------------*/

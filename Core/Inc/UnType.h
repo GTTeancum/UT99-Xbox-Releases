@@ -395,6 +395,38 @@ class CORE_API UFixedArrayProperty : public UProperty
 -----------------------------------------------------------------------------*/
 
 //
+// UPointerProperty (added in v451+; stub for v469 .u file compatibility).
+// v469 packages declare PointerProperty as a property type 16. The real engine
+// wraps a raw C++ pointer; on Xbox we don't read/write any pointer-typed
+// properties at runtime, so a no-op stub is sufficient — only the class
+// registration matters so the binary's "Class Core.PointerProperty" import
+// resolves via the native-transient fallback.
+//
+class CORE_API UPointerProperty : public UProperty
+{
+	DECLARE_CLASS(UPointerProperty,UProperty,0)
+	UPointerProperty() {}
+	UPointerProperty( ECppProperty EC, INT InOffset, const TCHAR* InCategory, DWORD InFlags )
+	:	UProperty( EC, InOffset, InCategory, InFlags )
+	{}
+	// Link must set ElementSize and Offset so cumulative PropertiesSize is correct.
+	// A pointer is sizeof(void*) = 4 on x86; aligned to pointer boundary.
+	void Link( FArchive& Ar, UProperty* Prev )
+	{
+		ElementSize = sizeof(void*);
+		Offset = Align( GetOuterUField()->GetPropertiesSize(), sizeof(void*) );
+	}
+	UBOOL Identical( const void* A, const void* B ) const { return *(void**)A == *(void**)B; }
+	void SerializeItem( FArchive& Ar, void* Value ) const {}
+	UBOOL NetSerializeItem( FArchive& Ar, class UPackageMap* Map, void* Data ) const { return 1; }
+	void ExportCppItem( FOutputDevice& Out ) const {}
+	void ExportTextItem( TCHAR* ValueStr, BYTE* PropertyValue, BYTE* DefaultValue, INT PortFlags ) const {}
+	const TCHAR* ImportText( const TCHAR* Buffer, BYTE* Data, INT PortFlags ) const { return Buffer; }
+	void CopySingleValue( void* Dest, void* Src ) const { *(void**)Dest = *(void**)Src; }
+	void CopyCompleteValue( void* Dest, void* Src ) const { appMemcpy( Dest, Src, ElementSize * ArrayDim ); }
+};
+
+//
 // Describes a dynamic array.
 //
 class CORE_API UArrayProperty : public UProperty

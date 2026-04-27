@@ -86,7 +86,7 @@ UBOOL NEQ(FString A,FString B,UPackageMap* Map) {return A!=B;}
 		if( NEQ(v[i],((A##c*)Recent)->v[i],Map) ) \
 			*Ptr++ = sp##v->RepIndex+i;
 
-INT* AActor::GetOptimizedRepList( BYTE* Recent, FPropertyRetirement* Retire, INT* Ptr, UPackageMap* Map )
+INT* AActor::GetOptimizedRepList( BYTE* Recent, FPropertyRetirement* Retire, INT* Ptr, UPackageMap* Map, INT NumReps )
 {
 	guard(AActor::GetOptimizedRepList);
 	if( StaticClass()->ClassFlags & CLASS_NativeReplication )
@@ -220,10 +220,10 @@ INT* AActor::GetOptimizedRepList( BYTE* Recent, FPropertyRetirement* Retire, INT
 	return Ptr;
 	unguard;
 }
-INT* APawn::GetOptimizedRepList( BYTE* Recent, FPropertyRetirement* Retire, INT* Ptr, UPackageMap* Map )
+INT* APawn::GetOptimizedRepList( BYTE* Recent, FPropertyRetirement* Retire, INT* Ptr, UPackageMap* Map, INT NumReps )
 {
 	guard(APawn::GetOptimizedRepList);
-	Ptr = Super::GetOptimizedRepList(Recent,Retire,Ptr,Map);
+	Ptr = Super::GetOptimizedRepList(Recent,Retire,Ptr,Map,NumReps);
 	if( StaticClass()->ClassFlags & CLASS_NativeReplication )
 	{
 		if( Role==ROLE_Authority )
@@ -259,10 +259,10 @@ INT* APawn::GetOptimizedRepList( BYTE* Recent, FPropertyRetirement* Retire, INT*
 	return Ptr;
 	unguard;
 }
-INT* APlayerPawn::GetOptimizedRepList( BYTE* Recent, FPropertyRetirement* Retire, INT* Ptr, UPackageMap* Map )
+INT* APlayerPawn::GetOptimizedRepList( BYTE* Recent, FPropertyRetirement* Retire, INT* Ptr, UPackageMap* Map, INT NumReps )
 {
 	guard(APlayerPawn::GetOptimizedRepList);
-	Ptr = Super::GetOptimizedRepList(Recent,Retire,Ptr,Map);
+	Ptr = Super::GetOptimizedRepList(Recent,Retire,Ptr,Map,NumReps);
 	if( StaticClass()->ClassFlags & CLASS_NativeReplication )
 	{
 		if( Role==ROLE_Authority )
@@ -295,10 +295,10 @@ INT* APlayerPawn::GetOptimizedRepList( BYTE* Recent, FPropertyRetirement* Retire
 	return Ptr;
 	unguard;
 }
-INT* AMover::GetOptimizedRepList( BYTE* Recent, FPropertyRetirement* Retire, INT* Ptr, UPackageMap* Map )
+INT* AMover::GetOptimizedRepList( BYTE* Recent, FPropertyRetirement* Retire, INT* Ptr, UPackageMap* Map, INT NumReps )
 {
 	guard(AMover::GetOptimizedRepList);
-	Ptr = Super::GetOptimizedRepList(Recent,Retire,Ptr,Map);
+	Ptr = Super::GetOptimizedRepList(Recent,Retire,Ptr,Map,NumReps);
 	if( StaticClass()->ClassFlags & CLASS_NativeReplication )
 	{
 		if( Role==ROLE_Authority )
@@ -315,10 +315,10 @@ INT* AMover::GetOptimizedRepList( BYTE* Recent, FPropertyRetirement* Retire, INT
 	return Ptr;
 	unguard;
 }
-INT* AZoneInfo::GetOptimizedRepList( BYTE* Recent, FPropertyRetirement* Retire, INT* Ptr, UPackageMap* Map )
+INT* AZoneInfo::GetOptimizedRepList( BYTE* Recent, FPropertyRetirement* Retire, INT* Ptr, UPackageMap* Map, INT NumReps )
 {
 	guard(AZoneInfo::GetOptimizedRepList);
-	Ptr = Super::GetOptimizedRepList(Recent,Retire,Ptr,Map);
+	Ptr = Super::GetOptimizedRepList(Recent,Retire,Ptr,Map,NumReps);
 	if( StaticClass()->ClassFlags & CLASS_NativeReplication )
 	{
 		if( Role==ROLE_Authority )
@@ -337,11 +337,11 @@ INT* AZoneInfo::GetOptimizedRepList( BYTE* Recent, FPropertyRetirement* Retire, 
 	return Ptr;
 	unguard;
 }
-INT* APlayerReplicationInfo::GetOptimizedRepList( BYTE* Recent, FPropertyRetirement* Retire, INT* Ptr, UPackageMap* Map )
+INT* APlayerReplicationInfo::GetOptimizedRepList( BYTE* Recent, FPropertyRetirement* Retire, INT* Ptr, UPackageMap* Map, INT NumReps )
 {
 	guard(APlayerReplicationInfo::GetOptimizedRepList);
 	if ( bNetInitial )
-		Ptr = Super::GetOptimizedRepList(Recent,Retire,Ptr,Map);
+		Ptr = Super::GetOptimizedRepList(Recent,Retire,Ptr,Map,NumReps);
 	if( StaticClass()->ClassFlags & CLASS_NativeReplication )
 	{
 		if( Role==ROLE_Authority )
@@ -373,10 +373,10 @@ INT* APlayerReplicationInfo::GetOptimizedRepList( BYTE* Recent, FPropertyRetirem
 	return Ptr;
 	unguard;
 }
-INT* AGameReplicationInfo::GetOptimizedRepList( BYTE* Recent, FPropertyRetirement* Retire, INT* Ptr, UPackageMap* Map )
+INT* AGameReplicationInfo::GetOptimizedRepList( BYTE* Recent, FPropertyRetirement* Retire, INT* Ptr, UPackageMap* Map, INT NumReps )
 {
 	guard(AGameReplicationInfo::GetOptimizedRepList);
-	Ptr = Super::GetOptimizedRepList(Recent,Retire,Ptr,Map);
+	Ptr = Super::GetOptimizedRepList(Recent,Retire,Ptr,Map,NumReps);
 	if( StaticClass()->ClassFlags & CLASS_NativeReplication )
 	{
 		if( Role==ROLE_Authority )
@@ -407,7 +407,7 @@ INT* AGameReplicationInfo::GetOptimizedRepList( BYTE* Recent, FPropertyRetiremen
 	return Ptr;
 	unguard;
 }
-INT* AInventory::GetOptimizedRepList( BYTE* Recent, FPropertyRetirement* Retire, INT* Ptr, UPackageMap* Map )
+INT* AInventory::GetOptimizedRepList( BYTE* Recent, FPropertyRetirement* Retire, INT* Ptr, UPackageMap* Map, INT NumReps )
 {
 	guard(AInventory::GetOptimizedRepList);
 
@@ -416,7 +416,7 @@ INT* AInventory::GetOptimizedRepList( BYTE* Recent, FPropertyRetirement* Retire,
 			DOREP(Actor,bHidden);
 			return Ptr;
 	}
-	Ptr = Super::GetOptimizedRepList(Recent,Retire,Ptr,Map);
+	Ptr = Super::GetOptimizedRepList(Recent,Retire,Ptr,Map,NumReps);
 	if( StaticClass()->ClassFlags & CLASS_NativeReplication )
 	{
 		if( Role==ROLE_Authority )
@@ -716,13 +716,38 @@ void AActor::Destroy()
 void AActor::PostLoad()
 {
 	guard(AActor::PostLoad);
+	debugf( TEXT("AActor::PostLoad A this=%p name=%s"), this, GetName() );
+	debugf( TEXT("AActor::PostLoad B Class=%p"), GetClass() );
 	Super::PostLoad();
-	if( GetClass()->ClassFlags & CLASS_Localized )
+	debugf( TEXT("AActor::PostLoad C super done") );
+	UClass* Cls = GetClass();
+	debugf( TEXT("AActor::PostLoad D Cls=%p ClassFlags=%08X"), Cls, Cls ? Cls->ClassFlags : 0 );
+	if( Cls && (Cls->ClassFlags & CLASS_Localized) )
+	{
+		debugf( TEXT("AActor::PostLoad E calling LoadLocalized") );
 		LoadLocalized();
+		debugf( TEXT("AActor::PostLoad F LoadLocalized done") );
+	}
+	debugf( TEXT("AActor::PostLoad G Brush=%p"), Brush );
 	if( Brush )
+	{
+		// Dump first 16 bytes of *Brush to see if it looks like a UObject.
+		// UObject layout begins with vtable ptr (offset 0), Index (4), HashNext (8), StateFrame (12).
+		const DWORD* p = (const DWORD*)Brush;
+		debugf( TEXT("AActor::PostLoad G1 Brush[0..3]=%08X %08X %08X %08X"),
+			p[0], p[1], p[2], p[3] );
+		debugf( TEXT("AActor::PostLoad G2 reading Brush->GetClass()") );
+		UClass* BrushClass = ((UObject*)Brush)->GetClass();
+		debugf( TEXT("AActor::PostLoad G3 BrushClass=%p"), BrushClass );
+		if( BrushClass )
+			debugf( TEXT("AActor::PostLoad G4 BrushClass name=%s"), BrushClass->GetName() );
+		debugf( TEXT("AActor::PostLoad G5 calling SetFlags") );
 		Brush->SetFlags( RF_Transactional );
+		debugf( TEXT("AActor::PostLoad G6 SetFlags returned") );
+	}
 	if( Brush && Brush->Polys )
 		Brush->Polys->SetFlags( RF_Transactional );
+	debugf( TEXT("AActor::PostLoad H done") );
 	unguard;
 }
 

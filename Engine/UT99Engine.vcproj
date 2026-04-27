@@ -124,6 +124,14 @@
 			>
 			</File>
 			<File
+				RelativePath=".\Src\UnAnimationStub.cpp"
+			>
+			</File>
+			<File
+				RelativePath=".\Src\V469VirtualStubs.cpp"
+			>
+			</File>
+			<File
 				RelativePath=".\Src\UnFPoly.cpp"
 			>
 			</File>

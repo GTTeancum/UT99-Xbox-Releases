@@ -341,21 +341,36 @@ void UStruct::Link( FArchive& Ar, UBOOL Props )
 			Ar.Preload( GetInheritanceSuper() );
 			PropertiesSize = Align(GetInheritanceSuper()->GetPropertiesSize(),4);
 		}
+		debugf( TEXT("UStruct::Link[%s] start PropSize=%d (super=%s super-PropSize=%d) sizeof(UObject)=%d"),
+			GetName(), PropertiesSize,
+			GetInheritanceSuper() ? GetInheritanceSuper()->GetName() : TEXT("(none)"),
+			GetInheritanceSuper() ? GetInheritanceSuper()->GetPropertiesSize() : 0,
+			(INT)sizeof(UObject) );
 		UProperty* Prev = NULL;
+		INT FieldCount = 0, PropCount = 0;
 		for( UField* Field=Children; Field; Field=Field->Next )
 		{
 			Ar.Preload( Field );
+			FieldCount++;
 			if( Field->GetOuter()!=this )
+			{
+				debugf( TEXT("UStruct::Link[%s] BREAK at field %d (%s) — Outer=%s != this"),
+					GetName(), FieldCount, Field->GetName(),
+					Field->GetOuter() ? Field->GetOuter()->GetName() : TEXT("NULL") );
 				break;
+			}
 			UProperty* Property = Cast<UProperty>( Field );
 			if( Property )
 			{
 				Property->Link( Ar, Prev );
 				PropertiesSize = Property->Offset + Property->GetSize();
 				Prev = Property;
+				PropCount++;
 			}
 		}
 		PropertiesSize = Align(PropertiesSize,4);
+		debugf( TEXT("UStruct::Link[%s] end PropSize=%d Fields=%d Props=%d"),
+			GetName(), PropertiesSize, FieldCount, PropCount );
 	}
 	else
 	{

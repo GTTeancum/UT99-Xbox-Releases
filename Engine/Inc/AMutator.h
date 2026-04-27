@@ -1,12 +1,12 @@
 /*=============================================================================
-	AGameReplicationInfo.h.
+	AMutator.h: Class functions residing in the AMutator class.
 	Copyright 1997-1999 Epic Games, Inc. All Rights Reserved.
 =============================================================================*/
-	// Constructors.
-	AGameReplicationInfo() {}
 
-	// AActor interface.
-	INT* GetOptimizedRepList( BYTE* InDefault, FPropertyRetirement* Retire, INT* Ptr, UPackageMap* Map, INT NumReps );
+NO_DEFAULT_CONSTRUCTOR(AMutator)
+
+// AMutator interface.
+virtual void Destroyed(); //TODO: Move to AActor interface
 
 /*-----------------------------------------------------------------------------
 	The End.

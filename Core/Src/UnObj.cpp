@@ -433,10 +433,10 @@ public:
 		while( *Str )
 		{
 			TCh = appToUpper(*Str++);
-			*this << TCh;
+			Serialize( &TCh, sizeof(TCh) );
 		}
 		TCh = 0;
-		*this << TCh;
+		Serialize( &TCh, sizeof(TCh) );
 	}
 	virtual FArchive& operator<<( class FName& N )
 	{
@@ -1210,6 +1210,23 @@ void UObject::Register()
 	Outer        = CreatePackage(NULL,InOuter);
 	Name         = InName;
 	_LinkerIndex = INDEX_NONE;
+
+#if TARGET_XBOX
+	// Mark the containing package as native (DLL-equivalent).  In a normal
+	// PC build, BindPackage sets UPackage::DllHandle via appGetDllHandle().
+	// On Xbox there are no DLLs; appGetDllHandle returns NULL, so DllHandle
+	// stays NULL and GetPackageLinker treats the package as a missing .u
+	// file when scripts try to look up its classes (e.g. XboxDrv.XboxClient).
+	// Setting DllHandle here makes GetPackageLinker's "AllowDll && DllHandle"
+	// short-circuit return NULL, letting StaticLoadObject fall through to
+	// StaticFindObject which finds the native class in memory.
+	if( Outer && Outer->IsA(UPackage::StaticClass()) )
+	{
+		UPackage* Pkg = (UPackage*)Outer;
+		if( !Pkg->DllHandle )
+			Pkg->DllHandle = (void*)(UINT_PTR)1;
+	}
+#endif
 
 	// Validate the object.
 	if( Outer==NULL )
@@ -2429,8 +2446,9 @@ public:
 
 			// Recurse with this object's class and package.
 			UClass*  Class  = Obj->GetClass();
+			UObject* ClassObj = Class;
 			UObject* Parent = Obj->GetOuter();
-			*this << Class << Parent;
+			*this << ClassObj << Parent;
 
 			// Recurse with this object's children.
 			Obj->Serialize( *this );

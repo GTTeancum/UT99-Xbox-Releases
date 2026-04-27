@@ -1,17 +1,17 @@
 /*=============================================================================
-	AInventory.h.
+	ALevelInfo.h.
 	Copyright 1997-1999 Epic Games, Inc. All Rights Reserved.
 =============================================================================*/
 
 	// Constructors.
-	AInventory() {}
+	ALevelInfo() {}
 
 	// AActor interface.
 	INT* GetOptimizedRepList( BYTE* InDefault, FPropertyRetirement* Retire, INT* Ptr, UPackageMap* Map, INT NumReps );
-	virtual UBOOL ShouldDoScriptReplication();
-	virtual UBOOL NoVariablesToReplicate(AActor *OldVer);
-	virtual UBOOL CheckRecentChanges() {return 1;};
-	virtual FLOAT UpdateFrequency(AActor *Viewer, FVector &ViewDir, FVector &ViewPos);
+
+	// ALevelInfo interface
+	void RemoveNavigationPoint( ANavigationPoint* Other);
+	void RemovePawn( APawn* Other);
 
 /*-----------------------------------------------------------------------------
 	The End.

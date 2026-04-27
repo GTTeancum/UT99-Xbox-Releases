@@ -357,7 +357,12 @@ public: \
 #endif
 
 // Define the package of the current DLL being compiled.
-#if _MSC_VER
+#if defined(IMPLEMENT_PACKAGE_XBOX)
+	// Xbox static-lib build: GPackage is #defined to GPackage_Xxx per library.
+	// Only declare (extern), don't define — definitions are in XboxLaunch.cpp.
+	#define IMPLEMENT_PACKAGE(pkg) \
+		extern "C" TCHAR GPackage[];
+#elif _MSC_VER
 	#define IMPLEMENT_PACKAGE(pkg) \
 		extern "C" DLL_EXPORT TCHAR GPackage[]; \
 		DLL_EXPORT TCHAR GPackage[] = TEXT(#pkg); \

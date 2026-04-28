@@ -277,9 +277,45 @@ class ENGINE_API UTexture : public UBitmap
 	USound*		FootstepSound;		// Footstep sound.
 	USound*		HitSound;			// Sound when the texture is hit with a projectile.
 
-	// Flags.
-	DWORD		PolyFlags;			// Polygon flags to be applied to Bsp polys with texture (See PF_*).
-	BITFIELD	bHighColorQuality:1 GCC_PACK(4); // High color quality hint.
+	// Flags.  v469 binary expects 38 BoolProperty fields between MipMult and LODSet
+	// (script positions 12-49 in UTexture's link order).  v400 originally had only
+	// 6 in this region, leaving 32 properties unmapped → SerializeBin computed
+	// offsets pointing past the C++ struct's end → AV during GC trace of UTexture
+	// defaults.  Order below matches the v469 binary's UClass(Texture) Children
+	// chain (see UT99-Xbox/Tools/parse_uclass.py output for Engine.u).
+	BITFIELD	bInvisible:1 GCC_PACK(4);
+	BITFIELD	bMasked:1;
+	BITFIELD	bTransparent:1;
+	BITFIELD	bNotSolid:1;
+	BITFIELD	bEnvironment:1;
+	BITFIELD	bSemisolid:1;
+	BITFIELD	bModulate:1;
+	BITFIELD	bFakeBackdrop:1;
+	BITFIELD	bTwoSided:1;
+	BITFIELD	bAutoUPan:1;
+	BITFIELD	bAutoVPan:1;
+	BITFIELD	bNoSmooth:1;
+	BITFIELD	bBigWavy:1;
+	BITFIELD	bSmallWavy:1;
+	BITFIELD	bWaterWavy:1;
+	BITFIELD	bLowShadowDetail:1;
+	BITFIELD	bNoMerge:1;
+	BITFIELD	bCloudWavy:1;
+	BITFIELD	bDirtyShadows:1;
+	BITFIELD	bHighLedge:1;
+	BITFIELD	bSpecialLit:1;
+	BITFIELD	bGouraud:1;
+	BITFIELD	bUnlit:1;
+	BITFIELD	bHighShadowDetail:1;
+	BITFIELD	bPortal:1;
+	BITFIELD	bMirrored:1;
+	BITFIELD	bX2:1;
+	BITFIELD	bX3:1;
+	BITFIELD	bX4:1;
+	BITFIELD	bX5:1;
+	BITFIELD	bX6:1;
+	BITFIELD	bX7:1;
+	BITFIELD	bHighColorQuality:1; // High color quality hint.
 	BITFIELD	bHighTextureQuality:1; // High color quality hint.
 	BITFIELD	bRealtime:1;        // Texture changes in realtime.
 	BITFIELD	bParametric:1;      // Texture data need not be stored.
@@ -287,9 +323,14 @@ class ENGINE_API UTexture : public UBitmap
 	BITFIELD    bHasComp:1;         // Compressed version included?
 	BYTE        LODSet GCC_PACK(4); // Level of detail type.
 
+	// PolyFlags is a v400 native-only field (not in v469's script chain).  Kept
+	// for compatibility with v400 .cpp code that reads it; placed AFTER LODSet
+	// so it doesn't intrude into the script-side property block.
+	DWORD		PolyFlags;			// Polygon flags to be applied to Bsp polys with texture (See PF_*).
+
 	// Animation related.
 	UTexture*	AnimNext;			// Next texture in looped animation sequence.
-	UTexture*	AnimCur;			// Current animation frame.
+	UTexture*	AnimCurrent;		// v469 spelling.  Aliased below for legacy v400 source compat.
 	BYTE		PrimeCount;			// Priming total for algorithmic textures.
 	BYTE		PrimeCurrent;		// Priming current for algorithmic textures.
 	FLOAT		MinFrameRate;		// Minimum animation rate in fps.
@@ -300,6 +341,16 @@ class ENGINE_API UTexture : public UBitmap
 	TArray<FMipmap> Mips;			// Mipmaps in native format.
 	TArray<FMipmap> CompMips;		// Mipmaps in requested format.
 	BYTE            CompFormat;     // Decompressed texture format.
+
+	// v469 trailing fields — required for SerializeBin to find the correct end
+	// of the property chain.  We don't actively use these on Xbox.
+	void*		SourceMip;			// Original uncompressed BGRA8 mip (PointerProperty).
+	void*		TextureHandle;		// Renderer-specific bindless texture handle (PointerProperty).
+	INT			RealtimeChangeCount;// Bumped when pixel data changes; renderers re-upload on change.
+
+	// Legacy v400 alias — some v400 .cpp code references AnimCur.  Define as a
+	// reference into AnimCurrent so existing reads/writes continue to work.
+	#define AnimCur AnimCurrent
 
 	// Constructor.
 	UTexture();

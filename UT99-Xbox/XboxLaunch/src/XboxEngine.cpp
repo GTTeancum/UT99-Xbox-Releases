@@ -11,6 +11,8 @@ UEngine* InitEngine()
 {
 	guard(InitEngine);
 
+	GXboxLog.Write( "InitEngine: loading GameEngine class from config" );
+
 	// Load the engine class from config
 	UClass* EngineClass = UObject::StaticLoadClass(
 		UGameEngine::StaticClass(),
@@ -21,9 +23,16 @@ UEngine* InitEngine()
 		NULL
 	);
 
+	GXboxLog.Write( "InitEngine: EngineClass=%s", EngineClass ? "OK" : "NULL" );
+
 	// Construct and initialize the engine
 	UGameEngine* Engine = ConstructObject<UGameEngine>( EngineClass );
+
+	GXboxLog.Write( "InitEngine: ConstructObject returned, calling Engine->Init()" );
+
 	Engine->Init();
+
+	GXboxLog.Write( "InitEngine: Engine->Init() returned" );
 
 	return Engine;
 
@@ -43,6 +52,8 @@ void MainLoop( UEngine* Engine )
 	DOUBLE SecondStartTime = OldTime;
 	INT TickCount = 0;
 
+	GXboxLog.Write( "MainLoop: entering game loop" );
+
 	while( GIsRunning && !GIsRequestingExit )
 	{
 		// Calculate delta time
@@ -60,8 +71,13 @@ void MainLoop( UEngine* Engine )
 		// Controller input is polled in UXboxViewport::Tick
 
 		TickCount++;
+
+		// Log first few ticks so we know the loop is running
+		if( TickCount <= 3 )
+			GXboxLog.Write( "MainLoop: tick %d (dt=%.3f)", TickCount, DeltaTime );
 	}
 
+	GXboxLog.Write( "MainLoop: exiting (TickCount=%d)", TickCount );
 	GIsRunning = 0;
 
 	unguard;

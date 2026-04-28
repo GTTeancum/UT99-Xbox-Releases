@@ -41,6 +41,7 @@
 #include "Engine.h"
 
 // Xbox platform objects
+#include "FXboxLogger.h"
 #include "FMallocXbox.h"
 #include "FOutputDeviceXboxError.h"
 #include "FFeedbackContextXbox.h"

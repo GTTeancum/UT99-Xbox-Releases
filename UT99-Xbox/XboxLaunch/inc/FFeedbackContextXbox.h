@@ -6,8 +6,10 @@ class FFeedbackContextXbox : public FFeedbackContext
 public:
     void Serialize( const TCHAR* V, EName Event )
     {
-        OutputDebugStringA( (const char*)appToAnsi(V) );
+        const char* Ansi = (const char*)appToAnsi(V);
+        OutputDebugStringA( Ansi );
         OutputDebugStringA( "\n" );
+        GXboxLog.Write( "LOG: %s", Ansi );
     }
     UBOOL YesNof( const TCHAR* Fmt, ... )
     {

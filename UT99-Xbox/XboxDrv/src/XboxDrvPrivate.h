@@ -16,5 +16,15 @@
 #undef MAKEFOURCC
 #endif
 
+// Static-lib GPackage fix: redirect to unique symbol for this package.
+#undef  GPackage
+#define GPackage GPackage_XboxDrv
+#ifndef IMPLEMENT_PACKAGE_XBOX
+#define IMPLEMENT_PACKAGE_XBOX 1
+#endif
+
 // Now safe to pull in our main header (which includes Engine.h etc.)
 #include "XboxDrv.h"
+
+// HDD logger — GXboxLog is defined in XboxLaunch.cpp
+#include "FXboxLogger.h"

@@ -106,6 +106,10 @@
 // ── UnFont.cpp ───────────────────────────────────────────────────────────────
 #pragma comment(linker, "/include:_autoclassUFont")
 
+// ── UnAnimationStub.cpp ──────────────────────────────────────────────────────
+// Native stub for licensee-only Engine.Animation class (stripped from public source).
+#pragma comment(linker, "/include:_autoclassUAnimation")
+
 // ── UnEngine.cpp ─────────────────────────────────────────────────────────────
 #pragma comment(linker, "/include:_autoclassUEngine")
 #pragma comment(linker, "/include:_autoclassURenderBase")
@@ -164,6 +168,19 @@
 #pragma comment(linker, "/include:_autoclassUBitmap")
 #pragma comment(linker, "/include:_autoclassUTexture")
 #pragma comment(linker, "/include:_autoclassUPalette")
+
+// ── Render.lib (UT99Render.lib) ──────────────────────────────────────────────
+// Render package — engine config Render=Render.Render needs URender registered.
+#pragma comment(linker, "/include:_autoclassURender")
+
+// ── XboxDrv.lib ──────────────────────────────────────────────────────────────
+// XboxDrv package — engine config ViewportManager=XboxDrv.XboxClient.
+// Without these the XboxDrv UPackage never exists in memory and the engine
+// falls back to a disk search for "XboxDrv.u" which doesn't exist.
+// Verified: log line "Failed to load 'XboxDrv'", and XboxDrv.obj symbol dump
+// confirms _autoclassUXboxClient/_autoclassUXboxViewport defined but unreferenced.
+#pragma comment(linker, "/include:_autoclassUXboxClient")
+#pragma comment(linker, "/include:_autoclassUXboxViewport")
 
 // ForceEngineClassLinks() is called from main() before appInit() as a guard
 // against future link-order changes stripping these pragmas' effect.

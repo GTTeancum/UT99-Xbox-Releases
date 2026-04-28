@@ -34,7 +34,13 @@ void UXboxClient::Tick()
     {
         UXboxViewport* VP = Cast<UXboxViewport>( Viewports(i) );
         if( VP )
+        {
             VP->PollController();
+            // Draw the viewport — this is what triggers rendering each frame.
+            // On Windows, WinClient::Tick() calls Viewport->Repaint(1) which
+            // calls Engine->Draw(). We call Draw directly here.
+            Engine->Draw( VP, 1 );
+        }
     }
     unguard;
 }

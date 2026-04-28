@@ -43,7 +43,8 @@ class UXboxViewport : public UViewport
 public:
     INT             ViewX, ViewY;
     INT             ViewWidth, ViewHeight;
-    INT             ControllerIndex;
+    INT             ControllerPort;       // 0-3 port index
+    HANDLE          ControllerHandle;     // from XInputOpen, or NULL
     XINPUT_STATE    ControllerState;
     XINPUT_STATE    PrevControllerState;
     UBOOL           ControllerConnected;
@@ -67,7 +68,6 @@ public:
     void            CloseWindow();
     UBOOL           Exec( const TCHAR* Cmd, FOutputDevice& Ar=*GLog );
     void            SetViewRegion( INT X, INT Y, INT W, INT H );
-    void            BindController( INT Index );
     void            PollController();
     void            ProcessControllerInput( const XINPUT_GAMEPAD& Pad );
 };

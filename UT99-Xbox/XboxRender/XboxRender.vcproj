@@ -24,16 +24,17 @@
 			>
 			<Tool
 				Name="VCCLCompilerTool"
-				AdditionalOptions="/MT"
+				AdditionalOptions="/MT /GS-"
 				Optimization="0"
-				AdditionalIncludeDirectories="C:\XDK\xbox\include;$(SolutionDir)XboxRender\Inc;..\Core\Inc;..\Engine\Inc"
-				PreprocessorDefinitions="TARGET_XBOX=1;_CRT_SECURE_NO_WARNINGS;WIN32;_DEBUG"
+				AdditionalIncludeDirectories="C:\XDK\xbox\include;$(SolutionDir)XboxRender\Inc;$(SolutionDir)XboxLaunch\Inc;..\..\Core\Inc;..\..\Engine\Inc"
+				PreprocessorDefinitions="TARGET_XBOX=1;_CRT_SECURE_NO_WARNINGS;_CRT_NONSTDC_NO_WARNINGS;WIN32;_DEBUG;_REALLY_WANT_DEBUG;ASM=0;ASM3DNOW=0;ASMKNI=0;CORE_API=;ENGINE_API="
 				BasicRuntimeChecks="0"
 				RuntimeLibrary="0"
 				UsePrecompiledHeader="0"
 				WarningLevel="2"
 				DebugInformationFormat="4"
-				DisableSpecificWarnings="4996;4244;4267;4305;4800"
+				DisableSpecificWarnings="4996;4244;4267;4305;4800;4018"
+				ForcedIncludeFiles="XboxRender.h"
 			/>
 			<Tool
 				Name="VCLibrarianTool"
@@ -49,15 +50,16 @@
 			>
 			<Tool
 				Name="VCCLCompilerTool"
-				AdditionalOptions="/MT"
+				AdditionalOptions="/MT /GS-"
 				Optimization="2"
-				AdditionalIncludeDirectories="C:\XDK\xbox\include;$(SolutionDir)XboxRender\Inc;..\Core\Inc;..\Engine\Inc"
-				PreprocessorDefinitions="TARGET_XBOX=1;_CRT_SECURE_NO_WARNINGS;WIN32;NDEBUG"
+				AdditionalIncludeDirectories="C:\XDK\xbox\include;$(SolutionDir)XboxRender\Inc;$(SolutionDir)XboxLaunch\Inc;..\..\Core\Inc;..\..\Engine\Inc"
+				PreprocessorDefinitions="TARGET_XBOX=1;_CRT_SECURE_NO_WARNINGS;_CRT_NONSTDC_NO_WARNINGS;WIN32;NDEBUG;ASM=0;ASM3DNOW=0;ASMKNI=0;CORE_API=;ENGINE_API="
 				RuntimeLibrary="0"
 				UsePrecompiledHeader="0"
 				WarningLevel="2"
 				DebugInformationFormat="0"
-				DisableSpecificWarnings="4996;4244;4267;4305;4800"
+				DisableSpecificWarnings="4996;4244;4267;4305;4800;4018"
+				ForcedIncludeFiles="XboxRender.h"
 			/>
 			<Tool
 				Name="VCLibrarianTool"

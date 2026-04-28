@@ -28,6 +28,39 @@ desktop.ini
 *.swp
 *~
 
+# Windows-only / desktop-only UT99 modules and SDKs (not used by the Xbox port).
+# These ship with the UT99 v432 source release but target platforms or APIs we
+# don't build for.  Listed here so the working tree can keep them as reference
+# without GitHub cluttering the diff or repo size.
+DirectX6/
+DirectX7/
+D3DDrv/                # Direct3D rasterizer — replaced by UT99-Xbox/XboxRender
+GlideDrv/              # 3dfx Glide
+MetalDrv/              # Apple Metal
+OpenGLDrv/
+SglDrv/                # PowerVR SGL
+SoftDrv/               # Win32 software renderer
+WinDrv/                # Win32 viewport — replaced by UT99-Xbox/XboxDrv
+Galaxy/                # DirectSound — replaced by UT99-Xbox/XboxAudio (stub)
+Audio/                 # generic Win32 audio framework
+Launch/                # Win32 launcher main() — replaced by UT99-Xbox/XboxLaunch
+
+# Editor and authoring tools (PC-only)
+Editor/
+EdSrc/
+UnrealEd/
+UCC/
+Help/
+Fonts/
+
+# Installers and platform-specific deployment helpers
+Setup/
+RunSetup/
+RunSFX/
+LinuxInstall/
+UnrealiOrder/
+Web/
+
 ## ──────────────────────────────────────────────────────────────────────────
 ## Standard Visual Studio ignores
 ## (from https://github.com/github/gitignore/blob/main/VisualStudio.gitignore)

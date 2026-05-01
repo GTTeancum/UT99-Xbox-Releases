@@ -43,7 +43,6 @@ ENGINE_API extern class FMemCache	GCache;
 #include "UnPrim.h"				// Primitive class.
 #include "UnModel.h"			// Model class.
 #include "UnTex.h"				// Texture and palette.
-#include "UnAnim.h"				// FMeshAnimSeq for AActor::GetAnim (v469).
 #include "EngineClasses.h"		// All actor classes.
 #include "UnReach.h"			// Reach specs.
 #include "UnURL.h"				// Uniform resource locators.

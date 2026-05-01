@@ -15,9 +15,7 @@
 	void PostEditMove();
 	void PreRaytrace();
 	void PostRaytrace();
-	INT* GetOptimizedRepList( BYTE* InDefault, FPropertyRetirement* Retire, INT* Ptr, UPackageMap* Map, INT NumReps );
-	void PreNetReceive();
-	void PostNetReceive();
+	INT* GetOptimizedRepList( BYTE* InDefault, FPropertyRetirement* Retire, INT* Ptr, UPackageMap* Map );
 
 	// ABrush interface.
 	virtual void SetWorldRaytraceKey();

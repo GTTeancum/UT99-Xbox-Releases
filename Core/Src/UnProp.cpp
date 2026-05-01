@@ -1031,7 +1031,6 @@ void UFixedArrayProperty::DestroyValue( void* Dest ) const
 	unguardobjSlow;
 }
 IMPLEMENT_CLASS(UFixedArrayProperty);
-IMPLEMENT_CLASS(UPointerProperty);
 
 /*-----------------------------------------------------------------------------
 	UArrayProperty.

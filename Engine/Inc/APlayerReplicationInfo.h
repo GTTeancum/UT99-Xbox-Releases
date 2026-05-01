@@ -7,9 +7,7 @@
 	APlayerReplicationInfo() {}
 
 	// AActor interface.
-	INT* GetOptimizedRepList( BYTE* InDefault, FPropertyRetirement* Retire, INT* Ptr, UPackageMap* Map, INT NumReps );
-	void PreNetReceive();
-	void PostNetReceive();
+	INT* GetOptimizedRepList( BYTE* InDefault, FPropertyRetirement* Retire, INT* Ptr, UPackageMap* Map );
 
 /*-----------------------------------------------------------------------------
 	The End.

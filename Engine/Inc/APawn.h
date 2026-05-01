@@ -20,11 +20,8 @@
 
 	// AActor interface.
 	FLOAT GetNetPriority( AActor* Sent, FLOAT Time, FLOAT Lag );
-	INT* GetOptimizedRepList( BYTE* InDefault, FPropertyRetirement* Retire, INT* Ptr, UPackageMap* Map, INT NumReps );
+	INT* GetOptimizedRepList( BYTE* InDefault, FPropertyRetirement* Retire, INT* Ptr, UPackageMap* Map );
 
-	// APawn interface.
-	virtual void Destroyed(); //TODO: Move to AActor interface
-	
 	// Latent movement
 	void setMoveTimer(FLOAT MoveSize);
 	int moveToward(const FVector &Dest);
@@ -48,9 +45,9 @@
 	int flyReachable(FVector Dest, FLOAT Threshold, int reachFlags, AActor* GoalActor);
 	int swimReachable(FVector Dest, FLOAT Threshold, int reachFlags, AActor* GoalActor);
 	void jumpLanding(FVector testvel, FVector &Landing, int moveActor = 0);
-	int walkMove(FVector Delta, FCheckResult& Hit, AActor* GoalActor = NULL, FLOAT threshold = 4.1f, int bAdjust = 1);
-	int flyMove(FVector Delta, AActor* GoalActor, FLOAT threshold = 4.1f, int bAdjust = 1);
-	int swimMove(FVector Delta, AActor* GoalActor, FLOAT threshold = 4.1f, int bAdjust = 1);
+	int walkMove(FVector Delta, FCheckResult& Hit, AActor* GoalActor = NULL, FLOAT threshold = 4.1, int bAdjust = 1);
+	int flyMove(FVector Delta, AActor* GoalActor, FLOAT threshold = 4.1, int bAdjust = 1);
+	int swimMove(FVector Delta, AActor* GoalActor, FLOAT threshold = 4.1, int bAdjust = 1);
 	int FindBestJump(FVector Dest, FVector vel, FVector &Landing, int moveActor = 0); 
 	int FindJumpUp(FVector Dest, FVector vel, FVector &Landing, int moveActor = 0); 
 	void SuggestJumpVelocity(FVector Dest, FVector &Vel);
@@ -71,7 +68,7 @@
 		unguard;
 	}
 	void clearPaths();
-	inline void clearPath(ANavigationPoint *node);
+	void clearPath(ANavigationPoint *node);
 	void HandleSpecial(AActor *&bestPath);
 	int CanMoveTo(AActor *Anchor, AActor *Dest);
 	void SetRouteCache(ANavigationPoint *BestPath);
@@ -85,24 +82,6 @@
 	void startSwimming(FVector OldVelocity, FLOAT timeTick, FLOAT remainingTime, INT Iterations);
 	void physicsRotation(FLOAT deltaTime, FVector OldVelocity);
 	void performPhysics(FLOAT DeltaSeconds);
-
-	// stijn: split off from physWalking
-	FVector physLedgeAdjust(FLOAT DeltaTime, FVector AccelDir, FVector Delta, FVector GravDir, UBOOL& bCheckedFall, UBOOL& bMustJump);
-	FVector physSlopeAdjust(FVector Delta, FCheckResult& Hit);
-
-	// stijn: split off from physFalling
-	void capAirControl(FLOAT DeltaTime, FLOAT& AirControl);
-	void capFallingSpeed(FLOAT CappedAirControl, FLOAT& TimeTick, FLOAT& BoundSpeed);
-
-	// stijn: framerate-independent falling physics
-	void ResetFallTime();
-	FLOAT GetFallTime();
-	void AddFallTime(FLOAT DeltaTime);
-	void CacheAccelAndBoundSpeed(FLOAT Accel, FLOAT BoundSpeed);
-	void GetCachedAccelAndBoundSpeed(FLOAT& Accel, FLOAT& BoundSpeed);
-
-	// Debugging
-	FString DescribePawn() const;
 
 	// Natives.
 	DECLARE_FUNCTION(execPollWaitForLanding)
@@ -119,7 +98,7 @@ private:
 	void stepUp(FVector GravDir, FVector DesiredDir, FVector Delta, FCheckResult &Hit);
 	void calcVelocity(FVector AccelDir, FLOAT deltaTime, FLOAT maxSpeed, FLOAT friction, INT bFluid, INT bBrake, INT bBuoyant);
 	int findNewFloor(FVector OldLocation, FLOAT deltaTime, FLOAT remainingTime, INT Iterations);
-	inline int checkFloor(FVector Dir, FCheckResult &Hit);
+	int checkFloor(FVector Dir, FCheckResult &Hit);
 
 /*-----------------------------------------------------------------------------
 	The End.

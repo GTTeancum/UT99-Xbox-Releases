@@ -1733,17 +1733,3 @@ union CORE_API FRainbowPtr
 /*-----------------------------------------------------------------------------
 	The End.
 -----------------------------------------------------------------------------*/
-
-// TArrayNoInit: TArray that doesn't init in default constructor.
-// Required for v469 EngineClasses.h compatibility.
-template<class T> class TArrayNoInit : public TArray<T>
-{
-public:
-	TArrayNoInit() : TArray<T>(E_NoInit) {}
-	TArrayNoInit& operator=( const TArrayNoInit& Other ) { TArray<T>::operator=(Other); return *this; }
-	// v400 TArray uses operator() not operator[]; provide [] for v469-style code that
-	// indexes the array with brackets, and forward to operator().
-	T& operator[]( INT i ) { return TArray<T>::operator()(i); }
-	const T& operator[]( INT i ) const { return TArray<T>::operator()(i); }
-};
-

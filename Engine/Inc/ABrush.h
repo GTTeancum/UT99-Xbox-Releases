@@ -55,7 +55,6 @@
 
 		Brush->BuildBound();
 
-		PostEditMove();
 		unguard;
 	}
 	virtual void InitPosRotScale();

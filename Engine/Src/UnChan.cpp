@@ -993,7 +993,7 @@ void UActorChannel::ReplicateActor()
 	guard(FigureOutWhatNeedsReplicating);
 	BYTE*   CompareBin = Recent.Num() ? &Recent(0) : &ActorClass->Defaults(0);
 	INT     iCount     = ClassCache->RepProperties.Num();
-	LastRep            = Actor->GetOptimizedRepList( CompareBin, &Retirement(0), Reps, Connection->PackageMap, iCount );
+	LastRep            = Actor->GetOptimizedRepList( CompareBin, &Retirement(0), Reps, Connection->PackageMap );
 	if( Actor->ShouldDoScriptReplication() )
 	{
 		for( INT iField=0; iField<iCount; iField++  )

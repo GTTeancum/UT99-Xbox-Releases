@@ -10,7 +10,7 @@
 	void PostEditChange();
 
 	// AActor interface.
-	INT* GetOptimizedRepList( BYTE* InDefault, FPropertyRetirement* Retire, INT* Ptr, UPackageMap* Map, INT NumReps );
+	INT* GetOptimizedRepList( BYTE* InDefault, FPropertyRetirement* Retire, INT* Ptr, UPackageMap* Map );
 
 /*-----------------------------------------------------------------------------
 	The End.

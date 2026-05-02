@@ -103,13 +103,25 @@ def collect_class(pkg, cls_idx, cls_ex):
 
 
 def dump_pkg(pkg, file_label, out):
+    errors = 0
+    parsed = 0
     for i, ex in enumerate(pkg.exports):
         if ex['class_idx'] != 0:
             continue
         # Real UClass exports have ClassIndex==0 (the "Class" sentinel)
-        cls = collect_class(pkg, i, ex)
-        cls['file'] = file_label
-        out.write(json.dumps(cls) + '\n')
+        try:
+            cls = collect_class(pkg, i, ex)
+            cls['file'] = file_label
+            out.write(json.dumps(cls) + '\n')
+            parsed += 1
+        except Exception as e:
+            errors += 1
+            try:
+                cname = pkg.name(ex['name_idx'])
+            except Exception:
+                cname = '<unknown export %d>' % i
+            print('    skip %s.%s: %s' % (file_label, cname, e), file=sys.stderr)
+    print('    %s: parsed=%d errors=%d' % (file_label, parsed, errors), file=sys.stderr)
 
 
 def main():

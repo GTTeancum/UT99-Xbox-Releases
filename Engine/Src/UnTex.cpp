@@ -9,6 +9,23 @@
 #include "EnginePrivate.h"
 #include "UnRender.h"
 
+// Compile-time layout verification.
+// /Zp4 is required: makes DOUBLE LastUpdateTime 4-byte aligned (no pad after
+// MaxColor) so C++ sizeof matches binary's PropertiesSize. If any of these
+// fail, /Zp4 is not in effect or struct layout drifted.
+typedef char _check_UObject_size  [(sizeof(UObject)  == 40) ? 1 : -1];
+typedef char _check_UBitmap_size  [(sizeof(UBitmap)  == 84) ? 1 : -1];
+
+// Sub-structs used as field types throughout (StructProperty contents).
+typedef char _check_FVector_size  [(sizeof(FVector)  == 12) ? 1 : -1];
+typedef char _check_FRotator_size [(sizeof(FRotator) == 12) ? 1 : -1];
+typedef char _check_FColor_size   [(sizeof(FColor)   ==  4) ? 1 : -1];
+typedef char _check_FPlane_size   [(sizeof(FPlane)   == 16) ? 1 : -1];
+typedef char _check_FName_size    [(sizeof(FName)    ==  4) ? 1 : -1];
+
+// FArray (TArray base) sizeof = 12: void* Data, INT ArrayNum, INT ArrayMax.
+typedef char _check_TArray_size   [(sizeof(TArray<INT>) == 12) ? 1 : -1];
+
 #ifdef WIN32
 #include "UnDDraw.h"
 #include "Palette.h"

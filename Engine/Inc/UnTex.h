@@ -320,36 +320,29 @@ class ENGINE_API UTexture : public UBitmap
 	BITFIELD	bRealtime:1;        // Texture changes in realtime.
 	BITFIELD	bParametric:1;      // Texture data need not be stored.
 	BITFIELD	bRealtimeChanged:1; // Changed since last render.
-	BITFIELD    bHasComp:1;         // Compressed version included?
-	BYTE        LODSet GCC_PACK(4); // Level of detail type.
+	BITFIELD    bHasComp:1;         // 49: Compressed version included.
+	BYTE        LODSet GCC_PACK(4); // 50: Level of detail type.
 
-	// PolyFlags is a v400 native-only field (not in v469's script chain).  Kept
-	// for compatibility with v400 .cpp code that reads it; placed AFTER LODSet
-	// so it doesn't intrude into the script-side property block.
-	DWORD		PolyFlags;			// Polygon flags to be applied to Bsp polys with texture (See PF_*).
+	// Animation related (binary indices 51-57).
+	UTexture*	AnimNext;			// 51
+	UTexture*	AnimCurrent;		// 52  (#define AnimCur AnimCurrent below for v400 .cpp compat)
+	BYTE		PrimeCount;			// 53
+	BYTE		PrimeCurrent;		// 54
+	FLOAT		MinFrameRate;		// 55
+	FLOAT		MaxFrameRate;		// 56
+	FLOAT		Accumulator;		// 57
 
-	// Animation related.
-	UTexture*	AnimNext;			// Next texture in looped animation sequence.
-	UTexture*	AnimCurrent;		// v469 spelling.  Aliased below for legacy v400 source compat.
-	BYTE		PrimeCount;			// Priming total for algorithmic textures.
-	BYTE		PrimeCurrent;		// Priming current for algorithmic textures.
-	FLOAT		MinFrameRate;		// Minimum animation rate in fps.
-	FLOAT		MaxFrameRate;		// Maximum animation rate in fps.
-	FLOAT		Accumulator;		// Frame accumulator.
+	// Table of mipmaps (binary indices 58-60).
+	TArray<FMipmap> Mips;			// 58
+	TArray<FMipmap> CompMips;		// 59
+	BYTE        CompFormat;			// 60
 
-	// Table of mipmaps.
-	TArray<FMipmap> Mips;			// Mipmaps in native format.
-	TArray<FMipmap> CompMips;		// Mipmaps in requested format.
-	BYTE            CompFormat;     // Decompressed texture format.
+	// PolyFlags is a v400 native-only field — not in the v436 binary's script
+	// property chain.  Place at end of struct so it doesn't shift any
+	// binary-driven property offsets.
+	DWORD		PolyFlags;
 
-	// v469 trailing fields — required for SerializeBin to find the correct end
-	// of the property chain.  We don't actively use these on Xbox.
-	void*		SourceMip;			// Original uncompressed BGRA8 mip (PointerProperty).
-	void*		TextureHandle;		// Renderer-specific bindless texture handle (PointerProperty).
-	INT			RealtimeChangeCount;// Bumped when pixel data changes; renderers re-upload on change.
-
-	// Legacy v400 alias — some v400 .cpp code references AnimCur.  Define as a
-	// reference into AnimCurrent so existing reads/writes continue to work.
+	// Legacy v400 alias.
 	#define AnimCur AnimCurrent
 
 	// Constructor.

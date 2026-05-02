@@ -107,7 +107,9 @@
 #pragma comment(linker, "/include:_autoclassUFont")
 
 // ── UnAnimationStub.cpp ──────────────────────────────────────────────────────
-// Native stub for licensee-only Engine.Animation class (stripped from public source).
+// Minimal native class so Engine.u's "Engine.Animation" import (PropertyClass
+// of AActor::SkelAnim) resolves at load time.  v436 binary has the import but
+// no exporting package, so a native registration is required.
 #pragma comment(linker, "/include:_autoclassUAnimation")
 
 // ── UnEngine.cpp ─────────────────────────────────────────────────────────────

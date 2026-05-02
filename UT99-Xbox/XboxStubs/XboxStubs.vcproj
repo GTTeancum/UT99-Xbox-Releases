@@ -21,7 +21,7 @@
 			/>
 			<Tool
 				Name="VCCLCompilerTool"
-				AdditionalOptions="/MT"
+				AdditionalOptions="/Zp4 /MT"
 				Optimization="0"
 				AdditionalIncludeDirectories="C:\XDK\xbox\include"
 				PreprocessorDefinitions="TARGET_XBOX=1;WIN32;_DEBUG"
@@ -45,7 +45,7 @@
 			/>
 			<Tool
 				Name="VCCLCompilerTool"
-				AdditionalOptions="/MT"
+				AdditionalOptions="/Zp4 /MT"
 				Optimization="2"
 				AdditionalIncludeDirectories="C:\XDK\xbox\include"
 				PreprocessorDefinitions="TARGET_XBOX=1;WIN32;NDEBUG"

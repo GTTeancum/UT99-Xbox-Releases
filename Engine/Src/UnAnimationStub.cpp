@@ -1,30 +1,23 @@
 /*=============================================================================
-	UnAnimationStub.cpp: Minimal native stub for Engine.Animation.
+	UnAnimationStub.cpp: Minimal UAnimation native class stub.
 
-	The shipped UT99 binary Engine.u was built against a source tree that
-	included the licensee-only skeletal animation classes (UAnimation lives
-	with USkeletalMesh in the unreleased UE1 source — see SurrealEngine's
-	UMesh.h for a reference layout: RefBones[] + Moves[]).  Those classes
-	were stripped from the UT99 v1.40 public source release, but Engine.u
-	still has `Class Engine.Animation` in its import table (verified in
-	hardware boot log import[45]).  Without a registered native UAnimation
-	class, ULinkerLoad::VerifyImport falls through to appThrowf("FailedImport")
-	and the engine fails to load Engine.u.
+	v436 GOTY's Engine.u imports `Engine.Animation` as the PropertyClass of
+	AActor::SkelAnim. v436 binary contains no Animation class export, so the
+	import only resolves if a native UAnimation is registered with the engine.
+	This stub provides that registration. The class is otherwise inert — no
+	fields, no methods. UAnimation* references will resolve to a valid UClass*
+	at link time; tagged-property serialization succeeds; nothing else uses it.
 
-	This file provides only what the import resolver needs: a UClass named
-	"Animation" in the Engine package with flags RF_Public|RF_Native|RF_Transient.
-	Nothing instantiates or serializes UAnimation in our scripted code path,
-	so an empty body is sufficient.  If a subsequent import or serialization
-	attempts to read UAnimation instance data, that will surface as a new,
-	specific failure in the boot log and can be addressed then.
+	Was originally added in the v469 migration commit (`9bf1b7e`); kept here
+	after the migration revert because v436 also references the import.
 =============================================================================*/
 
 #include "EnginePrivate.h"
 
-class UAnimation : public UObject
+class ENGINE_API UAnimation : public UObject
 {
 	DECLARE_CLASS(UAnimation,UObject,0)
-	UAnimation() {}
+	NO_DEFAULT_CONSTRUCTOR(UAnimation)
 };
 
 IMPLEMENT_CLASS(UAnimation);

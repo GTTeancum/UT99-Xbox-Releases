@@ -335,12 +335,16 @@ class ULinkerLoad : public ULinker, public FArchive
 	,	LoadFlags( InLoadFlags )
 	{
 		guard(ULinkerLoad::ULinkerLoad);
-		debugf( TEXT("Loading: %s"), InParent->GetFullName() );
-		debugf( TEXT("ULinkerLoad: opening '%s' for %s"), InFilename ? InFilename : TEXT("<NULL>"), InParent ? InParent->GetFullName() : TEXT("<NULL>") );
+		const UBOOL bVerbosePackageLoad = 0;
+		if( bVerbosePackageLoad )
+			debugf( TEXT("Loading: %s"), InParent->GetFullName() );
+		if( bVerbosePackageLoad )
+			debugf( TEXT("ULinkerLoad: opening '%s' for %s"), InFilename ? InFilename : TEXT("<NULL>"), InParent ? InParent->GetFullName() : TEXT("<NULL>") );
 		Loader = GFileManager->CreateFileReader( InFilename, 0, GError );
 		if( !Loader )
 			appThrowf( LocalizeError("OpenFailed") );
-		debugf( TEXT("ULinkerLoad: opened '%s' size=%i"), *Filename, Loader->TotalSize() );
+		if( bVerbosePackageLoad )
+			debugf( TEXT("ULinkerLoad: opened '%s' size=%i"), *Filename, Loader->TotalSize() );
 
 		// Error if linker already loaded.
 		{for( INT i=0; i<GObjLoaders.Num(); i++ )
@@ -365,20 +369,21 @@ class ULinkerLoad : public ULinker, public FArchive
 		ArVer = Summary.FileVersion;
 		if( Cast<UPackage>(LinkerRoot) )
 			Cast<UPackage>(LinkerRoot)->PackageFlags = Summary.PackageFlags;
-		debugf
-		(
-			TEXT("ULinkerLoad: summary '%s' tag=%08X ver=%i names=%i@%i imports=%i@%i exports=%i@%i flags=%08X"),
-			*Filename,
-			Summary.Tag,
-			Summary.FileVersion,
-			Summary.NameCount,
-			Summary.NameOffset,
-			Summary.ImportCount,
-			Summary.ImportOffset,
-			Summary.ExportCount,
-			Summary.ExportOffset,
-			Summary.PackageFlags
-		);
+		if( bVerbosePackageLoad )
+			debugf
+			(
+				TEXT("ULinkerLoad: summary '%s' tag=%08X ver=%i names=%i@%i imports=%i@%i exports=%i@%i flags=%08X"),
+				*Filename,
+				Summary.Tag,
+				Summary.FileVersion,
+				Summary.NameCount,
+				Summary.NameOffset,
+				Summary.ImportCount,
+				Summary.ImportOffset,
+				Summary.ExportCount,
+				Summary.ExportOffset,
+				Summary.PackageFlags
+			);
 		unguard;
 
 		// Check tag.
@@ -407,7 +412,8 @@ class ULinkerLoad : public ULinker, public FArchive
 		if( Summary.NameCount > 0 )
 		{
 			Seek( Summary.NameOffset );
-			debugf( TEXT("ULinkerLoad: loading %i names from '%s'"), Summary.NameCount, *Filename );
+			if( bVerbosePackageLoad )
+				debugf( TEXT("ULinkerLoad: loading %i names from '%s'"), Summary.NameCount, *Filename );
 			for( INT i=0; i<Summary.NameCount; i++ )
 			{
 				// Read the name entry from the file.
@@ -418,7 +424,8 @@ class ULinkerLoad : public ULinker, public FArchive
 				NameMap.AddItem( (NameEntry.Flags & _ContextFlags) ? FName( NameEntry.Name, FNAME_Add ) : NAME_None );
 			}
 		}
-		debugf( TEXT("ULinkerLoad: loaded names for '%s'"), *Filename );
+		if( bVerbosePackageLoad )
+			debugf( TEXT("ULinkerLoad: loaded names for '%s'"), *Filename );
 		unguard;
 
 		// Load import map.
@@ -426,11 +433,13 @@ class ULinkerLoad : public ULinker, public FArchive
 		if( Summary.ImportCount > 0 )
 		{
 			Seek( Summary.ImportOffset );
-			debugf( TEXT("ULinkerLoad: loading %i imports from '%s'"), Summary.ImportCount, *Filename );
+			if( bVerbosePackageLoad )
+				debugf( TEXT("ULinkerLoad: loading %i imports from '%s'"), Summary.ImportCount, *Filename );
 			for( INT i=0; i<Summary.ImportCount; i++ )
 				*this << *new(ImportMap)FObjectImport;
 		}
-		debugf( TEXT("ULinkerLoad: loaded imports for '%s'"), *Filename );
+		if( bVerbosePackageLoad )
+			debugf( TEXT("ULinkerLoad: loaded imports for '%s'"), *Filename );
 		unguard;
 
 		// Load export map.
@@ -438,11 +447,13 @@ class ULinkerLoad : public ULinker, public FArchive
 		if( Summary.ExportCount > 0 )
 		{
 			Seek( Summary.ExportOffset );
-			debugf( TEXT("ULinkerLoad: loading %i exports from '%s'"), Summary.ExportCount, *Filename );
+			if( bVerbosePackageLoad )
+				debugf( TEXT("ULinkerLoad: loading %i exports from '%s'"), Summary.ExportCount, *Filename );
 			for( INT i=0; i<Summary.ExportCount; i++ )
 				*this << *new(ExportMap)FObjectExport;
 		}
-		debugf( TEXT("ULinkerLoad: loaded exports for '%s'"), *Filename );
+		if( bVerbosePackageLoad )
+			debugf( TEXT("ULinkerLoad: loaded exports for '%s'"), *Filename );
 		unguard;
 
 		// Create export hash.
@@ -462,14 +473,17 @@ class ULinkerLoad : public ULinker, public FArchive
 		GObjLoaders.AddItem( this );
 		if( !(LoadFlags & LOAD_NoVerify) )
 		{
-			debugf( TEXT("ULinkerLoad: verifying '%s' imports=%i"), *Filename, Summary.ImportCount );
+			if( bVerbosePackageLoad )
+				debugf( TEXT("ULinkerLoad: verifying '%s' imports=%i"), *Filename, Summary.ImportCount );
 			Verify();
-			debugf( TEXT("ULinkerLoad: verified '%s'"), *Filename );
+			if( bVerbosePackageLoad )
+				debugf( TEXT("ULinkerLoad: verified '%s'"), *Filename );
 		}
 
 		// Success.
 		Success = 1;
-		debugf( TEXT("ULinkerLoad: success '%s'"), *Filename );
+		if( bVerbosePackageLoad )
+			debugf( TEXT("ULinkerLoad: success '%s'"), *Filename );
 
 		unguard;
 	}
@@ -540,10 +554,11 @@ class ULinkerLoad : public ULinker, public FArchive
 	void VerifyImport( INT i )
 	{
 		guard(ULinkerLoad::VerifyImport);
+		const UBOOL bVerboseImportResolve = 0;
 		SharewareHack://oldver
 		FObjectImport& Import = ImportMap(i);
 		static INT VerifyImportLogCount = 0;
-		if( VerifyImportLogCount++ < 200 )
+		if( bVerboseImportResolve && VerifyImportLogCount++ < 200 )
 		{
 			debugf
 			(
@@ -698,13 +713,16 @@ class ULinkerLoad : public ULinker, public FArchive
 		}
 		if( UsedLinearFallback )
 		{
-			debugf
-			(
-				TEXT("ULinkerLoad: linear fallback resolved %s in '%s' at export %i"),
-				*GetImportFullName(i),
-				*Import.SourceLinker->Filename,
-				Import.SourceIndex
-			);
+			if( bVerboseImportResolve )
+			{
+				debugf
+				(
+					TEXT("ULinkerLoad: linear fallback resolved %s in '%s' at export %i"),
+					*GetImportFullName(i),
+					*Import.SourceLinker->Filename,
+					Import.SourceIndex
+				);
+			}
 		}
 		if( appStricmp(*Import.ClassName,TEXT("Mesh"))==0 )//oldver
 		{
@@ -715,8 +733,11 @@ class ULinkerLoad : public ULinker, public FArchive
 		// If not found in file, see if it's a public native transient class.
 		if( Import.SourceIndex==INDEX_NONE && Pkg!=NULL )
 		{
-			debugf( TEXT("ULinkerLoad: native-transient fallback for %s.%s (Pkg=%s)"),
-				*Import.ClassName, *Import.ObjectName, Pkg ? Pkg->GetName() : TEXT("NULL") );
+			if( bVerboseImportResolve )
+			{
+				debugf( TEXT("ULinkerLoad: native-transient fallback for %s.%s (Pkg=%s)"),
+					*Import.ClassName, *Import.ObjectName, Pkg ? Pkg->GetName() : TEXT("NULL") );
+			}
 			UObject* ClassPackage = FindObject<UPackage>( NULL, *Import.ClassPackage );
 			if( ClassPackage )
 			{
@@ -724,10 +745,13 @@ class ULinkerLoad : public ULinker, public FArchive
 				if( FindClass )
 				{
 					UObject* FindObject = StaticFindObject( FindClass, Pkg, *Import.ObjectName );
-					debugf( TEXT("ULinkerLoad: FindObject(%s,%s,%s)=%s flags=%08X"),
-						FindClass->GetName(), Pkg->GetName(), *Import.ObjectName,
-						FindObject ? FindObject->GetName() : TEXT("NULL"),
-						FindObject ? (DWORD)FindObject->GetFlags() : 0 );
+					if( bVerboseImportResolve )
+					{
+						debugf( TEXT("ULinkerLoad: FindObject(%s,%s,%s)=%s flags=%08X"),
+							FindClass->GetName(), Pkg->GetName(), *Import.ObjectName,
+							FindObject ? FindObject->GetName() : TEXT("NULL"),
+							FindObject ? (DWORD)FindObject->GetFlags() : 0 );
+					}
 					if
 					(	(FindObject)
 					&&	(FindObject->GetFlags() & RF_Public)

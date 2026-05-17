@@ -365,12 +365,8 @@ void UStruct::Link( FArchive& Ar, UBOOL Props )
 			}
 		}
 		PropertiesSize = Align(PropertiesSize,4);
-		// Beacon: one line per class. Tells us scenario A (cascade break) vs B (Link not running) vs C (later reset).
-		debugf( TEXT("LINK[%s] PropSize=%d super=%s superPropSize=%d ownProps=%d fields=%d"),
-			GetName(), PropertiesSize,
-			GetInheritanceSuper() ? GetInheritanceSuper()->GetName() : TEXT("(none)"),
-			GetInheritanceSuper() ? GetInheritanceSuper()->GetPropertiesSize() : 0,
-			PropCount, FieldCount );
+		// Routine LINK beacons were useful during package bring-up; keep only
+		// the BREAK/error case above so normal boot logs stay small.
 	}
 	else
 	{
@@ -958,10 +954,7 @@ void UClass::Serialize( FArchive& Ar )
 	// (neither IsLoading nor IsSaving) and call SerializeBin on Defaults,
 	// which walks every inherited UProperty and follows every object ptr —
 	// any bad pointer in Defaults will deref garbage from there.
-	debugf( NAME_Log, TEXT("[ClsSer] %s phase=pre-Super  loading=%d saving=%d"),
-		GetName(), Ar.IsLoading(), Ar.IsSaving() );
 	Super::Serialize( Ar );
-	debugf( NAME_Log, TEXT("[ClsSer] %s phase=post-Super, pre-ClassFlags"), GetName() );
 
 	// Variables.
 	if( Ar.Ver() <= 61 )//oldver
@@ -976,9 +969,6 @@ void UClass::Serialize( FArchive& Ar )
 		Ar << ClassWithin << ClassConfigName;
 	else
 		ClassConfigName = FName(TEXT("System"));
-
-	debugf( NAME_Log, TEXT("[ClsSer] %s phase=post-headers, Defaults.Num=%d PropSize=%d"),
-		GetName(), Defaults.Num(), GetPropertiesSize() );
 
 	// Defaults.
 	if( Ar.IsLoading() )
@@ -1003,7 +993,6 @@ void UClass::Serialize( FArchive& Ar )
 	else
 	{
 		// GC mark pass enters here.
-		debugf( NAME_Log, TEXT("[ClsSer] %s phase=pre-SerializeBin"), GetName() );
 		check(Defaults.Num()==GetPropertiesSize());
 		Defaults.CountBytes( Ar );
 
@@ -1048,9 +1037,7 @@ void UClass::Serialize( FArchive& Ar )
 			debugf( NAME_Log, TEXT("[ClsSer] %s skipped %d out-of-bounds prop(s) (Defaults.Num=%d)"),
 				GetName(), Skipped, DataSz );
 
-		debugf( NAME_Log, TEXT("[ClsSer] %s phase=post-SerializeBin"), GetName() );
 	}
-	debugf( NAME_Log, TEXT("[ClsSer] %s phase=done"), GetName() );
 	unguardobj;
 }
 

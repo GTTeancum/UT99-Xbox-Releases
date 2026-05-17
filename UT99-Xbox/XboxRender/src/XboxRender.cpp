@@ -43,8 +43,15 @@ static INT   GRD_FrameSceneSplits = 0;
 static INT   GRD_FrameVBLocks    = 0;
 static INT   GRD_FrameVBWraps    = 0;
 static INT   GRD_FrameVBBytes    = 0;
+static INT   GRD_FrameUPDraws    = 0;
+static INT   GRD_FrameUPFails    = 0;
 static INT   GRD_FrameDGPBatches = 0;
 static INT   GRD_FrameDGPBatchedPolys = 0;
+static INT   GRD_FrameDTBatches  = 0;
+static INT   GRD_FrameDTBatchedTiles = 0;
+static INT   GRD_FrameTexDeferred = 0;
+static INT   GRD_FrameStateSets  = 0;
+static INT   GRD_FrameStateSkips = 0;
 static INT   GRD_HotTraceBudget  = 0;
 static INT   GRD_TotalTexUploads = 0;
 static INT   GRD_TotalTexCreates = 0;
@@ -53,6 +60,9 @@ static INT   GRD_TotalBadDraws   = 0;
 static INT   GRD_TotalSceneSplits = 0;
 static INT   GRD_TotalVBLocks    = 0;
 static INT   GRD_TotalVBWraps    = 0;
+static INT   GRD_TotalTexDeferred = 0;
+static INT   GRD_TotalStateSets  = 0;
+static INT   GRD_TotalStateSkips = 0;
 static INT   GRD_BadDrawLogCount = 0;
 static INT   GRD_DrawFailLogCount = 0;
 static INT   GRD_TotalTexBytes   = 0;
@@ -68,6 +78,8 @@ static const char* GRD_LastOp    = "boot";
 static const UBOOL GWireframeNoTextureProbe = 0;
 static const UBOOL GUseXboxBspMultitexture = 1;
 static const UBOOL GVerboseRenderPerfLog = 0;
+static const UBOOL GDeferMidSceneRealtimeTextureUpdates = 1;
+static const UBOOL GUseDrawPrimitiveUP = 1;
 static DOUBLE GRD_FrameStartSeconds = 0.0;
 static DOUBLE GRD_LastFrameStartSeconds = 0.0;
 static DOUBLE GRD_LastPerfLogSeconds = 0.0;
@@ -78,13 +90,24 @@ static FLOAT  GRD_LastFrameMS = 0.0f;
 static FLOAT  GRD_LastRenderMS = 0.0f;
 static FLOAT  GRD_LastPresentMS = 0.0f;
 
-enum { XBOX_DGP_BATCH_VERTS = 8192 };
+enum { XBOX_SAFE_TRI_BATCH_VERTS = (XBOX_MAX_DRAW_VERTS / 3) * 3 };
+enum { XBOX_DGP_BATCH_VERTS = XBOX_SAFE_TRI_BATCH_VERTS };
 static FXboxWorldVertex GRD_DGPBatch[XBOX_DGP_BATCH_VERTS];
 static INT   GRD_DGPBatchVerts = 0;
 static INT   GRD_DGPBatchPolys = 0;
 static QWORD GRD_DGPBatchCacheID = 0;
 static DWORD GRD_DGPBatchPolyFlags = 0;
 static UBOOL GRD_DGPBatchActive = 0;
+
+enum { XBOX_DT_BATCH_VERTS = XBOX_SAFE_TRI_BATCH_VERTS };
+static FXboxTLVertex GRD_DTBatch[XBOX_DT_BATCH_VERTS];
+static INT   GRD_DTBatchVerts = 0;
+static INT   GRD_DTBatchTiles = 0;
+static QWORD GRD_DTBatchCacheID = 0;
+static DWORD GRD_DTBatchPolyFlags = 0;
+static UBOOL GRD_DTBatchActive = 0;
+static UBOOL GRD_DrawVBStreamBound = 0;
+static UINT  GRD_DrawVBStreamStride = 0;
 
 static void RenderDiagPrim( INT NumVerts, DWORD PolyFlags, const char* Op )
 {
@@ -365,12 +388,20 @@ UBOOL UXboxRenderDevice::Init( UViewport* InViewport, INT NewX, INT NewY, INT Ne
     BoundCacheID[1] = 0;
     StageUIndex[0] = StageUIndex[1] = 0;
     StageVIndex[0] = StageVIndex[1] = 1;
+    appMemzero( CachedRenderState, sizeof(CachedRenderState) );
+    appMemzero( CachedRenderStateValid, sizeof(CachedRenderStateValid) );
+    appMemzero( CachedTextureStageState, sizeof(CachedTextureStageState) );
+    appMemzero( CachedTextureStageStateValid, sizeof(CachedTextureStageStateValid) );
+    CachedVertexShader = 0;
+    CachedVertexShaderValid = 0;
     GRD_TotalTexUploads = 0;
     GRD_TotalTexCreates = 0;
     GRD_TotalTexSkipped = 0;
     GRD_TotalSceneSplits = 0;
     GRD_TotalVBLocks    = 0;
     GRD_TotalVBWraps    = 0;
+    GRD_TotalStateSets  = 0;
+    GRD_TotalStateSkips = 0;
     GRD_TotalTexBytes   = 0;
     GRD_TallTexLogCount = 0;
     GRD_ClampPadLogCount = 0;
@@ -549,6 +580,7 @@ void UXboxRenderDevice::Flush( UBOOL AllowPrecache )
 {
     guard(UXboxRenderDevice::Flush);
     FlushDGPBatch( "Flush" );
+    FlushDTBatch( "Flush" );
     FlushTexCache();
     unguard;
 }
@@ -556,6 +588,7 @@ void UXboxRenderDevice::Flush( UBOOL AllowPrecache )
 void UXboxRenderDevice::FlushTexCache()
 {
     FlushDGPBatch( "FlushTexCache" );
+    FlushDTBatch( "FlushTexCache" );
     if( Device )
     {
         for( INT Stage = 0; Stage < 4; Stage++ )
@@ -583,6 +616,8 @@ void UXboxRenderDevice::ReleaseDrawVertexBuffer()
 {
     if( Device )
         Device->SetStreamSource( 0, NULL, 0 );
+    GRD_DrawVBStreamBound = 0;
+    GRD_DrawVBStreamStride = 0;
 
     if( DrawVertexBuffer )
     {
@@ -638,11 +673,13 @@ HRESULT UXboxRenderDevice::DrawPrimitiveVB( D3DPRIMITIVETYPE PrimitiveType, UINT
         default:                VertexCount = PrimitiveCount + 2; break;
     }
 
-    if( VertexCount == 0 || VertexCount > XBOX_MAX_VERTS )
+    if( VertexCount == 0 || VertexCount > XBOX_MAX_DRAW_VERTS )
     {
-        GXboxLog.Write( "RDRAW VB reject op=%s f=%d type=%d prim=%u verts=%u stride=%u",
-            OpName ? OpName : "?", FrameCounter, (INT)PrimitiveType,
-            (unsigned)PrimitiveCount, (unsigned)VertexCount, (unsigned)Stride );
+        if( RenderShouldLogDrawFailure( FrameCounter ) )
+            GXboxLog.Write( "RDRAW VB reject op=%s f=%d type=%d prim=%u verts=%u stride=%u max=%u",
+                OpName ? OpName : "?", FrameCounter, (INT)PrimitiveType,
+                (unsigned)PrimitiveCount, (unsigned)VertexCount, (unsigned)Stride,
+                (unsigned)XBOX_MAX_DRAW_VERTS );
         return E_FAIL;
     }
 
@@ -661,18 +698,18 @@ HRESULT UXboxRenderDevice::DrawPrimitiveVB( D3DPRIMITIVETYPE PrimitiveType, UINT
         Device->SetTexture( 1, NULL );
         BoundCacheID[0] = 0;
         BoundCacheID[1] = 0;
-        Device->SetRenderState( D3DRS_FILLMODE, D3DFILL_WIREFRAME );
-        Device->SetRenderState( D3DRS_ZENABLE, D3DZB_TRUE );
-        Device->SetRenderState( D3DRS_ZWRITEENABLE, TRUE );
-        Device->SetRenderState( D3DRS_ZFUNC, D3DCMP_LESSEQUAL );
-        Device->SetRenderState( D3DRS_ALPHABLENDENABLE, FALSE );
-        Device->SetRenderState( D3DRS_ALPHATESTENABLE, FALSE );
-        Device->SetTextureStageState( 0, D3DTSS_COLOROP, D3DTOP_SELECTARG1 );
-        Device->SetTextureStageState( 0, D3DTSS_COLORARG1, D3DTA_DIFFUSE );
-        Device->SetTextureStageState( 0, D3DTSS_ALPHAOP, D3DTOP_SELECTARG1 );
-        Device->SetTextureStageState( 0, D3DTSS_ALPHAARG1, D3DTA_DIFFUSE );
-        Device->SetTextureStageState( 1, D3DTSS_COLOROP, D3DTOP_DISABLE );
-        Device->SetTextureStageState( 1, D3DTSS_ALPHAOP, D3DTOP_DISABLE );
+        SetCachedRenderState( D3DRS_FILLMODE, D3DFILL_WIREFRAME );
+        SetCachedRenderState( D3DRS_ZENABLE, D3DZB_TRUE );
+        SetCachedRenderState( D3DRS_ZWRITEENABLE, TRUE );
+        SetCachedRenderState( D3DRS_ZFUNC, D3DCMP_LESSEQUAL );
+        SetCachedRenderState( D3DRS_ALPHABLENDENABLE, FALSE );
+        SetCachedRenderState( D3DRS_ALPHATESTENABLE, FALSE );
+        SetCachedTextureStageState( 0, D3DTSS_COLOROP, D3DTOP_SELECTARG1 );
+        SetCachedTextureStageState( 0, D3DTSS_COLORARG1, D3DTA_DIFFUSE );
+        SetCachedTextureStageState( 0, D3DTSS_ALPHAOP, D3DTOP_SELECTARG1 );
+        SetCachedTextureStageState( 0, D3DTSS_ALPHAARG1, D3DTA_DIFFUSE );
+        SetCachedTextureStageState( 1, D3DTSS_COLOROP, D3DTOP_DISABLE );
+        SetCachedTextureStageState( 1, D3DTSS_ALPHAOP, D3DTOP_DISABLE );
     }
 
     UINT VertexBytes = VertexCount * Stride;
@@ -684,10 +721,28 @@ HRESULT UXboxRenderDevice::DrawPrimitiveVB( D3DPRIMITIVETYPE PrimitiveType, UINT
         return E_FAIL;
     }
 
+    if( GUseDrawPrimitiveUP )
+    {
+        GRD_LastOp = OpName ? OpName : "DrawUP";
+        HRESULT hrUP = Device->DrawPrimitiveUP( PrimitiveType, PrimitiveCount, Vertices, Stride );
+        GRD_FrameUPDraws++;
+        GRD_FrameVBBytes += VertexBytes;
+        if( SUCCEEDED(hrUP) )
+            return hrUP;
+
+        GRD_FrameUPFails++;
+        if( RenderShouldLogDrawFailure( FrameCounter ) )
+            GXboxLog.Write( "RUP draw-failed op=%s f=%d type=%d prim=%u verts=%u stride=%u hr=0x%08X; falling back to VB",
+                OpName ? OpName : "?", FrameCounter, (INT)PrimitiveType,
+                (unsigned)PrimitiveCount, (unsigned)VertexCount, (unsigned)Stride, (DWORD)hrUP );
+    }
+
     if( !DrawVertexBuffer )
     {
         DrawVBBytes = XBOX_DRAW_VB_BYTES;
         DrawVBOffset = 0;
+        GRD_DrawVBStreamBound = 0;
+        GRD_DrawVBStreamStride = 0;
         GRD_LastOp = "VBCreate";
         HRESULT hrCreate = Device->CreateVertexBuffer( DrawVBBytes, 0, 0, D3DPOOL_DEFAULT, &DrawVertexBuffer );
         GXboxLog.Write( "RVB create f=%d bytes=%u hr=0x%08X",
@@ -734,12 +789,19 @@ HRESULT UXboxRenderDevice::DrawPrimitiveVB( D3DPRIMITIVETYPE PrimitiveType, UINT
         return hrUnlock;
     }
 
-    HRESULT hrStream = Device->SetStreamSource( 0, DrawVertexBuffer, Stride );
-    if( FAILED(hrStream) )
+    if( !GRD_DrawVBStreamBound || GRD_DrawVBStreamStride != Stride )
     {
-        GXboxLog.Write( "RVB stream-failed op=%s f=%d stride=%u hr=0x%08X",
-            OpName ? OpName : "?", FrameCounter, (unsigned)Stride, (DWORD)hrStream );
-        return hrStream;
+        HRESULT hrStream = Device->SetStreamSource( 0, DrawVertexBuffer, Stride );
+        if( FAILED(hrStream) )
+        {
+            GXboxLog.Write( "RVB stream-failed op=%s f=%d stride=%u hr=0x%08X",
+                OpName ? OpName : "?", FrameCounter, (unsigned)Stride, (DWORD)hrStream );
+            GRD_DrawVBStreamBound = 0;
+            GRD_DrawVBStreamStride = 0;
+            return hrStream;
+        }
+        GRD_DrawVBStreamBound = 1;
+        GRD_DrawVBStreamStride = Stride;
     }
 
     GRD_LastOp = OpName ? OpName : "DrawVB";
@@ -775,7 +837,7 @@ void UXboxRenderDevice::FlushDGPBatch( const char* Reason )
 
     if( Device )
     {
-        Device->SetVertexShader( XBOX_FVF_WORLDVERTEX );
+        SetCachedVertexShader( XBOX_FVF_WORLDVERTEX );
         HRESULT hrDraw = DrawPrimitiveVBWorld( D3DPT_TRIANGLELIST, GRD_DGPBatchVerts / 3, GRD_DGPBatch, sizeof(FXboxWorldVertex), "DGP-batch" );
         if( FAILED(hrDraw) && RenderShouldLogDrawFailure( FrameCounter ) )
             GXboxLog.Write( "RDRAW FAILED op=DGP-batch frame=%d reason=%s polys=%d verts=%d hr=0x%08X flags=0x%08X",
@@ -789,6 +851,116 @@ void UXboxRenderDevice::FlushDGPBatch( const char* Reason )
     GRD_DGPBatchPolys = 0;
 
     unguard;
+}
+
+void UXboxRenderDevice::FlushDTBatch( const char* Reason )
+{
+    guard(UXboxRenderDevice::FlushDTBatch);
+
+    if( !GRD_DTBatchActive || GRD_DTBatchVerts <= 0 )
+    {
+        GRD_DTBatchActive = 0;
+        GRD_DTBatchVerts = 0;
+        GRD_DTBatchTiles = 0;
+        return;
+    }
+
+    if( Device )
+    {
+        SetCachedVertexShader( XBOX_FVF_TLVERTEX );
+        HRESULT hrDraw = DrawPrimitiveVB( D3DPT_TRIANGLELIST, GRD_DTBatchVerts / 3, GRD_DTBatch, sizeof(FXboxTLVertex), "DT-batch" );
+        if( FAILED(hrDraw) && RenderShouldLogDrawFailure( FrameCounter ) )
+            GXboxLog.Write( "RDRAW FAILED op=DT-batch frame=%d reason=%s tiles=%d verts=%d hr=0x%08X flags=0x%08X",
+                FrameCounter, Reason ? Reason : "?", GRD_DTBatchTiles, GRD_DTBatchVerts, (DWORD)hrDraw, GRD_DTBatchPolyFlags );
+        GRD_FrameDTBatches++;
+        GRD_FrameDTBatchedTiles += GRD_DTBatchTiles;
+    }
+
+    GRD_DTBatchActive = 0;
+    GRD_DTBatchVerts = 0;
+    GRD_DTBatchTiles = 0;
+
+    unguard;
+}
+
+void UXboxRenderDevice::DisableStage1()
+{
+    guard(UXboxRenderDevice::DisableStage1);
+
+    if( Device && (BoundCacheID[1] != 0 || (CurrentPolyFlags & PF_Memorized)) )
+    {
+        SetCachedTextureStageState( 1, D3DTSS_COLOROP, D3DTOP_DISABLE );
+        SetCachedTextureStageState( 1, D3DTSS_ALPHAOP, D3DTOP_DISABLE );
+        Device->SetTexture( 1, NULL );
+        BoundCacheID[1] = 0;
+        CurrentPolyFlags &= ~PF_Memorized;
+    }
+
+    unguard;
+}
+
+HRESULT UXboxRenderDevice::SetCachedRenderState( D3DRENDERSTATETYPE State, DWORD Value )
+{
+    UINT Index = (UINT)State;
+    if( Index < XBOX_RS_CACHE_COUNT && CachedRenderStateValid[Index] && CachedRenderState[Index] == Value )
+    {
+        GRD_FrameStateSkips++;
+        GRD_TotalStateSkips++;
+        return S_OK;
+    }
+
+    HRESULT hr = Device ? Device->SetRenderState( State, Value ) : E_FAIL;
+    GRD_FrameStateSets++;
+    GRD_TotalStateSets++;
+    if( SUCCEEDED(hr) && Index < XBOX_RS_CACHE_COUNT )
+    {
+        CachedRenderStateValid[Index] = 1;
+        CachedRenderState[Index] = Value;
+    }
+    return hr;
+}
+
+HRESULT UXboxRenderDevice::SetCachedTextureStageState( DWORD Stage, D3DTEXTURESTAGESTATETYPE Type, DWORD Value )
+{
+    UINT Index = (UINT)Type;
+    if( Stage < 2 && Index < XBOX_TSS_CACHE_COUNT &&
+        CachedTextureStageStateValid[Stage][Index] &&
+        CachedTextureStageState[Stage][Index] == Value )
+    {
+        GRD_FrameStateSkips++;
+        GRD_TotalStateSkips++;
+        return S_OK;
+    }
+
+    HRESULT hr = Device ? Device->SetTextureStageState( Stage, Type, Value ) : E_FAIL;
+    GRD_FrameStateSets++;
+    GRD_TotalStateSets++;
+    if( SUCCEEDED(hr) && Stage < 2 && Index < XBOX_TSS_CACHE_COUNT )
+    {
+        CachedTextureStageStateValid[Stage][Index] = 1;
+        CachedTextureStageState[Stage][Index] = Value;
+    }
+    return hr;
+}
+
+HRESULT UXboxRenderDevice::SetCachedVertexShader( DWORD Shader )
+{
+    if( CachedVertexShaderValid && CachedVertexShader == Shader )
+    {
+        GRD_FrameStateSkips++;
+        GRD_TotalStateSkips++;
+        return S_OK;
+    }
+
+    HRESULT hr = Device ? Device->SetVertexShader( Shader ) : E_FAIL;
+    GRD_FrameStateSets++;
+    GRD_TotalStateSets++;
+    if( SUCCEEDED(hr) )
+    {
+        CachedVertexShaderValid = 1;
+        CachedVertexShader = Shader;
+    }
+    return hr;
 }
 
 // ============================================================================
@@ -870,11 +1042,21 @@ void UXboxRenderDevice::Lock( FPlane InFlashScale, FPlane InFlashFog, FPlane Scr
     GRD_FrameVBLocks    = 0;
     GRD_FrameVBWraps    = 0;
     GRD_FrameVBBytes    = 0;
+    GRD_FrameUPDraws    = 0;
+    GRD_FrameUPFails    = 0;
     GRD_FrameDGPBatches = 0;
     GRD_FrameDGPBatchedPolys = 0;
+    GRD_FrameDTBatches  = 0;
+    GRD_FrameDTBatchedTiles = 0;
+    GRD_FrameTexDeferred = 0;
+    GRD_FrameStateSets  = 0;
+    GRD_FrameStateSkips = 0;
     GRD_DGPBatchActive  = 0;
     GRD_DGPBatchVerts   = 0;
     GRD_DGPBatchPolys   = 0;
+    GRD_DTBatchActive   = 0;
+    GRD_DTBatchVerts    = 0;
+    GRD_DTBatchTiles    = 0;
     GRD_HotTraceBudget  = RenderHotFrame( FrameCounter ) ? 180 : 0;
     GRD_MaxPolyVerts    = 0;
     GRD_LastOp          = "Lock";
@@ -891,40 +1073,40 @@ void UXboxRenderDevice::Lock( FPlane InFlashScale, FPlane InFlashFog, FPlane Scr
     if( !bStateInit )
     {
         bStateInit = 1;
-        Device->SetRenderState( D3DRS_ZENABLE, D3DZB_TRUE );
-        Device->SetRenderState( D3DRS_ZWRITEENABLE, TRUE );
-        Device->SetRenderState( D3DRS_ZFUNC, D3DCMP_LESSEQUAL );
-        Device->SetRenderState( D3DRS_LIGHTING, FALSE );
-        Device->SetRenderState( D3DRS_SPECULARENABLE, FALSE );
-        Device->SetRenderState( D3DRS_CULLMODE, D3DCULL_NONE );
-        Device->SetRenderState( D3DRS_SHADEMODE, D3DSHADE_GOURAUD );
-        Device->SetRenderState( D3DRS_DITHERENABLE, TRUE );
-        Device->SetRenderState( D3DRS_ALPHABLENDENABLE, FALSE );
-        Device->SetRenderState( D3DRS_ALPHATESTENABLE, FALSE );
-        Device->SetRenderState( D3DRS_ALPHAREF, 127 );
-        Device->SetRenderState( D3DRS_ALPHAFUNC, D3DCMP_GREATER );
+        SetCachedRenderState( D3DRS_ZENABLE, D3DZB_TRUE );
+        SetCachedRenderState( D3DRS_ZWRITEENABLE, TRUE );
+        SetCachedRenderState( D3DRS_ZFUNC, D3DCMP_LESSEQUAL );
+        SetCachedRenderState( D3DRS_LIGHTING, FALSE );
+        SetCachedRenderState( D3DRS_SPECULARENABLE, FALSE );
+        SetCachedRenderState( D3DRS_CULLMODE, D3DCULL_NONE );
+        SetCachedRenderState( D3DRS_SHADEMODE, D3DSHADE_GOURAUD );
+        SetCachedRenderState( D3DRS_DITHERENABLE, TRUE );
+        SetCachedRenderState( D3DRS_ALPHABLENDENABLE, FALSE );
+        SetCachedRenderState( D3DRS_ALPHATESTENABLE, FALSE );
+        SetCachedRenderState( D3DRS_ALPHAREF, 127 );
+        SetCachedRenderState( D3DRS_ALPHAFUNC, D3DCMP_GREATER );
 
-        Device->SetTextureStageState( 0, D3DTSS_COLOROP, D3DTOP_MODULATE );
-        Device->SetTextureStageState( 0, D3DTSS_COLORARG1, D3DTA_TEXTURE );
-        Device->SetTextureStageState( 0, D3DTSS_COLORARG2, D3DTA_DIFFUSE );
-        Device->SetTextureStageState( 0, D3DTSS_ALPHAOP, D3DTOP_MODULATE );
-        Device->SetTextureStageState( 0, D3DTSS_ALPHAARG1, D3DTA_TEXTURE );
-        Device->SetTextureStageState( 0, D3DTSS_ALPHAARG2, D3DTA_DIFFUSE );
-        Device->SetTextureStageState( 0, D3DTSS_TEXCOORDINDEX, 0 );
-        Device->SetTextureStageState( 0, D3DTSS_ADDRESSU, D3DTADDRESS_WRAP );
-        Device->SetTextureStageState( 0, D3DTSS_ADDRESSV, D3DTADDRESS_WRAP );
-        Device->SetTextureStageState( 0, D3DTSS_TEXTURETRANSFORMFLAGS, D3DTTFF_DISABLE );
-        Device->SetTextureStageState( 0, D3DTSS_MINFILTER, D3DTEXF_LINEAR );
-        Device->SetTextureStageState( 0, D3DTSS_MAGFILTER, D3DTEXF_LINEAR );
-        Device->SetTextureStageState( 0, D3DTSS_MIPFILTER, D3DTEXF_LINEAR );
-        Device->SetTextureStageState( 1, D3DTSS_TEXCOORDINDEX, 1 );
-        Device->SetTextureStageState( 1, D3DTSS_ADDRESSU, D3DTADDRESS_WRAP );
-        Device->SetTextureStageState( 1, D3DTSS_ADDRESSV, D3DTADDRESS_WRAP );
-        Device->SetTextureStageState( 1, D3DTSS_TEXTURETRANSFORMFLAGS, D3DTTFF_DISABLE );
-        Device->SetTextureStageState( 1, D3DTSS_COLOROP, D3DTOP_DISABLE );
-        Device->SetTextureStageState( 1, D3DTSS_ALPHAOP, D3DTOP_DISABLE );
+        SetCachedTextureStageState( 0, D3DTSS_COLOROP, D3DTOP_MODULATE );
+        SetCachedTextureStageState( 0, D3DTSS_COLORARG1, D3DTA_TEXTURE );
+        SetCachedTextureStageState( 0, D3DTSS_COLORARG2, D3DTA_DIFFUSE );
+        SetCachedTextureStageState( 0, D3DTSS_ALPHAOP, D3DTOP_MODULATE );
+        SetCachedTextureStageState( 0, D3DTSS_ALPHAARG1, D3DTA_TEXTURE );
+        SetCachedTextureStageState( 0, D3DTSS_ALPHAARG2, D3DTA_DIFFUSE );
+        SetCachedTextureStageState( 0, D3DTSS_TEXCOORDINDEX, 0 );
+        SetCachedTextureStageState( 0, D3DTSS_ADDRESSU, D3DTADDRESS_WRAP );
+        SetCachedTextureStageState( 0, D3DTSS_ADDRESSV, D3DTADDRESS_WRAP );
+        SetCachedTextureStageState( 0, D3DTSS_TEXTURETRANSFORMFLAGS, D3DTTFF_DISABLE );
+        SetCachedTextureStageState( 0, D3DTSS_MINFILTER, D3DTEXF_LINEAR );
+        SetCachedTextureStageState( 0, D3DTSS_MAGFILTER, D3DTEXF_LINEAR );
+        SetCachedTextureStageState( 0, D3DTSS_MIPFILTER, D3DTEXF_LINEAR );
+        SetCachedTextureStageState( 1, D3DTSS_TEXCOORDINDEX, 1 );
+        SetCachedTextureStageState( 1, D3DTSS_ADDRESSU, D3DTADDRESS_WRAP );
+        SetCachedTextureStageState( 1, D3DTSS_ADDRESSV, D3DTADDRESS_WRAP );
+        SetCachedTextureStageState( 1, D3DTSS_TEXTURETRANSFORMFLAGS, D3DTTFF_DISABLE );
+        SetCachedTextureStageState( 1, D3DTSS_COLOROP, D3DTOP_DISABLE );
+        SetCachedTextureStageState( 1, D3DTSS_ALPHAOP, D3DTOP_DISABLE );
 
-        Device->SetRenderState( D3DRS_FILLMODE, D3DFILL_SOLID );
+        SetCachedRenderState( D3DRS_FILLMODE, D3DFILL_SOLID );
     }
 
     unguard;
@@ -941,6 +1123,7 @@ void UXboxRenderDevice::Unlock( UBOOL Blit )
         return;
 
     FlushDGPBatch( "Unlock" );
+    FlushDTBatch( "Unlock" );
 
     DOUBLE BeforeOverlaySeconds = appSeconds();
     GRD_FpsWindowFrames++;
@@ -965,6 +1148,8 @@ void UXboxRenderDevice::Unlock( UBOOL Blit )
         SceneOpen = 0;
     }
     Device->SetStreamSource( 0, NULL, 0 );
+    GRD_DrawVBStreamBound = 0;
+    GRD_DrawVBStreamStride = 0;
 
     GRD_LastOp = "Unlock";
     DOUBLE BeforePresentSeconds = appSeconds();
@@ -982,12 +1167,13 @@ void UXboxRenderDevice::Unlock( UBOOL Blit )
         GRD_LastPerfLogSeconds = AfterPresentSeconds;
     if( AfterPresentSeconds - GRD_LastPerfLogSeconds >= 2.0 )
     {
-        GXboxLog.Write( "PERF fps=%.1f frameMS=%.2f renderMS=%.2f presentMS=%.2f DCS=%d DGP=%d DT=%d prim=%d verts=%d dgpBatch=%d/%d vbLocks=%d vbWraps=%d vbKB=%d texBind=%d texNew=%d texUp=%d splits=%d liveKB=%d texKB=%d availKB=%u",
+        GXboxLog.Write( "PERF fps=%.1f frameMS=%.2f renderMS=%.2f presentMS=%.2f DCS=%d DGP=%d DT=%d prim=%d verts=%d dgpBatch=%d/%d dtBatch=%d/%d vbLocks=%d vbWraps=%d up=%d/%d vbKB=%d state=%d/%d texBind=%d texNew=%d texUp=%d texDef=%d splits=%d liveKB=%d texKB=%d availKB=%u",
             GRD_DisplayFPS, GRD_LastFrameMS, GRD_LastRenderMS, GRD_LastPresentMS,
             GRD_FrameDCS, GRD_FrameDGP, GRD_FrameDT, GRD_FramePrims, GRD_FrameVerts,
-            GRD_FrameDGPBatches, GRD_FrameDGPBatchedPolys,
-            GRD_FrameVBLocks, GRD_FrameVBWraps, GRD_FrameVBBytes / 1024,
-            GRD_FrameTexBinds, GRD_FrameTexCreates, GRD_FrameTexUploads, GRD_FrameSceneSplits,
+            GRD_FrameDGPBatches, GRD_FrameDGPBatchedPolys, GRD_FrameDTBatches, GRD_FrameDTBatchedTiles,
+            GRD_FrameVBLocks, GRD_FrameVBWraps, GRD_FrameUPDraws, GRD_FrameUPFails, GRD_FrameVBBytes / 1024,
+            GRD_FrameStateSets, GRD_FrameStateSkips,
+            GRD_FrameTexBinds, GRD_FrameTexCreates, GRD_FrameTexUploads, GRD_FrameTexDeferred, GRD_FrameSceneSplits,
             TexLiveBytes / 1024, GRD_TotalTexBytes / 1024, (unsigned)RenderAvailPhysKB() );
         GRD_LastPerfLogSeconds = AfterPresentSeconds;
     }
@@ -1013,6 +1199,7 @@ void UXboxRenderDevice::SetSceneNode( FSceneNode* Frame )
     guard(UXboxRenderDevice::SetSceneNode);
 
     FlushDGPBatch( "SetSceneNode" );
+    FlushDTBatch( "SetSceneNode" );
 
     static UBOOL bFirstSetSceneNode = 1;
     if( bFirstSetSceneNode )
@@ -1104,50 +1291,50 @@ void UXboxRenderDevice::SetBlending( DWORD PolyFlags )
         {
             if( !(PolyFlags & (PF_Invisible|PF_Translucent|PF_Modulated|PF_Highlighted)) )
             {
-                Device->SetRenderState( D3DRS_ALPHABLENDENABLE, FALSE );
+                SetCachedRenderState( D3DRS_ALPHABLENDENABLE, FALSE );
             }
             else if( PolyFlags & PF_Invisible )
             {
-                Device->SetRenderState( D3DRS_ALPHABLENDENABLE, TRUE );
-                Device->SetRenderState( D3DRS_SRCBLEND,  D3DBLEND_ZERO );
-                Device->SetRenderState( D3DRS_DESTBLEND, D3DBLEND_ONE );
+                SetCachedRenderState( D3DRS_ALPHABLENDENABLE, TRUE );
+                SetCachedRenderState( D3DRS_SRCBLEND,  D3DBLEND_ZERO );
+                SetCachedRenderState( D3DRS_DESTBLEND, D3DBLEND_ONE );
             }
             else if( PolyFlags & PF_Translucent )
             {
-                Device->SetRenderState( D3DRS_ALPHABLENDENABLE, TRUE );
-                Device->SetRenderState( D3DRS_SRCBLEND,  D3DBLEND_ONE );
-                Device->SetRenderState( D3DRS_DESTBLEND, D3DBLEND_INVSRCCOLOR );
+                SetCachedRenderState( D3DRS_ALPHABLENDENABLE, TRUE );
+                SetCachedRenderState( D3DRS_SRCBLEND,  D3DBLEND_ONE );
+                SetCachedRenderState( D3DRS_DESTBLEND, D3DBLEND_INVSRCCOLOR );
             }
             else if( PolyFlags & PF_Modulated )
             {
-                Device->SetRenderState( D3DRS_ALPHABLENDENABLE, TRUE );
-                Device->SetRenderState( D3DRS_SRCBLEND,  D3DBLEND_DESTCOLOR );
-                Device->SetRenderState( D3DRS_DESTBLEND, D3DBLEND_SRCCOLOR );
+                SetCachedRenderState( D3DRS_ALPHABLENDENABLE, TRUE );
+                SetCachedRenderState( D3DRS_SRCBLEND,  D3DBLEND_DESTCOLOR );
+                SetCachedRenderState( D3DRS_DESTBLEND, D3DBLEND_SRCCOLOR );
             }
             else if( PolyFlags & PF_Highlighted )
             {
-                Device->SetRenderState( D3DRS_ALPHABLENDENABLE, TRUE );
-                Device->SetRenderState( D3DRS_SRCBLEND,  D3DBLEND_ONE );
-                Device->SetRenderState( D3DRS_DESTBLEND, D3DBLEND_INVSRCALPHA );
+                SetCachedRenderState( D3DRS_ALPHABLENDENABLE, TRUE );
+                SetCachedRenderState( D3DRS_SRCBLEND,  D3DBLEND_ONE );
+                SetCachedRenderState( D3DRS_DESTBLEND, D3DBLEND_INVSRCALPHA );
             }
         }
         if( Xor & PF_Occlude )
         {
-            Device->SetRenderState( D3DRS_ZWRITEENABLE, (PolyFlags & PF_Occlude) != 0 );
+            SetCachedRenderState( D3DRS_ZWRITEENABLE, (PolyFlags & PF_Occlude) != 0 );
         }
         if( Xor & PF_Masked )
         {
-            Device->SetRenderState( D3DRS_ALPHATESTENABLE, (PolyFlags & PF_Masked) != 0 );
+            SetCachedRenderState( D3DRS_ALPHATESTENABLE, (PolyFlags & PF_Masked) != 0 );
         }
         if( Xor & PF_NoSmooth )
         {
-            Device->SetTextureStageState( 0, D3DTSS_MAGFILTER, (PolyFlags & PF_NoSmooth) ? D3DTEXF_POINT : D3DTEXF_LINEAR );
-            Device->SetTextureStageState( 0, D3DTSS_MINFILTER, (PolyFlags & PF_NoSmooth) ? D3DTEXF_POINT : D3DTEXF_LINEAR );
+            SetCachedTextureStageState( 0, D3DTSS_MAGFILTER, (PolyFlags & PF_NoSmooth) ? D3DTEXF_POINT : D3DTEXF_LINEAR );
+            SetCachedTextureStageState( 0, D3DTSS_MINFILTER, (PolyFlags & PF_NoSmooth) ? D3DTEXF_POINT : D3DTEXF_LINEAR );
         }
         if( Xor & PF_Memorized )
         {
-            Device->SetTextureStageState( 1, D3DTSS_COLOROP, (PolyFlags & PF_Memorized) ? D3DTOP_MODULATE : D3DTOP_DISABLE );
-            Device->SetTextureStageState( 1, D3DTSS_ALPHAOP, (PolyFlags & PF_Memorized) ? D3DTOP_SELECTARG2 : D3DTOP_DISABLE );
+            SetCachedTextureStageState( 1, D3DTSS_COLOROP, (PolyFlags & PF_Memorized) ? D3DTOP_MODULATE : D3DTOP_DISABLE );
+            SetCachedTextureStageState( 1, D3DTSS_ALPHAOP, (PolyFlags & PF_Memorized) ? D3DTOP_SELECTARG2 : D3DTOP_DISABLE );
         }
         CurrentPolyFlags = PolyFlags;
     }
@@ -1196,6 +1383,29 @@ void UXboxRenderDevice::SetTextureD3D( INT Stage, FTextureInfo& Info, DWORD Poly
     {
         if( Entry->CacheID == Info.CacheID )
             break;
+    }
+
+    if( Entry && Entry->pTexture && GDeferMidSceneRealtimeTextureUpdates && (Info.bRealtimeChanged || bRgba7NeedsMaxColor) )
+    {
+        if( bRgba7NeedsMaxColor )
+            Info.CacheMaxColor();
+        Info.bRealtimeChanged = 0;
+        bRgba7NeedsMaxColor = 0;
+        GRD_FrameTexDeferred++;
+        GRD_TotalTexDeferred++;
+        if( GRD_TotalTexDeferred <= 16 || (GVerboseRenderPerfLog && (GRD_TotalTexDeferred % 256) == 0) )
+            GXboxLog.Write( "RTEX defer-update f=%d total=%d stage=%d id=%08X:%08X fmt=%d tex=0x%08X",
+                FrameCounter, GRD_TotalTexDeferred, Stage, GRD_LastTextureIDHi, GRD_LastTextureIDLo,
+                Info.Format, (DWORD)Entry->pTexture );
+        if( BoundCacheID[Stage] == Info.CacheID )
+        {
+            StageUScale[Stage]  = Entry->UScale;
+            StageVScale[Stage]  = Entry->VScale;
+            StageUIndex[Stage]  = Entry->UIndex;
+            StageVIndex[Stage]  = Entry->VIndex;
+            Entry->FrameCounter = FrameCounter;
+            return;
+        }
     }
 
     if( !Entry || Info.bRealtimeChanged || bRgba7NeedsMaxColor )
@@ -1697,6 +1907,7 @@ void UXboxRenderDevice::DrawComplexSurface( FSceneNode* Frame, FSurfaceInfo& Sur
     guard(UXboxRenderDevice::DrawComplexSurface);
 
     FlushDGPBatch( "DCS" );
+    FlushDTBatch( "DCS" );
 
     GRD_FrameDCS++;
     GRD_LastOp = "DCS";
@@ -1734,23 +1945,23 @@ void UXboxRenderDevice::DrawComplexSurface( FSceneNode* Frame, FSurfaceInfo& Sur
         // Make the lightmap stage deterministic. 2D HUD/flash/overlay draws
         // also use the fixed-function stages, so never rely only on
         // CurrentPolyFlags to decide whether stage 1 is already correct.
-        Device->SetTextureStageState( 0, D3DTSS_COLOROP, D3DTOP_MODULATE );
-        Device->SetTextureStageState( 0, D3DTSS_COLORARG1, D3DTA_TEXTURE );
-        Device->SetTextureStageState( 0, D3DTSS_COLORARG2, D3DTA_DIFFUSE );
-        Device->SetTextureStageState( 0, D3DTSS_ALPHAOP, D3DTOP_MODULATE );
-        Device->SetTextureStageState( 0, D3DTSS_ALPHAARG1, D3DTA_TEXTURE );
-        Device->SetTextureStageState( 0, D3DTSS_ALPHAARG2, D3DTA_DIFFUSE );
-        Device->SetTextureStageState( 1, D3DTSS_COLOROP, D3DTOP_MODULATE );
-        Device->SetTextureStageState( 1, D3DTSS_COLORARG1, D3DTA_TEXTURE );
-        Device->SetTextureStageState( 1, D3DTSS_COLORARG2, D3DTA_CURRENT );
-        Device->SetTextureStageState( 1, D3DTSS_ALPHAOP, D3DTOP_SELECTARG2 );
-        Device->SetTextureStageState( 1, D3DTSS_ALPHAARG1, D3DTA_TEXTURE );
-        Device->SetTextureStageState( 1, D3DTSS_ALPHAARG2, D3DTA_CURRENT );
-        Device->SetTextureStageState( 1, D3DTSS_TEXCOORDINDEX, 1 );
-        Device->SetTextureStageState( 1, D3DTSS_MINFILTER, D3DTEXF_LINEAR );
-        Device->SetTextureStageState( 1, D3DTSS_MAGFILTER, D3DTEXF_LINEAR );
+        SetCachedTextureStageState( 0, D3DTSS_COLOROP, D3DTOP_MODULATE );
+        SetCachedTextureStageState( 0, D3DTSS_COLORARG1, D3DTA_TEXTURE );
+        SetCachedTextureStageState( 0, D3DTSS_COLORARG2, D3DTA_DIFFUSE );
+        SetCachedTextureStageState( 0, D3DTSS_ALPHAOP, D3DTOP_MODULATE );
+        SetCachedTextureStageState( 0, D3DTSS_ALPHAARG1, D3DTA_TEXTURE );
+        SetCachedTextureStageState( 0, D3DTSS_ALPHAARG2, D3DTA_DIFFUSE );
+        SetCachedTextureStageState( 1, D3DTSS_COLOROP, D3DTOP_MODULATE );
+        SetCachedTextureStageState( 1, D3DTSS_COLORARG1, D3DTA_TEXTURE );
+        SetCachedTextureStageState( 1, D3DTSS_COLORARG2, D3DTA_CURRENT );
+        SetCachedTextureStageState( 1, D3DTSS_ALPHAOP, D3DTOP_SELECTARG2 );
+        SetCachedTextureStageState( 1, D3DTSS_ALPHAARG1, D3DTA_TEXTURE );
+        SetCachedTextureStageState( 1, D3DTSS_ALPHAARG2, D3DTA_CURRENT );
+        SetCachedTextureStageState( 1, D3DTSS_TEXCOORDINDEX, 1 );
+        SetCachedTextureStageState( 1, D3DTSS_MINFILTER, D3DTEXF_LINEAR );
+        SetCachedTextureStageState( 1, D3DTSS_MAGFILTER, D3DTEXF_LINEAR );
 
-        Device->SetVertexShader( XBOX_FVF_WORLDVERTEX2 );
+        SetCachedVertexShader( XBOX_FVF_WORLDVERTEX2 );
 
         // Draw each polygon in the facet.
         for( FSavedPoly* Poly = Facet.Polys; Poly; Poly = Poly->Next )
@@ -1790,16 +2001,18 @@ void UXboxRenderDevice::DrawComplexSurface( FSceneNode* Frame, FSurfaceInfo& Sur
 
         // Handle masked depth write.
         if( Surface.PolyFlags & PF_Masked )
-            Device->SetRenderState( D3DRS_ZFUNC, D3DCMP_EQUAL );
+            SetCachedRenderState( D3DRS_ZFUNC, D3DCMP_EQUAL );
     }
     else
     {
+        DisableStage1();
+
         // Single-texture fallback: multiple passes. Build a bounded scratch
         // vertex array per polygon; large BSP facets can exceed 512 vertices
         // in total, so never accumulate the whole surface into one buffer.
         SetTextureD3D( 0, *Surface.Texture, Surface.PolyFlags );
         SetBlending( Surface.PolyFlags & ~PF_Memorized );
-        Device->SetVertexShader( XBOX_FVF_WORLDVERTEX );
+        SetCachedVertexShader( XBOX_FVF_WORLDVERTEX );
 
         for( FSavedPoly* Poly = Facet.Polys; Poly; Poly = Poly->Next )
         {
@@ -1835,7 +2048,7 @@ void UXboxRenderDevice::DrawComplexSurface( FSceneNode* Frame, FSurfaceInfo& Sur
 
         // Handle masked depth write.
         if( Surface.PolyFlags & PF_Masked )
-            Device->SetRenderState( D3DRS_ZFUNC, D3DCMP_EQUAL );
+            SetCachedRenderState( D3DRS_ZFUNC, D3DCMP_EQUAL );
 
         // Pass 2: Macrotexture (modulated overlay).
         if( Surface.MacroTexture )
@@ -1909,7 +2122,7 @@ void UXboxRenderDevice::DrawComplexSurface( FSceneNode* Frame, FSurfaceInfo& Sur
     {
         SetBlending( PF_Highlighted );
         SetTextureD3D( 0, *Surface.FogMap, 0 );
-        Device->SetVertexShader( XBOX_FVF_WORLDVERTEX );
+        SetCachedVertexShader( XBOX_FVF_WORLDVERTEX );
 
         for( FSavedPoly* Poly = Facet.Polys; Poly; Poly = Poly->Next )
         {
@@ -1941,18 +2154,7 @@ void UXboxRenderDevice::DrawComplexSurface( FSceneNode* Frame, FSurfaceInfo& Sur
 
     // Finish mask handling.
     if( Surface.PolyFlags & PF_Masked )
-        Device->SetRenderState( D3DRS_ZFUNC, D3DCMP_LESSEQUAL );
-
-    // Disable stage 1 if we used multitexture.
-    if( Surface.LightMap && Surface.MacroTexture == NULL )
-    {
-        Device->SetTextureStageState( 1, D3DTSS_COLOROP, D3DTOP_DISABLE );
-        Device->SetTextureStageState( 1, D3DTSS_ALPHAOP, D3DTOP_DISABLE );
-        Device->SetTexture( 1, NULL );
-        BoundCacheID[1] = 0;
-        // Re-clear PF_Memorized in current state.
-        CurrentPolyFlags &= ~PF_Memorized;
-    }
+        SetCachedRenderState( D3DRS_ZFUNC, D3DCMP_LESSEQUAL );
 
     unguard;
 }
@@ -1965,11 +2167,15 @@ void UXboxRenderDevice::DrawGouraudPolygon( FSceneNode* Frame, FTextureInfo& Inf
 {
     guard(UXboxRenderDevice::DrawGouraudPolygon);
 
+    FlushDTBatch( "DGP" );
+
     GRD_FrameDGP++;
     GRD_LastOp = "DGP";
 
     if( !Device || !Frame || NumPts < 3 || NumPts > XBOX_MAX_VERTS )
         return;
+
+    DisableStage1();
 
     PolyFlags &= ~PF_Memorized;
     if( GWireframeNoTextureProbe )
@@ -2018,7 +2224,7 @@ void UXboxRenderDevice::DrawGouraudPolygon( FSceneNode* Frame, FTextureInfo& Inf
     {
         SetTextureD3D( 0, Info, PolyFlags );
         SetBlending( PolyFlags );
-        Device->SetVertexShader( XBOX_FVF_WORLDVERTEX );
+        SetCachedVertexShader( XBOX_FVF_WORLDVERTEX );
         GRD_DGPBatchActive = 1;
         GRD_DGPBatchCacheID = Info.CacheID;
         GRD_DGPBatchPolyFlags = PolyFlags;
@@ -2039,7 +2245,7 @@ void UXboxRenderDevice::DrawGouraudPolygon( FSceneNode* Frame, FTextureInfo& Inf
         FlushDGPBatch( "DGP-fallback" );
         SetTextureD3D( 0, Info, PolyFlags );
         SetBlending( PolyFlags );
-        Device->SetVertexShader( XBOX_FVF_WORLDVERTEX );
+        SetCachedVertexShader( XBOX_FVF_WORLDVERTEX );
         if( RenderHotFrame( FrameCounter ) && RenderHotTrace() )
             GXboxLog.Write( "RDRAW begin op=DGP f=%d dgp=%d prim=%d pts=%d stride=%d flags=0x%08X",
                 FrameCounter, GRD_FrameDGP, GRD_FramePrims + 1, NumPts, (INT)sizeof(FXboxWorldVertex), PolyFlags );
@@ -2070,6 +2276,8 @@ void UXboxRenderDevice::DrawTile( FSceneNode* Frame, FTextureInfo& Info, FLOAT X
     if( !Device || !Frame )
         return;
 
+    DisableStage1();
+
     PolyFlags &= ~PF_Memorized;
     if( GWireframeNoTextureProbe )
         PolyFlags = PF_Occlude;
@@ -2093,9 +2301,6 @@ void UXboxRenderDevice::DrawTile( FSceneNode* Frame, FTextureInfo& Info, FLOAT X
             FrameCounter, GRD_FrameDT, X, Y, XL, YL, Z, Info.Format,
             (DWORD)(Info.CacheID >> 32), (DWORD)Info.CacheID, PolyFlags );
 
-    SetBlending( PolyFlags );
-    SetTextureD3D( 0, Info, PolyFlags );
-
     FLOAT RZ  = 1.0f / Z;
     FLOAT SZ  = ProjZRatio + ProjZOffset * RZ;
     X        += Frame->XB - 0.5f;
@@ -2109,8 +2314,6 @@ void UXboxRenderDevice::DrawTile( FSceneNode* Frame, FTextureInfo& Info, FLOAT X
     else
         Clr = FColor(Color).TrueColor() | 0xFF000000;
 
-    Device->SetVertexShader( XBOX_FVF_TLVERTEX );
-
     FXboxTLVertex Verts[4];
     Verts[0].x = X;      Verts[0].y = Y;      Verts[0].rhw = RZ; Verts[0].z = SZ; Verts[0].color = Clr; SetUV( Verts[0], 0, U,      V,      StageUScale, StageVScale, StageUIndex, StageVIndex );
     Verts[1].x = X;      Verts[1].y = Y + YL; Verts[1].rhw = RZ; Verts[1].z = SZ; Verts[1].color = Clr; SetUV( Verts[1], 0, U,      V + VL, StageUScale, StageVScale, StageUIndex, StageVIndex );
@@ -2118,14 +2321,46 @@ void UXboxRenderDevice::DrawTile( FSceneNode* Frame, FTextureInfo& Info, FLOAT X
     Verts[3].x = X + XL; Verts[3].y = Y;      Verts[3].rhw = RZ; Verts[3].z = SZ; Verts[3].color = Clr; SetUV( Verts[3], 0, U + UL, V,      StageUScale, StageVScale, StageUIndex, StageVIndex );
 
     RenderDiagPrim( 4, PolyFlags, "DT" );
-    if( RenderHotFrame( FrameCounter ) && RenderHotTrace() )
-        GXboxLog.Write( "RDRAW begin op=DT f=%d dt=%d prim=%d stride=%d flags=0x%08X",
-            FrameCounter, GRD_FrameDT, GRD_FramePrims + 1, (INT)sizeof(FXboxTLVertex), PolyFlags );
-    HRESULT hrDraw = DrawPrimitiveVB( D3DPT_TRIANGLEFAN, 2, Verts, sizeof(FXboxTLVertex), "DT" );
-    if( RenderHotFrame( FrameCounter ) && RenderHotTrace() )
-        GXboxLog.Write( "RDRAW end op=DT f=%d hr=0x%08X", FrameCounter, (DWORD)hrDraw );
-    if( FAILED(hrDraw) && RenderShouldLogDrawFailure( FrameCounter ) )
-        GXboxLog.Write( "RDRAW FAILED op=DT frame=%d hr=0x%08X fmt=%d flags=0x%08X", FrameCounter, (DWORD)hrDraw, Info.Format, PolyFlags );
+    UBOOL bCanBatch = !Info.bRealtimeChanged && GRD_DTBatchVerts + 6 <= XBOX_DT_BATCH_VERTS;
+    if( bCanBatch && GRD_DTBatchActive &&
+        (GRD_DTBatchCacheID != Info.CacheID || GRD_DTBatchPolyFlags != PolyFlags || GRD_DTBatchVerts + 6 > XBOX_DT_BATCH_VERTS) )
+        FlushDTBatch( "DT-state" );
+
+    if( bCanBatch && !GRD_DTBatchActive )
+    {
+        SetBlending( PolyFlags );
+        SetTextureD3D( 0, Info, PolyFlags );
+        SetCachedVertexShader( XBOX_FVF_TLVERTEX );
+        GRD_DTBatchActive = 1;
+        GRD_DTBatchCacheID = Info.CacheID;
+        GRD_DTBatchPolyFlags = PolyFlags;
+    }
+
+    if( bCanBatch && GRD_DTBatchActive && GRD_DTBatchCacheID == Info.CacheID && GRD_DTBatchPolyFlags == PolyFlags )
+    {
+        GRD_DTBatch[GRD_DTBatchVerts++] = Verts[0];
+        GRD_DTBatch[GRD_DTBatchVerts++] = Verts[1];
+        GRD_DTBatch[GRD_DTBatchVerts++] = Verts[2];
+        GRD_DTBatch[GRD_DTBatchVerts++] = Verts[0];
+        GRD_DTBatch[GRD_DTBatchVerts++] = Verts[2];
+        GRD_DTBatch[GRD_DTBatchVerts++] = Verts[3];
+        GRD_DTBatchTiles++;
+    }
+    else
+    {
+        FlushDTBatch( "DT-fallback" );
+        SetBlending( PolyFlags );
+        SetTextureD3D( 0, Info, PolyFlags );
+        SetCachedVertexShader( XBOX_FVF_TLVERTEX );
+        if( RenderHotFrame( FrameCounter ) && RenderHotTrace() )
+            GXboxLog.Write( "RDRAW begin op=DT f=%d dt=%d prim=%d stride=%d flags=0x%08X",
+                FrameCounter, GRD_FrameDT, GRD_FramePrims + 1, (INT)sizeof(FXboxTLVertex), PolyFlags );
+        HRESULT hrDraw = DrawPrimitiveVB( D3DPT_TRIANGLEFAN, 2, Verts, sizeof(FXboxTLVertex), "DT" );
+        if( RenderHotFrame( FrameCounter ) && RenderHotTrace() )
+            GXboxLog.Write( "RDRAW end op=DT f=%d hr=0x%08X", FrameCounter, (DWORD)hrDraw );
+        if( FAILED(hrDraw) && RenderShouldLogDrawFailure( FrameCounter ) )
+            GXboxLog.Write( "RDRAW FAILED op=DT frame=%d hr=0x%08X fmt=%d flags=0x%08X", FrameCounter, (DWORD)hrDraw, Info.Format, PolyFlags );
+    }
 
     unguard;
 }
@@ -2140,32 +2375,34 @@ void UXboxRenderDevice::RestoreDefaultTextureStages()
     if( !Device )
         return;
 
-    Device->SetTextureStageState( 0, D3DTSS_COLOROP, D3DTOP_MODULATE );
-    Device->SetTextureStageState( 0, D3DTSS_COLORARG1, D3DTA_TEXTURE );
-    Device->SetTextureStageState( 0, D3DTSS_COLORARG2, D3DTA_DIFFUSE );
-    Device->SetTextureStageState( 0, D3DTSS_ALPHAOP, D3DTOP_MODULATE );
-    Device->SetTextureStageState( 0, D3DTSS_ALPHAARG1, D3DTA_TEXTURE );
-    Device->SetTextureStageState( 0, D3DTSS_ALPHAARG2, D3DTA_DIFFUSE );
-    Device->SetTextureStageState( 0, D3DTSS_TEXCOORDINDEX, 0 );
-    Device->SetTextureStageState( 0, D3DTSS_ADDRESSU, D3DTADDRESS_WRAP );
-    Device->SetTextureStageState( 0, D3DTSS_ADDRESSV, D3DTADDRESS_WRAP );
-    Device->SetTextureStageState( 0, D3DTSS_TEXTURETRANSFORMFLAGS, D3DTTFF_DISABLE );
-    Device->SetTextureStageState( 0, D3DTSS_MINFILTER, D3DTEXF_LINEAR );
-    Device->SetTextureStageState( 0, D3DTSS_MAGFILTER, D3DTEXF_LINEAR );
-    Device->SetTextureStageState( 0, D3DTSS_MIPFILTER, D3DTEXF_LINEAR );
+    SetCachedTextureStageState( 0, D3DTSS_COLOROP, D3DTOP_MODULATE );
+    SetCachedTextureStageState( 0, D3DTSS_COLORARG1, D3DTA_TEXTURE );
+    SetCachedTextureStageState( 0, D3DTSS_COLORARG2, D3DTA_DIFFUSE );
+    SetCachedTextureStageState( 0, D3DTSS_ALPHAOP, D3DTOP_MODULATE );
+    SetCachedTextureStageState( 0, D3DTSS_ALPHAARG1, D3DTA_TEXTURE );
+    SetCachedTextureStageState( 0, D3DTSS_ALPHAARG2, D3DTA_DIFFUSE );
+    SetCachedTextureStageState( 0, D3DTSS_TEXCOORDINDEX, 0 );
+    SetCachedTextureStageState( 0, D3DTSS_ADDRESSU, D3DTADDRESS_WRAP );
+    SetCachedTextureStageState( 0, D3DTSS_ADDRESSV, D3DTADDRESS_WRAP );
+    SetCachedTextureStageState( 0, D3DTSS_TEXTURETRANSFORMFLAGS, D3DTTFF_DISABLE );
+    SetCachedTextureStageState( 0, D3DTSS_MINFILTER, D3DTEXF_LINEAR );
+    SetCachedTextureStageState( 0, D3DTSS_MAGFILTER, D3DTEXF_LINEAR );
+    SetCachedTextureStageState( 0, D3DTSS_MIPFILTER, D3DTEXF_LINEAR );
 
-    Device->SetTextureStageState( 1, D3DTSS_COLORARG1, D3DTA_TEXTURE );
-    Device->SetTextureStageState( 1, D3DTSS_COLORARG2, D3DTA_CURRENT );
-    Device->SetTextureStageState( 1, D3DTSS_ALPHAARG1, D3DTA_TEXTURE );
-    Device->SetTextureStageState( 1, D3DTSS_ALPHAARG2, D3DTA_CURRENT );
-    Device->SetTextureStageState( 1, D3DTSS_TEXCOORDINDEX, 1 );
-    Device->SetTextureStageState( 1, D3DTSS_ADDRESSU, D3DTADDRESS_WRAP );
-    Device->SetTextureStageState( 1, D3DTSS_ADDRESSV, D3DTADDRESS_WRAP );
-    Device->SetTextureStageState( 1, D3DTSS_TEXTURETRANSFORMFLAGS, D3DTTFF_DISABLE );
-    Device->SetTextureStageState( 1, D3DTSS_MINFILTER, D3DTEXF_LINEAR );
-    Device->SetTextureStageState( 1, D3DTSS_MAGFILTER, D3DTEXF_LINEAR );
-    Device->SetTextureStageState( 1, D3DTSS_COLOROP, D3DTOP_DISABLE );
-    Device->SetTextureStageState( 1, D3DTSS_ALPHAOP, D3DTOP_DISABLE );
+    SetCachedTextureStageState( 1, D3DTSS_COLORARG1, D3DTA_TEXTURE );
+    SetCachedTextureStageState( 1, D3DTSS_COLORARG2, D3DTA_CURRENT );
+    SetCachedTextureStageState( 1, D3DTSS_ALPHAARG1, D3DTA_TEXTURE );
+    SetCachedTextureStageState( 1, D3DTSS_ALPHAARG2, D3DTA_CURRENT );
+    SetCachedTextureStageState( 1, D3DTSS_TEXCOORDINDEX, 1 );
+    SetCachedTextureStageState( 1, D3DTSS_ADDRESSU, D3DTADDRESS_WRAP );
+    SetCachedTextureStageState( 1, D3DTSS_ADDRESSV, D3DTADDRESS_WRAP );
+    SetCachedTextureStageState( 1, D3DTSS_TEXTURETRANSFORMFLAGS, D3DTTFF_DISABLE );
+    SetCachedTextureStageState( 1, D3DTSS_MINFILTER, D3DTEXF_LINEAR );
+    SetCachedTextureStageState( 1, D3DTSS_MAGFILTER, D3DTEXF_LINEAR );
+    SetCachedTextureStageState( 1, D3DTSS_COLOROP, D3DTOP_DISABLE );
+    SetCachedTextureStageState( 1, D3DTSS_ALPHAOP, D3DTOP_DISABLE );
+    Device->SetTexture( 1, NULL );
+    BoundCacheID[1] = 0;
 
     CurrentPolyFlags = 0xFFFFFFFF;
 
@@ -2180,13 +2417,15 @@ void UXboxRenderDevice::Draw2DLine( FSceneNode* Frame, FPlane Color, DWORD LineF
     guard(UXboxRenderDevice::Draw2DLine);
 
     FlushDGPBatch( "D2D-line" );
+    FlushDTBatch( "D2D-line" );
+    DisableStage1();
 
     if( !Device )
         return;
 
-    Device->SetRenderState( D3DRS_SHADEMODE, D3DSHADE_FLAT );
-    Device->SetTextureStageState( 0, D3DTSS_COLOROP, D3DTOP_DISABLE );
-    Device->SetTextureStageState( 0, D3DTSS_ALPHAOP, D3DTOP_DISABLE );
+    SetCachedRenderState( D3DRS_SHADEMODE, D3DSHADE_FLAT );
+    SetCachedTextureStageState( 0, D3DTSS_COLOROP, D3DTOP_DISABLE );
+    SetCachedTextureStageState( 0, D3DTSS_ALPHAOP, D3DTOP_DISABLE );
 
     DWORD Clr = FColor(Color).TrueColor() | 0xFF000000;
     FLOAT RHW = 1.0f;
@@ -2196,11 +2435,11 @@ void UXboxRenderDevice::Draw2DLine( FSceneNode* Frame, FPlane Color, DWORD LineF
     Verts[0].x = P1.X - 0.5f; Verts[0].y = P1.Y - 0.5f; Verts[0].rhw = RHW; Verts[0].z = SZ; Verts[0].color = Clr; Verts[0].u = 0; Verts[0].v = 0;
     Verts[1].x = P2.X - 0.5f; Verts[1].y = P2.Y - 0.5f; Verts[1].rhw = RHW; Verts[1].z = SZ; Verts[1].color = Clr; Verts[1].u = 0; Verts[1].v = 0;
 
-    Device->SetVertexShader( XBOX_FVF_TLVERTEX );
+    SetCachedVertexShader( XBOX_FVF_TLVERTEX );
     DrawPrimitiveVB( D3DPT_LINELIST, 1, Verts, sizeof(FXboxTLVertex), "D2D-line" );
 
     RestoreDefaultTextureStages();
-    Device->SetRenderState( D3DRS_SHADEMODE, D3DSHADE_GOURAUD );
+    SetCachedRenderState( D3DRS_SHADEMODE, D3DSHADE_GOURAUD );
 
     unguard;
 }
@@ -2213,13 +2452,15 @@ void UXboxRenderDevice::Draw2DPoint( FSceneNode* Frame, FPlane Color, DWORD Line
     guard(UXboxRenderDevice::Draw2DPoint);
 
     FlushDGPBatch( "D2D-point" );
+    FlushDTBatch( "D2D-point" );
+    DisableStage1();
 
     if( !Device )
         return;
 
-    Device->SetRenderState( D3DRS_SHADEMODE, D3DSHADE_FLAT );
-    Device->SetTextureStageState( 0, D3DTSS_COLOROP, D3DTOP_DISABLE );
-    Device->SetTextureStageState( 0, D3DTSS_ALPHAOP, D3DTOP_DISABLE );
+    SetCachedRenderState( D3DRS_SHADEMODE, D3DSHADE_FLAT );
+    SetCachedTextureStageState( 0, D3DTSS_COLOROP, D3DTOP_DISABLE );
+    SetCachedTextureStageState( 0, D3DTSS_ALPHAOP, D3DTOP_DISABLE );
 
     DWORD Clr = FColor(Color).TrueColor() | 0xFF000000;
     FLOAT RHW = 1.0f;
@@ -2231,11 +2472,11 @@ void UXboxRenderDevice::Draw2DPoint( FSceneNode* Frame, FPlane Color, DWORD Line
     Verts[2].x = X2 - 0.5f; Verts[2].y = Y2 - 0.5f; Verts[2].rhw = RHW; Verts[2].z = SZ; Verts[2].color = Clr; Verts[2].u = 0; Verts[2].v = 0;
     Verts[3].x = X1 - 0.5f; Verts[3].y = Y2 - 0.5f; Verts[3].rhw = RHW; Verts[3].z = SZ; Verts[3].color = Clr; Verts[3].u = 0; Verts[3].v = 0;
 
-    Device->SetVertexShader( XBOX_FVF_TLVERTEX );
+    SetCachedVertexShader( XBOX_FVF_TLVERTEX );
     DrawPrimitiveVB( D3DPT_TRIANGLEFAN, 2, Verts, sizeof(FXboxTLVertex), "D2D-point" );
 
     RestoreDefaultTextureStages();
-    Device->SetRenderState( D3DRS_SHADEMODE, D3DSHADE_GOURAUD );
+    SetCachedRenderState( D3DRS_SHADEMODE, D3DSHADE_GOURAUD );
 
     unguard;
 }
@@ -2247,6 +2488,7 @@ void UXboxRenderDevice::ClearZ( FSceneNode* Frame )
 {
     guard(UXboxRenderDevice::ClearZ);
     FlushDGPBatch( "ClearZ" );
+    FlushDTBatch( "ClearZ" );
     if( Device )
         Device->Clear( 0, NULL, D3DCLEAR_ZBUFFER, 0, 1.0f, 0 );
     unguard;
@@ -2317,6 +2559,8 @@ void UXboxRenderDevice::DrawPerfOverlay()
     guard(UXboxRenderDevice::DrawPerfOverlay);
 
     FlushDGPBatch( "PerfOverlay" );
+    FlushDTBatch( "PerfOverlay" );
+    DisableStage1();
 
     if( !Device )
         return;
@@ -2341,22 +2585,22 @@ void UXboxRenderDevice::DrawPerfOverlay()
         Device->SetTexture( 1, NULL );
         BoundCacheID[0] = 0;
         BoundCacheID[1] = 0;
-        Device->SetVertexShader( XBOX_FVF_TLVERTEX );
-        Device->SetRenderState( D3DRS_ALPHABLENDENABLE, FALSE );
-        Device->SetRenderState( D3DRS_ALPHATESTENABLE, FALSE );
-        Device->SetRenderState( D3DRS_ZENABLE, D3DZB_FALSE );
-        Device->SetRenderState( D3DRS_ZWRITEENABLE, FALSE );
-        Device->SetTextureStageState( 0, D3DTSS_COLOROP, D3DTOP_SELECTARG1 );
-        Device->SetTextureStageState( 0, D3DTSS_COLORARG1, D3DTA_DIFFUSE );
-        Device->SetTextureStageState( 0, D3DTSS_ALPHAOP, D3DTOP_SELECTARG1 );
-        Device->SetTextureStageState( 0, D3DTSS_ALPHAARG1, D3DTA_DIFFUSE );
-        Device->SetTextureStageState( 1, D3DTSS_COLOROP, D3DTOP_DISABLE );
-        Device->SetTextureStageState( 1, D3DTSS_ALPHAOP, D3DTOP_DISABLE );
+        SetCachedVertexShader( XBOX_FVF_TLVERTEX );
+        SetCachedRenderState( D3DRS_ALPHABLENDENABLE, FALSE );
+        SetCachedRenderState( D3DRS_ALPHATESTENABLE, FALSE );
+        SetCachedRenderState( D3DRS_ZENABLE, D3DZB_FALSE );
+        SetCachedRenderState( D3DRS_ZWRITEENABLE, FALSE );
+        SetCachedTextureStageState( 0, D3DTSS_COLOROP, D3DTOP_SELECTARG1 );
+        SetCachedTextureStageState( 0, D3DTSS_COLORARG1, D3DTA_DIFFUSE );
+        SetCachedTextureStageState( 0, D3DTSS_ALPHAOP, D3DTOP_SELECTARG1 );
+        SetCachedTextureStageState( 0, D3DTSS_ALPHAARG1, D3DTA_DIFFUSE );
+        SetCachedTextureStageState( 1, D3DTSS_COLOROP, D3DTOP_DISABLE );
+        SetCachedTextureStageState( 1, D3DTSS_ALPHAOP, D3DTOP_DISABLE );
 
         DrawPrimitiveVB( D3DPT_LINELIST, Count / 2, Verts, sizeof(FXboxTLVertex), "PerfOverlay" );
 
-        Device->SetRenderState( D3DRS_ZENABLE, D3DZB_TRUE );
-        Device->SetRenderState( D3DRS_ZWRITEENABLE, TRUE );
+        SetCachedRenderState( D3DRS_ZENABLE, D3DZB_TRUE );
+        SetCachedRenderState( D3DRS_ZWRITEENABLE, TRUE );
         RestoreDefaultTextureStages();
     }
 
@@ -2372,6 +2616,8 @@ void UXboxRenderDevice::EndFlash()
     guard(UXboxRenderDevice::EndFlash);
 
     FlushDGPBatch( "EndFlash" );
+    FlushDTBatch( "EndFlash" );
+    DisableStage1();
 
     if( !Device || !Viewport )
         return;
@@ -2391,18 +2637,18 @@ void UXboxRenderDevice::EndFlash()
         Verts[3].x = (FLOAT)Viewport->SizeX; Verts[3].y = 0;               Verts[3].rhw = RHW; Verts[3].z = SZ; Verts[3].color = Clr; Verts[3].u = 0; Verts[3].v = 0;
 
         SetBlending( PF_Translucent | PF_NoOcclude );
-        Device->SetRenderState( D3DRS_ALPHABLENDENABLE, TRUE );
-        Device->SetRenderState( D3DRS_SRCBLEND,  D3DBLEND_ONE );
-        Device->SetRenderState( D3DRS_DESTBLEND, D3DBLEND_SRCALPHA );
-        Device->SetTextureStageState( 0, D3DTSS_COLOROP, D3DTOP_SELECTARG2 );
-        Device->SetTextureStageState( 0, D3DTSS_ALPHAOP, D3DTOP_SELECTARG2 );
-        Device->SetRenderState( D3DRS_ZFUNC, D3DCMP_ALWAYS );
+        SetCachedRenderState( D3DRS_ALPHABLENDENABLE, TRUE );
+        SetCachedRenderState( D3DRS_SRCBLEND,  D3DBLEND_ONE );
+        SetCachedRenderState( D3DRS_DESTBLEND, D3DBLEND_SRCALPHA );
+        SetCachedTextureStageState( 0, D3DTSS_COLOROP, D3DTOP_SELECTARG2 );
+        SetCachedTextureStageState( 0, D3DTSS_ALPHAOP, D3DTOP_SELECTARG2 );
+        SetCachedRenderState( D3DRS_ZFUNC, D3DCMP_ALWAYS );
 
-        Device->SetVertexShader( XBOX_FVF_TLVERTEX );
+        SetCachedVertexShader( XBOX_FVF_TLVERTEX );
         DrawPrimitiveVB( D3DPT_TRIANGLEFAN, 2, Verts, sizeof(FXboxTLVertex), "EndFlash" );
 
         RestoreDefaultTextureStages();
-        Device->SetRenderState( D3DRS_ZFUNC, D3DCMP_LESSEQUAL );
+        SetCachedRenderState( D3DRS_ZFUNC, D3DCMP_LESSEQUAL );
         SetBlending( 0 );
     }
 

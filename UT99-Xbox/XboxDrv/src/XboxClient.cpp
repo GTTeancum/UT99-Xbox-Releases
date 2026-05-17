@@ -36,7 +36,7 @@ void UXboxClient::Init( UEngine* InEngine )
     ScreenFlashes         = 0;
     Decals                = 0;
     NoDynamicLights       = 1;
-    MinDesiredFrameRate   = 20.0f;
+    MinDesiredFrameRate   = 60.0f;
     TextureLODSet[LODSET_World] = 2;
     TextureLODSet[LODSET_Skin]  = 2;
 

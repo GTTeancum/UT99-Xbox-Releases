@@ -10,6 +10,48 @@ static FLOAT XboxStickAxis( SHORT Raw, FLOAT DeadZone )
     return 0.0f;
 }
 
+static UBOOL XboxAutoFireSmokeEnabled()
+{
+    return GetFileAttributesA( "D:\\XboxAutoFireSmoke.ini" ) != 0xFFFFFFFF;
+}
+
+static void XboxAutoFireSmokeTick( UXboxViewport* Viewport )
+{
+    UXboxClient* Client = Viewport ? (UXboxClient*)Viewport->GetOuter() : NULL;
+    if( !Client || !Client->Engine )
+        return;
+
+    static INT   AutoFireFrame = 0;
+    static UBOOL AutoFireDown  = 0;
+    static UBOOL AutoFireWasOn = 0;
+
+    UBOOL Enabled = XboxAutoFireSmokeEnabled();
+    if( Enabled )
+    {
+        if( !AutoFireWasOn )
+        {
+            GXboxLog.Write( "XSMOKEINPUT enabled: pulsing LeftMouse from D:\\XboxAutoFireSmoke.ini" );
+            AutoFireWasOn = 1;
+        }
+
+        AutoFireFrame++;
+        UBOOL WantDown = (AutoFireFrame & 7) < 4;
+        if( WantDown != AutoFireDown )
+        {
+            Client->Engine->InputEvent( Viewport, IK_LeftMouse, WantDown ? IST_Press : IST_Release, 0.0f );
+            AutoFireDown = WantDown;
+        }
+    }
+    else
+    {
+        if( AutoFireDown )
+            Client->Engine->InputEvent( Viewport, IK_LeftMouse, IST_Release, 0.0f );
+        AutoFireFrame = 0;
+        AutoFireDown  = 0;
+        AutoFireWasOn = 0;
+    }
+}
+
 void UXboxViewport::OpenWindow( DWORD ParentWindow, UBOOL Temporary,
                                  INT NewX, INT NewY, INT OpenX, INT OpenY )
 {
@@ -134,6 +176,8 @@ void UXboxViewport::SetViewRegion( INT X, INT Y, INT W, INT H )
 void UXboxViewport::PollController()
 {
     guard(UXboxViewport::PollController);
+
+    XboxAutoFireSmokeTick( this );
 
     // Try to open the controller if we don't have a handle yet.
     if( !ControllerHandle )

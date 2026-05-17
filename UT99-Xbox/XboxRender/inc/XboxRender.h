@@ -133,7 +133,10 @@ struct FXboxTexCacheEntry
 // Max verts per draw call (stack buffer)
 // ============================================================================
 enum { XBOX_MAX_VERTS = 512 };
+enum { XBOX_MAX_DRAW_VERTS = 2048 };
 enum { XBOX_DRAW_VB_BYTES = 512 * 1024 };
+enum { XBOX_RS_CACHE_COUNT = 256 };
+enum { XBOX_TSS_CACHE_COUNT = 256 };
 
 // ============================================================================
 // Render device
@@ -192,6 +195,15 @@ public:
     INT                 StageUIndex[2];
     INT                 StageVIndex[2];
 
+    // D3D state cache. Xbox D3D state calls are not free; the BSP path is
+    // especially repetitive, so skip identical values before touching D3D.
+    DWORD               CachedRenderState[XBOX_RS_CACHE_COUNT];
+    UBOOL               CachedRenderStateValid[XBOX_RS_CACHE_COUNT];
+    DWORD               CachedTextureStageState[2][XBOX_TSS_CACHE_COUNT];
+    UBOOL               CachedTextureStageStateValid[2][XBOX_TSS_CACHE_COUNT];
+    DWORD               CachedVertexShader;
+    UBOOL               CachedVertexShaderValid;
+
     // URenderDevice interface
     void  StaticConstructor();
     UBOOL Init( UViewport* InViewport, INT NewX, INT NewY, INT NewColorBytes, UBOOL Fullscreen );
@@ -222,6 +234,11 @@ public:
     HRESULT DrawPrimitiveVB( D3DPRIMITIVETYPE PrimitiveType, UINT PrimitiveCount, const void* Vertices, UINT Stride, const char* OpName );
     HRESULT DrawPrimitiveVBWorld( D3DPRIMITIVETYPE PrimitiveType, UINT PrimitiveCount, const void* Vertices, UINT Stride, const char* OpName );
     void  FlushDGPBatch( const char* Reason );
+    void  FlushDTBatch( const char* Reason );
+    void  DisableStage1();
+    HRESULT SetCachedRenderState( D3DRENDERSTATETYPE State, DWORD Value );
+    HRESULT SetCachedTextureStageState( DWORD Stage, D3DTEXTURESTAGESTATETYPE Type, DWORD Value );
+    HRESULT SetCachedVertexShader( DWORD Shader );
     void  RestoreDefaultTextureStages();
     void  DrawPerfOverlay();
     void  FlushTexCache();

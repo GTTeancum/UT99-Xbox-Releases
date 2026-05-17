@@ -619,3 +619,196 @@ Status:
 
 - Added `FlushDGPBatch()`.
 - Added `dgpBatch=batches/polys` to `PERF` logs so the next run can prove whether the hot mesh path is actually being collapsed.
+
+### 27. Second FPS Pass: DrawTile Batching
+
+Change/evidence:
+
+- Steve reported a large improvement from DGP batching.
+- The confirming log showed gameplay frames improving into roughly 29-58 FPS ranges, with `DGP` calls collapsed into tens of batches:
+  - example: `DGP=904 dgpBatch=30/904 vbLocks=327`;
+  - example: `DGP=1549 dgpBatch=39/1548 vbLocks=297`.
+- Remaining `DT` traffic is still visible, commonly 60-300 tile draws per frame, and light/HUD frames can still have hundreds of VB locks.
+
+Result:
+
+- Add a conservative `DrawTile` batcher.
+- Batch only same texture `CacheID` and same normalized `PolyFlags`.
+- Convert each quad to two triangles in a shared TL-vertex triangle-list buffer.
+- Flush before mesh/world/2D/flash/FPS/clear/scene changes and frame end.
+- Keep immediate fallback for realtime texture updates or incompatible state.
+
+Status:
+
+- Added `FlushDTBatch()`.
+- Added `dtBatch=batches/tiles` to `PERF` logs.
+
+### 28. Third FPS Pass: Make Tile Batches Actually Submit
+
+Change/evidence:
+
+- Steve's follow-up log showed the first tile-batching build improved some frames, but also exposed a direct bug in the new batcher:
+  - repeated `RDRAW VB reject op=DT-batch ... prim=226 verts=678 stride=28`;
+  - `DrawPrimitiveVB()` rejects anything above `XBOX_MAX_VERTS=512`;
+  - the new `DrawTile` batch buffer allowed up to 8190 TL vertices, so large batches were counted in `dtBatch` but rejected before D3D submission.
+- Gameplay is now commonly around the mid-20s to mid-30s FPS, with low-scene frames still reaching about 59 FPS.
+
+Result:
+
+- Cap triangle-list batch buffers to the renderer's real per-draw vertex limit, rounded down to a multiple of three.
+- Apply the same cap to `DGP` and `DT` batches so future compatible batches cannot silently exceed the shared dynamic draw path.
+- Make vertex-count rejection logging sparse instead of allowing one bad batch to flood the whole log.
+- Cache the dynamic VB stream-source stride so repeated draws with the same stream do not call `SetStreamSource()` every time.
+
+Status:
+
+- Implemented in `XboxRender.cpp`.
+- Next log should show no repeated `RDRAW VB reject op=DT-batch`, with `dtBatch` still present and `vbLocks` staying low.
+
+### 29. Deep FPS Pass: Scene Splits, Batch Size, And Detail Gating
+
+Change/evidence:
+
+- Steve's next log still showed active gameplay commonly in the 25-35 FPS range, with low-activity frames reaching about 56-59 FPS.
+- The largest remaining patterns were:
+  - `texUp=1 splits=1` on almost every hot gameplay frame, meaning the renderer was ending/restarting the scene for a tiny realtime texture update during drawing;
+  - `vbLocks` still in the 200-440 range because DGP/DT batches were capped to the old 512-vertex per-draw guard;
+  - `MinDesiredFrameRate=20`, so UT's script-level `bDropDetail` and `bAggressiveLOD` paths stayed off while we were below the desired 60 FPS target;
+  - BSP multitexture surfaces enabled stage 1, then disabled it after each surface, then re-enabled it for the next lightmapped surface.
+
+Result:
+
+- Added `XBOX_MAX_DRAW_VERTS=2048` for dynamic draw submissions while keeping `XBOX_MAX_VERTS=512` for per-polygon stack buffers.
+- DGP/DT triangle-list batch caps now use the larger draw limit.
+- Existing cached realtime texture entries are reused instead of forcing a mid-scene upload; `PERF` now reports `texDef`.
+- Xbox client now forces `MinDesiredFrameRate=60.0` so UT's own low-detail spawn/detail gates engage below target.
+- Stage 1 lightmap state is kept across BSP multitexture surfaces and disabled only when leaving that path.
+
+Status:
+
+- Implemented as one combined high-upside candidate.
+- Next log should show lower `vbLocks`, near-zero `splits` after warmup, nonzero `texDef`, and fewer high-detail transient effects during combat.
+
+### 30. Autonomous FPS Smoke Harness
+
+Change/evidence:
+
+- Steve asked for unattended CXBX-R smoke passes that can start a match, respawn, and keep firing for about 90 seconds before reassessing `ut99.log`.
+- `UXboxViewport::PollController()` runs every viewport input update and is reached before gameplay rendering; placing the harness there means the test is not dependent on a physical gamepad being present in CXBX-R.
+
+Result:
+
+- Added a gated test-only input pulse:
+  - if `D:\XboxAutoFireSmoke.ini` exists, pulse `IK_LeftMouse` on/off every few frames;
+  - if the file is absent, boot and controls behave normally;
+  - when disabled after being active, release `IK_LeftMouse` once.
+
+Status:
+
+- Implemented in `XboxViewport.cpp`.
+- Autonomous runs create the marker file beside `default.xbe`, launch CXBX-R, wait, close CXBX-R, remove the marker, then inspect the new `PERF` lines.
+
+### 31. Fourth FPS Pass: D3D State Cache
+
+Change/evidence:
+
+- The first unattended smoke pass entered gameplay and fired repeatedly.
+- `PERF` showed texture-upload splits were mostly solved (`splits=0`, `texDef=1-2`), but active gameplay still hovered around 21-36 FPS.
+- Hot frames still had `DCS=150-183`, `DGP=298-1067`, `DT=55-381`, and `vbLocks=270-372`.
+- Source audit found `DrawComplexSurface()` issuing the same fixed-function texture-stage setup for every BSP surface.
+- OpenJKDF2's Xbox renderer uses dirty/cached state application instead of calling D3D for every repeated state transition.
+
+Result:
+
+- Added cached wrappers for `SetRenderState`, `SetTextureStageState`, and `SetVertexShader`.
+- Routed XboxRender state changes through those wrappers so identical state values skip the D3D call.
+- Added `state=sets/skips` to `PERF` lines for direct evidence on the next smoke run.
+
+Status:
+
+- Implemented in `XboxRender.cpp` / `XboxRender.h`.
+- Next run should show high `state` skip counts if the BSP path is avoiding redundant D3D state traffic.
+
+### 32. Fifth FPS Pass: DrawPrimitiveUP Probe
+
+Change/evidence:
+
+- The state-cache smoke pass improved active gameplay from the previous 21-36 FPS band to roughly 38-55 FPS.
+- The same run proved the state cache was real work, with sampled frames commonly showing about 1,600-3,000 skipped redundant D3D state calls.
+- Remaining hot counter: `vbLocks` still ranges from about 186-398 per sampled frame because every BSP/mesh/tile draw locks and unlocks the shared dynamic VB.
+- OpenJKDF2's Xbox renderer uses `DrawPrimitiveUP` for immediate dynamic primitives, avoiding explicit dynamic VB lock/unlock churn in the caller.
+
+Result:
+
+- Added a guarded `DrawPrimitiveUP` path before the dynamic-VB fallback.
+- If `DrawPrimitiveUP` succeeds, it avoids the VB lock/unlock path entirely.
+- If it fails, it logs sparsely and falls back to the existing dynamic VB path.
+- Added `up=draws/fails` to `PERF` lines.
+
+Status:
+
+- Implemented in `XboxRender.cpp`.
+- Next smoke run should prove whether Xbox D3D8/CXBX-R accepts UP draws and whether eliminating VB locks improves gameplay FPS.
+
+Observed:
+
+- The smoke run proved the UP path is accepted:
+  - `up=336/0` with `vbLocks=0` on a gameplay sample;
+  - no `RUP draw-failed` lines;
+  - active gameplay stayed around 58-59 FPS even with `DGP` above 1,500 and `DCS` around 150-180.
+- This is the first automated run to hold gameplay near the display target under constant fire/respawn input.
+
+Follow-up:
+
+- Investigate whether the remaining 58-59 FPS ceiling is intentional engine/display pacing rather than render throughput.
+
+### 33. Log Cleanup After Stable Smoke
+
+Change/evidence:
+
+- Current smoke logs prove the renderer is reaching the 60 Hz main-loop limiter.
+- The log file is still much larger than needed because earlier crash-hunt diagnostics are still enabled:
+  - `LINK[...]` one line per class;
+  - `[ClsSer]` phase beacons for class serialization;
+  - routine `ULinkerLoad` package-open phase logs;
+  - file-manager `RESOLVE`, `CreateFileReader`, and `FileSize` success-path logs.
+
+Result:
+
+- Removed routine `LINK[...]` and `[ClsSer]` success-path spam while keeping the actual `UStruct::Link BREAK` error log and out-of-bounds class-default warning.
+- Gated routine package-loader success logs behind `bVerbosePackageLoad = 0`.
+- Disabled routine file-manager path/file-size/read success logging; failures still log.
+
+Status:
+
+- Implemented after the 58-59 FPS smoke pass.
+- Next build/run should produce a much smaller `ut99.log` while preserving `PERF`, init, and failure diagnostics.
+
+### 34. Autonomous Smoke Confirmation: Stable FPS Candidate
+
+Change/evidence:
+
+- Built from command line after the log cleanup and deployed the resulting `default.xbe` to the CXBX-R test folder.
+- Ran the auto-fire smoke harness for roughly 70 seconds so the game starts, respawns, and fires without manual input.
+- Fresh `ut99.log` size dropped to 68,268 bytes for the smoke run.
+- Log health checks:
+  - `Error=0`, `Critical=0`, `Warning=0`;
+  - `RUP draw-failed=0`;
+  - `ULinkerLoad=0`, `LINK[=0`, routine file-manager success spam still absent;
+  - retained one `[ClsSer] Camera skipped 16 out-of-bounds prop(s)` warning-style diagnostic.
+- `PERF` samples:
+  - 31 samples;
+  - min 57.9 FPS, max 58.8 FPS, avg 58.7 FPS;
+  - `vbLocks=0` throughout;
+  - `up=.../0` throughout;
+  - redundant state skips remain high, commonly about 2,500-2,900 per active frame.
+
+Result:
+
+- Current build is a strong gameplay candidate for Steve's visual/hardware test.
+- The remaining 58-59 FPS ceiling matches the current 60 Hz main-loop limiter, not the earlier render bottleneck.
+
+Status:
+
+- Built and deployed to `C:\Games\Emulators\CXBX\UT99x\default.xbe`.
+- No GitHub commit made; waiting for Steve's test confirmation.

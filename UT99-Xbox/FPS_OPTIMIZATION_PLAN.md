@@ -6,19 +6,19 @@ This plan is ordered by expected performance gain, based on current `PERF` logs.
 
 ## Current Evidence
 
-- Menu / low-scene frames can reach about 57-59 FPS, so present/swap is not the main limiter.
-- Gameplay frames show `presentMS` around 1-4 ms but `renderMS` as high as 40-142 ms.
-- Hot gameplay frames issue roughly 1,100-1,700 primitive submissions and nearly the same number of dynamic vertex-buffer locks.
-- `DGP` actor/mesh polygons are often the largest single count, commonly 650-1,180 per hot gameplay frame.
-- BSP `DCS` is comparatively stable around 150-180 surfaces in active frames.
-- Texture uploads are low after warmup, usually 0-2 per logged frame, so texture creation/upload is not the primary FPS bottleneck right now.
-- Generated config was still enabling dynamic lights/decals/screen flashes; this has been corrected and must be verified in the next log.
+- Autonomous CXBX-R smoke harness starts/respawns/fires by creating `D:\XboxAutoFireSmoke.ini`; normal boots are unaffected when the file is missing.
+- Current gameplay smoke is now held near the 60 Hz Xbox main-loop limiter: sampled active frames are roughly 58-59 FPS.
+- The renderer still logs high primitive counts (`DGP` often 900-1500+, `DCS` around 150-180), but render time is now low enough for the 60 FPS target.
+- Mid-scene texture upload splits are mostly eliminated after realtime texture deferral (`splits=0` in almost all hot frames).
+- State caching skips about 1,600-3,000 redundant D3D state calls per sampled frame.
+- `DrawPrimitiveUP` is accepted by CXBX-R/Xbox D3D8 in the current build (`up=.../0`) and eliminates the 180-390 dynamic VB locks per active frame (`vbLocks=0`).
+- Remaining 58-59 FPS ceiling is expected: `XboxEngine.cpp` currently caps the main loop at `XboxMaxTickRate = 60.0f`.
 
 ## 1. Batch Actor/Mesh Rendering (`DrawGouraudPolygon`)
 
 Expected gain: largest.
 
-Status: first conservative implementation added 2026-05-17; awaiting runtime log verification.
+Status: implemented and verified. Runtime logs show effective batching, now using a larger draw-call vertex limit while preserving smaller per-polygon stack buffers.
 
 Current problem:
 
@@ -40,6 +40,8 @@ Why first:
 ## 2. Batch HUD/Tile Rendering (`DrawTile`)
 
 Expected gain: high, especially during UI-heavy frames.
+
+Status: implemented and verified. Follow-up fix uses the larger draw-call vertex limit after logs showed oversized tile batches were being rejected by the old guard.
 
 Current problem:
 
@@ -71,6 +73,13 @@ Plan:
 - Add stricter state shadowing for render states, texture-stage states, vertex shader/FVF, stream source, and bound textures.
 - Avoid redundant `SetTextureStageState`, `SetRenderState`, and `SetVertexShader` calls.
 - Log a compact state-change count in `PERF` once implemented.
+
+Current status:
+
+- Dynamic VB stream-source stride caching added first.
+- BSP stage-1 lightmap state is now retained across multitexture BSP surfaces and disabled only when leaving that path.
+- Render-state, texture-stage-state, and vertex-shader calls are now cached; current smoke logs show thousands of skipped redundant calls per sampled frame.
+- `DrawPrimitiveUP` now bypasses the explicit dynamic-VB lock/unlock path, with VB fallback left in place if UP ever fails.
 
 Why third:
 
@@ -107,6 +116,7 @@ Plan:
 
 - Verify next log shows `XboxClient::Init: settings flashes=0 decals=0 dynLights=1`.
 - Keep `NoDynamicLights=True`, `Decals=False`, `ScreenFlashes=False` for baseline performance.
+- Force `MinDesiredFrameRate=60` so `bDropDetail` and `bAggressiveLOD` engage whenever the port is below target.
 - Only re-enable one feature at a time after the renderer is fast enough.
 
 Why fifth:
@@ -126,6 +136,11 @@ Plan:
 - Reduce scene splits during texture upload where safe.
 - Consider prewarming or deferring tiny realtime lightmap uploads.
 - Keep deterministic texture-stage restore.
+
+Current status:
+
+- Existing cached realtime texture entries are reused instead of forcing a mid-scene upload; first-time texture creation/upload remains intact.
+- `PERF` now reports deferred refreshes as `texDef`.
 
 Why sixth:
 
@@ -151,8 +166,7 @@ Why seventh:
 
 ## Execution Order
 
-1. Verify config enforcement in the next log.
-2. Implement `DGP` batching.
-3. Implement `DT` batching.
-4. Add state-shadow counters and remove redundant state calls.
-5. Reassess `PERF`; only then decide whether BSP runtime caching is worth the complexity.
+1. Steve hardware/visual test of the current candidate.
+2. If Steve confirms visual correctness, commit the optimization candidate.
+3. If the real Xbox still misses target, profile against hardware-specific costs before adding larger BSP runtime caches.
+4. Defer any 120 FPS experiments until timing policy is explicit; current main loop intentionally caps at 60 Hz.

@@ -170,7 +170,7 @@ public:
         // file ops happening late in boot — e.g. during GetPackageLinker for
         // UTMenu when it tries to open UTMenu.u for the first time).
         static INT LogCount = 0;
-        if( LogCount++ < 5000 )
+        if( LogCount++ < 0 )
         {
             char buf[512];
             _snprintf( buf, sizeof(buf), "RESOLVE: [%s] -> [%s]",
@@ -220,7 +220,6 @@ public:
     {
         guard(FFileManagerXbox::CreateFileReader);
         FString Path = ResolvePath( Filename );
-        GXboxLog.Write( "CreateFileReader: opening [%s] -> [%s]", TCHAR_TO_ANSI(Filename), TCHAR_TO_ANSI(*Path) );
         HANDLE Handle = CreateFileA(
             TCHAR_TO_ANSI(*Path), GENERIC_READ, FILE_SHARE_READ,
             NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL
@@ -233,7 +232,6 @@ public:
             return NULL;
         }
         INT Size = GetFileSize(Handle, NULL);
-        GXboxLog.Write( "CreateFileReader: opened [%s] size=%d", TCHAR_TO_ANSI(*Path), Size );
         return new(TEXT("XboxFileReader"))FArchiveFileReader(Handle, Error, Size);
         unguard;
     }
@@ -285,7 +283,7 @@ public:
 
         // Diagnostic
         static INT FFCount = 0;
-        if( FFCount++ < 20 )
+        if( FFCount++ < 0 )
         {
             char buf[512];
             _snprintf( buf, sizeof(buf), "FindFiles: [%s] -> [%s]",
@@ -312,7 +310,7 @@ public:
         }
 
         // Diagnostic
-        if( FFCount <= 21 )
+        if( FFCount <= 0 )
         {
             char buf[512];
             _snprintf( buf, sizeof(buf), "FindFiles: found %d results", Result.Num() );
@@ -334,7 +332,7 @@ public:
         // Diagnostic: log first 5000 file size checks (bumped from 40 to cover
         // late-boot file ops like UTMenu package lookup).
         static INT FSCount = 0;
-        if( FSCount++ < 5000 )
+        if( FSCount++ < 0 )
         {
             char buf[512];
             HANDLE hTest = CreateFileA(

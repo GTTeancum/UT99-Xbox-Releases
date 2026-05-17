@@ -338,9 +338,17 @@ class ENGINE_API UTexture : public UBitmap
 	BYTE        CompFormat;			// 60
 
 	// PolyFlags is a v400 native-only field — not in the v436 binary's script
-	// property chain.  Place at end of struct so it doesn't shift any
-	// binary-driven property offsets.
-	DWORD		PolyFlags;
+	// property chain.  In v436, storing it inline would inflate sizeof(UTexture)
+	// by 4 bytes vs. the .u file's PropertiesSize, mis-aligning every derived
+	// class's fields (UFractalTexture, UFireTexture, UWetTexture, …) and causing
+	// VERIFY_CLASS_SIZE asserts at PostLoad.  We instead keep it in a side TMap
+	// keyed by the UObject* — zero impact on instance layout.  The accessor
+	// methods replace the previous `Tex->PolyFlags` syntax.
+public:
+	DWORD  PolyFlags() const;            // read
+	void   PolyFlags( DWORD NewFlags );  // write (replaces `Tex->PolyFlags = X`)
+	DWORD& PolyFlagsRef();               // ref for `|=`, `&=` (replaces `Tex->PolyFlags |= X`)
+	static void ClearAllPolyFlags();     // call from UTexture::Destroy paths if needed
 
 	// Legacy v400 alias.
 	#define AnimCur AnimCurrent
@@ -495,6 +503,16 @@ class ENGINE_API UFont : public UObject
 	// Variables.
 	INT CharactersPerPage;
 	TArray<FFontPage> Pages;
+
+	// v436 binary extension — appended after CharactersPerPage in the serial
+	// stream.  v400 source didn't read these, leading to a 5-byte underread on
+	// every Font load ("Got 4107, Expected 4112" for Engine.SmallFont/MedFont/
+	// BigFont/LargeFont; "Got 938, Expected 943" for BotPack LEDFont/LEDFont2).
+	// Confirmed via [SerialDump]: tail bytes are 00 00 00 00 00 on every
+	// failing Font, so reading and discarding is safe even if the runtime
+	// semantics of these fields are unused by our render path.
+	INT  Kerning;
+	BYTE bRemapChars;
 
 	// Constructors.
 	UFont();

@@ -35,6 +35,24 @@ void AActor::physPathing( FLOAT DeltaTime )
 	{
 		// Find destination interpolation point, if any.
 		AInterpolationPoint* Dest = Cast<AInterpolationPoint>( Target );
+		if( !Dest || !Dest->Next )
+		{
+#if TARGET_XBOX
+			debugf( NAME_Log, TEXT("XPATH invalid-target actor=%08X class=%s name=%s target=%08X targetclass=%s targetname=%s physrate=%.4f alpha=%.4f interp=%u"),
+				(DWORD)this,
+				GetClass() ? GetClass()->GetName() : TEXT("None"),
+				GetName(),
+				(DWORD)Target,
+				(Target && Target->GetClass()) ? Target->GetClass()->GetName() : TEXT("None"),
+				Target ? Target->GetName() : TEXT("None"),
+				PhysRate,
+				PhysAlpha,
+				(DWORD)bInterpolating );
+#endif
+			bInterpolating = 0;
+			setPhysics( PHYS_None );
+			break;
+		}
 
 		// Compute rate modifier.
 		FLOAT RateModifier = 1.0;

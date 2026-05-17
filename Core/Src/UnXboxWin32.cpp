@@ -38,6 +38,7 @@ void appPlatformPreInit()  {}
 void appPlatformInit()
 {
 	GSys = new(UObject::GetTransientPackage(), TEXT("System")) USystem;
+	GSys->AddToRoot();
 	GSys->LoadConfig( 1 );
 
 	// Diagnostic: log how many paths were loaded from config.

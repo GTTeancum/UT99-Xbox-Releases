@@ -24,9 +24,12 @@
 
 #undef  GPackage
 #define GPackage GPackage_XboxAudio
+#ifndef IMPLEMENT_PACKAGE_XBOX
+#define IMPLEMENT_PACKAGE_XBOX 1
+#endif
 
 #include "Engine.h"
-#include "UnAudio.h"
+// Engine.h already pulls in UnAudio.h — second include is a class redefinition.
 #include "FXboxLogger.h"
 
 /*-----------------------------------------------------------------------------

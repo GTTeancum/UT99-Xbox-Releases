@@ -3040,6 +3040,25 @@ public:
 };
 
 
+// v436 native stubs — Engine.u marks Pickup and Ammo as native classes, but
+// v400 source has no C++ definitions.  These minimal stubs let UObject::Bind()
+// succeed; the script-side fields in Engine.u are still loaded dynamically
+// since no C++ code reads APickup/AAmmo fields directly.
+class ENGINE_API APickup : public AInventory
+{
+public:
+    DECLARE_CLASS(APickup,AInventory,0)
+    NO_DEFAULT_CONSTRUCTOR(APickup)
+};
+
+class ENGINE_API AAmmo : public APickup
+{
+public:
+    DECLARE_CLASS(AAmmo,APickup,0)
+    NO_DEFAULT_CONSTRUCTOR(AAmmo)
+};
+
+
 class ENGINE_API AWeapon : public AInventory
 {
 public:

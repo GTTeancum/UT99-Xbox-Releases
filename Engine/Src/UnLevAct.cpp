@@ -13,6 +13,76 @@ Revision history:
 	Level actor management.
 -----------------------------------------------------------------------------*/
 
+#if TARGET_XBOX
+static UBOOL XboxClassNameContains( UClass* Class, const TCHAR* Fragment )
+{
+	for( UClass* Test = Class; Test; Test = Test->GetSuperClass() )
+		if( appStrstr( Test->GetName(), Fragment ) )
+			return 1;
+	return 0;
+}
+
+static UBOOL XboxIsSmokePuffClass( UClass* Class )
+{
+	return XboxClassNameContains( Class, TEXT("SpriteSmokePuff") )
+		|| XboxClassNameContains( Class, TEXT("SmokePuff") )
+		|| XboxClassNameContains( Class, TEXT("BlackSmoke") )
+		|| XboxClassNameContains( Class, TEXT("BloodPuff") )
+		|| XboxClassNameContains( Class, TEXT("GreenGelPuff") );
+}
+
+static INT XboxCountSmokePuffs( ULevel* Level )
+{
+	INT Count = 0;
+	for( INT i=0; i<Level->Actors.Num(); i++ )
+	{
+		AActor* Test = Level->Actors(i);
+		if( Test && !Test->bDeleteMe && XboxIsSmokePuffClass( Test->GetClass() ) )
+			Count++;
+	}
+	return Count;
+}
+
+static void XboxThrottleSmokePuff( ULevel* Level, AActor* Actor )
+{
+	if( !Actor || !XboxIsSmokePuffClass( Actor->GetClass() ) )
+		return;
+
+	static INT SmokeSpawnCount = 0;
+	static INT SmokeCullCount  = 0;
+	SmokeSpawnCount++;
+
+	// Hundreds of projectile smoke puffs were alive immediately before the
+	// crash. On Xbox these are visual-only, so remove their physics cost.
+	Actor->setPhysics( PHYS_None );
+	Actor->RemoteRole      = ROLE_None;
+	Actor->bCollideActors  = 0;
+	Actor->bCollideWorld   = 0;
+	Actor->bBlockActors    = 0;
+	Actor->bBlockPlayers   = 0;
+	if( Actor->LifeSpan==0.f || Actor->LifeSpan > 0.75f )
+		Actor->LifeSpan = 0.75f;
+
+	INT LiveSmoke = XboxCountSmokePuffs( Level );
+	if( LiveSmoke > 32 )
+	{
+		// The source-side generator cap should keep this rare. If a burst slips
+		// through, make it invisible and short-lived, but not an immediate
+		// same-tick destruction storm.
+		Actor->Role      = ROLE_None;
+		Actor->RemoteRole= ROLE_None;
+		Actor->bHidden   = 1;
+		Actor->DrawType  = DT_None;
+		Actor->LifeSpan  = 0.25f;
+		SmokeCullCount++;
+	}
+
+	if( SmokeSpawnCount <= 8 || (SmokeCullCount > 0 && SmokeCullCount <= 8) )
+		debugf( NAME_Log, TEXT("XSMOKE spawn=%d culled=%d live=%d class=%s life=%.3f hidden=%d"),
+			SmokeSpawnCount, SmokeCullCount, LiveSmoke, Actor->GetClass()->GetName(), Actor->LifeSpan, Actor->bHidden );
+}
+#endif
+
 //
 // Create a new actor. Returns the new actor, or NULL if failure.
 //
@@ -132,6 +202,10 @@ AActor* ULevel::SpawnActor
 		 && (Actor->IsA(ADecoration::StaticClass()) || Actor->IsA(AInventory::StaticClass()) || Actor->IsA(APawn::StaticClass())) 
 		 && ((Actor->Physics == PHYS_None) || (Actor->Physics == PHYS_Rotating)) )
 		Actor->FindBase();
+
+#if TARGET_XBOX
+	XboxThrottleSmokePuff( this, Actor );
+#endif
 
 	// Success: Return the actor.
 	if( InTick )

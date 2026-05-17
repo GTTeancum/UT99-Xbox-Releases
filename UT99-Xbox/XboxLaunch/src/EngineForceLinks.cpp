@@ -17,6 +17,23 @@
 
 #include "XboxLaunchPrivate.h"
 
+// ── XDK display-library parity with OpenJKDF2 ───────────────────────────────
+// OpenJKDF2's known-good XBE is not just linked against these libraries; it
+// contains live D3DX/DSOUND sections and imagebld emits D3DX8 + DSOUND library
+// records. UT had d3dx8.lib/dsound.lib on the link line, but no references, so
+// LINK discarded both and the XBE stayed structurally different from the
+// baseline CXBX-R is known to display. Force one data symbol from each library.
+#pragma comment(linker, "/include:_D3DX8BuildNumber")
+#pragma comment(linker, "/include:_D3DXCreateMatrixStack@8")
+#pragma comment(linker, "/include:_DSoundBuildNumber")
+
+// ── UnScript.cpp ─────────────────────────────────────────────────────────────
+// UnScript.cpp has no IMPLEMENT_CLASS — only 3 IMPLEMENT_FUNCTION calls for
+// AActor's polling natives (EPOLL_Sleep, EPOLL_FinishAnim, EPOLL_FinishInterpolation).
+// Without a force-link, the linker strips the .obj and GNatives[EPOLL_*] stays at
+// execUndefined.  The intro level's camera interpolation hits FinishInterpolation.
+#pragma comment(linker, "/include:_intAActorexecPollSleep")
+
 // ── AStatLog.cpp ──────────────────────────────────────────────────────────────
 #pragma comment(linker, "/include:_autoclassAMutator")
 
@@ -43,6 +60,8 @@
 #pragma comment(linker, "/include:_autoclassAPlayerStart")
 #pragma comment(linker, "/include:_autoclassAKeypoint")
 #pragma comment(linker, "/include:_autoclassAInventory")
+#pragma comment(linker, "/include:_autoclassAPickup")
+#pragma comment(linker, "/include:_autoclassAAmmo")
 #pragma comment(linker, "/include:_autoclassAInventorySpot")
 #pragma comment(linker, "/include:_autoclassATriggers")
 #pragma comment(linker, "/include:_autoclassATrigger")
@@ -111,6 +130,19 @@
 // of AActor::SkelAnim) resolves at load time.  v436 binary has the import but
 // no exporting package, so a native registration is required.
 #pragma comment(linker, "/include:_autoclassUAnimation")
+
+// ── Fire/Src/UnFractal.cpp ──────────────────────────────────────────────────
+// Procedural texture native classes from Fire.u — UFireTexture, UFractalTexture,
+// UWaterTexture, UWaveTexture, UWetTexture, UIceTexture.  Without these, Fire.u
+// loads as pure-script and texture serialization mismatches due to native
+// fields (RenderTable[1028], Sparks TArray, etc.) that the script-only path
+// can't handle correctly.
+#pragma comment(linker, "/include:_autoclassUFractalTexture")
+#pragma comment(linker, "/include:_autoclassUFireTexture")
+#pragma comment(linker, "/include:_autoclassUWaterTexture")
+#pragma comment(linker, "/include:_autoclassUWaveTexture")
+#pragma comment(linker, "/include:_autoclassUWetTexture")
+#pragma comment(linker, "/include:_autoclassUIceTexture")
 
 // ── UnEngine.cpp ─────────────────────────────────────────────────────────────
 #pragma comment(linker, "/include:_autoclassUEngine")
@@ -183,6 +215,26 @@
 // confirms _autoclassUXboxClient/_autoclassUXboxViewport defined but unreferenced.
 #pragma comment(linker, "/include:_autoclassUXboxClient")
 #pragma comment(linker, "/include:_autoclassUXboxViewport")
+
+// ── XboxRender.cpp ────────────────────────────────────────────────────────────
+// Same situation as XboxDrv: IMPLEMENT_CLASS(UXboxRenderDevice) and
+// IMPLEMENT_PACKAGE(XboxRender) static initializers only run if the .obj is
+// pulled into the link. Without this, ResolveName("XboxRender.XboxRenderDevice")
+// can't find the package or class, falls through to .u file search, and dies.
+#pragma comment(linker, "/include:_autoclassUXboxRenderDevice")
+
+// ── XboxAudio.cpp ─────────────────────────────────────────────────────────────
+// Silent-stub UAudioSubsystem; Init() returns 0 so engine skips audio cleanly.
+// Default.ini's AudioDevice must point at XboxAudio.XboxAudioDevice for this
+// to be picked up; the vanilla "Galaxy.GalaxyAudioSubsystem" string crashes.
+#pragma comment(linker, "/include:_autoclassUXboxAudioDevice")
+
+// ── Script-only native-classes (Botpack, UMenu, UTMenu, UWindow, plus a few
+//    Engine.u classes like Spectator/MessagingSpectator/MapList) intentionally
+//    omitted.  These classes are flagged CLASS_Native in their .u files but
+//    have no C++ implementation in this port.  UClass::Bind now falls through
+//    to the nearest real native ancestor's ClassConstructor when GetDllExport
+//    returns NULL, so no fake C++ stubs are needed.
 
 // ForceEngineClassLinks() is called from main() before appInit() as a guard
 // against future link-order changes stripping these pragmas' effect.

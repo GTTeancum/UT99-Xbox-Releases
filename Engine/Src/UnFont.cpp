@@ -14,6 +14,8 @@
 ------------------------------------------------------------------------------*/
 
 UFont::UFont()
+: Kerning(0)
+, bRemapChars(0)
 {}
 
 void UFont::Serialize( FArchive& Ar )
@@ -23,6 +25,10 @@ void UFont::Serialize( FArchive& Ar )
 	UBOOL GSavedLazyLoad = GLazyLoad;
 	GLazyLoad = 1;
 	Ar << Pages << CharactersPerPage;
+	// v436 binary extension — see UnTex.h comment on Kerning/bRemapChars.
+	// Without these, every Font load underreads by 5 bytes and ULinkerLoad
+	// trips the SerialSize check.
+	Ar << Kerning << bRemapChars;
 	check(!(CharactersPerPage&(CharactersPerPage-1)));
 	if( !GLazyLoad )
 		for( INT c=0,p=0; c<256; c+=CharactersPerPage,p++ )

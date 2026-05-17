@@ -1,15 +1,24 @@
 #!/usr/bin/env python
-"""Parse a UE1 (UT99) .u package file and dump a UClass's Children chain.
+"""Parse a UE1 (UT99) .u package file.
 
-Usage: python parse_uclass.py <Engine.u> <ClassName>
+Modes:
+  python parse_uclass.py --list-native <Package.u>
+      List every class with CLASS_Native set, plus its PropertiesSize.
+      Use this to find native classes that need IMPLEMENT_CLASS + force-link.
 
-The output is the in-package link order of the class's children — which is
-the same order the engine uses at link time to compute UProperty offsets.
-Compare this list against the corresponding .uc / EngineClasses.h field
-declaration order to find where the C++ struct diverges.
+  python parse_uclass.py <Package.u> <ClassName>
+      Dump the Children property chain for a single class.
+      Use this to compare field order against C++ struct declarations.
 
 Reference: UT99 source — UnObj.cpp UObject::Serialize, UnClass.cpp
 UStruct::Serialize/Link, UnProp.cpp UProperty::Serialize, FPropertyTag.
+
+UClass body layout (v69/v436):
+  UField:  SuperField(ci) Next(ci)
+  UStruct: ScriptText(ci) Children(ci) FriendlyName(ci)
+           Bytecode(ci-count + N bytes) PropertiesSize(DWORD)
+  UState:  ProbeMask(QWORD) IgnoreMask(QWORD) LabelTableOffset(WORD) StateFlags(DWORD)
+  UClass:  ClassFlags(DWORD)  ← CLASS_Native = 0x00000004
 """
 
 from __future__ import print_function
@@ -230,6 +239,86 @@ def read_uclass_children(pkg, ex):
     return children
 
 
+def read_uclass_flags(pkg, ex):
+    """For a UClass export (class_idx==0, size>0), return ClassFlags (DWORD).
+
+    Walks the full UField→UStruct→UState→UClass body layout for v69 packages.
+    Source-verified layout (Core/Src/UnClass.cpp):
+
+      UField::Serialize:
+        SuperField  (compact int — object ref)
+        Next        (compact int — object ref)
+
+      UStruct::Serialize:
+        ScriptText  (compact int — object ref)
+        Children    (compact int — object ref)
+        FriendlyName(compact int — FName index)
+        Line        (INT  = 4 bytes)
+        TextPos     (INT  = 4 bytes)
+        ScriptSize  (INT  = 4 bytes)   ← raw INT, NOT compact int
+        <ScriptSize bytes of bytecode>
+        [PropertiesSize is NOT stored — computed at runtime by UStruct::Link()]
+
+      UState::Serialize:
+        ProbeMask        (QWORD = 8 bytes)
+        IgnoreMask       (QWORD = 8 bytes)
+        LabelTableOffset (_WORD = 2 bytes)
+        StateFlags       (DWORD = 4 bytes)
+
+      UClass::Serialize:
+        ClassFlags  (DWORD = 4 bytes)   ← this is what we want
+
+    CLASS_Native  = 0x00000004  — requires C++ IMPLEMENT_CLASS binding.
+    CLASS_Config  = 0x00000010  — reads config from .ini at runtime.
+    CLASS_Abstract= 0x00000020  — cannot be instantiated directly.
+
+    Raises ValueError if the parse walks past the end of the export data.
+    """
+    o = ex['offset']
+    end = o + ex['size']
+
+    def _ci():
+        nonlocal o
+        v, o = read_compact_int(pkg.data, o)
+        return v
+
+    def _dw():
+        nonlocal o
+        v, o = read_dword(pkg.data, o)
+        return v
+
+    # UField
+    _ci()   # SuperField
+    _ci()   # Next
+
+    # UStruct
+    _ci()   # ScriptText
+    _ci()   # Children
+    _ci()   # FriendlyName (FName = compact int name-table index)
+    _dw()   # Line    (INT, 4 bytes)
+    _dw()   # TextPos (INT, 4 bytes)
+
+    script_size = _dw()   # ScriptSize (INT, 4 bytes) — raw INT, not compact int
+    if script_size < 0 or o + script_size > end:
+        raise ValueError('ScriptSize %d overflows export (size=%d, remaining=%d)'
+                         % (script_size, ex['size'], end - o))
+    o += script_size      # skip bytecode bytes
+
+    # UState
+    o += 8   # ProbeMask        (QWORD)
+    o += 8   # IgnoreMask       (QWORD)
+    o += 2   # LabelTableOffset (_WORD)
+    o += 4   # StateFlags       (DWORD)
+
+    if o + 4 > end:
+        raise ValueError('ClassFlags would exceed export bounds')
+
+    # UClass
+    class_flags = _dw()   # ClassFlags
+
+    return class_flags
+
+
 def read_field_next(pkg, ex):
     """For any UField subclass (UProperty, UFunction, UStruct, UEnum, UConst,
     UState), read past the SerializeTaggedProperties prefix and the UField
@@ -265,6 +354,50 @@ def read_uproperty_header(pkg, ex):
 # ── Main ─────────────────────────────────────────────────────────────────────
 
 def main():
+    if len(sys.argv) < 2:
+        print(__doc__, file=sys.stderr)
+        sys.exit(1)
+
+    # ── --list-native mode ────────────────────────────────────────────────────
+    if sys.argv[1] == '--list-native':
+        if len(sys.argv) < 3:
+            print('Usage: parse_uclass.py --list-native <Package.u>', file=sys.stderr)
+            sys.exit(1)
+        pkg = Package(sys.argv[2])
+        if pkg.file_version > 70:
+            print('WARNING: package version %d is not UT99 v69 — UClass body layout '
+                  'may differ; results unreliable.' % pkg.file_version, file=sys.stderr)
+        CLASS_NATIVE = 0x00000004
+        print('# Package: %s' % sys.argv[2])
+        print('# version=%d.%d  names=%d  imports=%d  exports=%d' % (
+            pkg.file_version, pkg.licensee_version,
+            pkg.name_count, pkg.import_count, pkg.export_count))
+        print()
+        print('%-40s  %-12s  %s' % ('Class', 'ClassFlags', 'Notes'))
+        print('-' * 70)
+        found = 0
+        errors = 0
+        for i, ex in enumerate(pkg.exports):
+            if ex['class_idx'] != 0 or ex['size'] == 0:
+                continue  # not a UClass export, or has no data
+            name = pkg.name(ex['name_idx'])
+            try:
+                cf = read_uclass_flags(pkg, ex)
+                if cf & CLASS_NATIVE:
+                    notes = []
+                    if cf & 0x00000010: notes.append('Config')
+                    if cf & 0x00000020: notes.append('Abstract')
+                    if cf & 0x00000040: notes.append('Transient')
+                    print('%-40s  0x%08X  %s' % (name, cf, ' '.join(notes)))
+                    found += 1
+            except Exception as e:
+                print('%-40s  # parse error: %s' % (name, e))
+                errors += 1
+        print()
+        print('# %d native class(es) found, %d parse error(s)' % (found, errors))
+        sys.exit(0)
+
+    # ── single-class children-chain mode ─────────────────────────────────────
     if len(sys.argv) < 3:
         print(__doc__, file=sys.stderr)
         sys.exit(1)

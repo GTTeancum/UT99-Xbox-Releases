@@ -135,10 +135,13 @@ void UGameEngine::StaticConstructor()
 void UGameEngine::Init()
 {
 	guard(UGameEngine::Init);
+	debugf( NAME_Init, TEXT("[GE] Init: enter") );
 	check(sizeof(*this)==GetClass()->GetPropertiesSize());
 
 	// Call base.
+	debugf( NAME_Init, TEXT("[GE] Init: pre UEngine::Init") );
 	UEngine::Init();
+	debugf( NAME_Init, TEXT("[GE] Init: post UEngine::Init") );
 
 	// Init variables.
 	GLevel = NULL;
@@ -148,25 +151,36 @@ void UGameEngine::Init()
 
 	// If not a dedicated server.
 	if( GIsClient )
-	{	
+	{
 		// Init client.
+		debugf( NAME_Init, TEXT("[GE] Init: pre Client StaticLoadClass") );
 		UClass* ClientClass = StaticLoadClass( UClient::StaticClass(), NULL, TEXT("ini:Engine.Engine.ViewportManager"), NULL, LOAD_NoFail, NULL );
+		debugf( NAME_Init, TEXT("[GE] Init: pre Client ConstructObject") );
 		Client = ConstructObject<UClient>( ClientClass );
+		debugf( NAME_Init, TEXT("[GE] Init: pre Client->Init") );
 		Client->Init( this );
+		debugf( NAME_Init, TEXT("[GE] Init: post Client->Init") );
 
 		// Init rendering.
+		debugf( NAME_Init, TEXT("[GE] Init: pre Render StaticLoadClass") );
 		UClass* RenderClass = StaticLoadClass( URenderBase::StaticClass(), NULL, TEXT("ini:Engine.Engine.Render"), NULL, LOAD_NoFail, NULL );
+		debugf( NAME_Init, TEXT("[GE] Init: pre Render ConstructObject") );
 		Render = ConstructObject<URenderBase>( RenderClass );
+		debugf( NAME_Init, TEXT("[GE] Init: pre Render->Init") );
 		Render->Init( this );
+		debugf( NAME_Init, TEXT("[GE] Init: post Render->Init") );
 	}
 
 	// Load the entry level.
 	FString Error;
 	if( Client )
 	{
+		debugf( NAME_Init, TEXT("[GE] Init: pre LoadMap(Entry)") );
 		if( !LoadMap( FURL(TEXT("Entry")), NULL, NULL, Error ) )
 			appErrorf( LocalizeError("FailedBrowse"), TEXT("Entry"), *Error );
+		debugf( NAME_Init, TEXT("[GE] Init: post LoadMap(Entry)") );
 		Exchange( GLevel, GEntry );
+		debugf( NAME_Init, TEXT("[GE] Init: post Exchange GLevel/GEntry") );
 	}
 
 	// Create default URL.
@@ -184,11 +198,17 @@ void UGameEngine::Init()
 	FURL URL( &DefaultURL, Parm, TRAVEL_Partial );
 	if( !URL.Valid )
 		appErrorf( LocalizeError("InvalidUrl"), Parm );
+	debugf( NAME_Init, TEXT("[GE] Init: pre Browse(%s)"), Parm );
 	UBOOL Success = Browse( URL, NULL, Error );
+	debugf( NAME_Init, TEXT("[GE] Init: post Browse Success=%d"), Success );
 
 	// If waiting for a network connection, go into the starting level.
 	if( !Success && Error==TEXT("") && appStricmp( Parm, *FURL::DefaultLocalMap )!=0 )
+	{
+		debugf( NAME_Init, TEXT("[GE] Init: pre Browse(DefaultLocalMap fallback)") );
 		Success = Browse( FURL(&DefaultURL,*FURL::DefaultLocalMap,TRAVEL_Partial), NULL, Error );
+		debugf( NAME_Init, TEXT("[GE] Init: post Browse(DefaultLocalMap) Success=%d"), Success );
+	}
 
 	// Handle failure.
 	if( !Success )
@@ -198,24 +218,42 @@ void UGameEngine::Init()
 	if( Client )
 	{
 		// Init input.!!Temporary
+		debugf( NAME_Init, TEXT("[GE] Init: pre StaticInitInput") );
 		UInput::StaticInitInput();
+		debugf( NAME_Init, TEXT("[GE] Init: post StaticInitInput") );
 
 		// Create viewport.
+		debugf( NAME_Init, TEXT("[GE] Init: pre NewViewport") );
 		UViewport* Viewport = Client->NewViewport( NAME_None );
+		debugf( NAME_Init, TEXT("[GE] Init: post NewViewport ptr=0x%08X"), (DWORD)Viewport );
 
 		// Create console.
+		debugf( NAME_Init, TEXT("[GE] Init: pre Console StaticLoadClass") );
 		UClass* ConsoleClass = StaticLoadClass( UConsole::StaticClass(), NULL, TEXT("ini:Engine.Engine.Console"), NULL, LOAD_NoFail, NULL );
+		debugf( NAME_Init, TEXT("[GE] Init: pre Console ConstructObject") );
 		Viewport->Console = ConstructObject<UConsole>( ConsoleClass );
+		debugf( NAME_Init, TEXT("[GE] Init: pre Console->_Init") );
 		Viewport->Console->_Init( Viewport );
+		debugf( NAME_Init, TEXT("[GE] Init: post Console->_Init") );
 
 		// Spawn play actor.
 		FString Error;
+		debugf( NAME_Init, TEXT("[GE] Init: pre SpawnPlayActor") );
 		if( !GLevel->SpawnPlayActor( Viewport, ROLE_SimulatedProxy, URL, Error ) )
 			appErrorf( TEXT("%s"), *Error );
+		debugf( NAME_Init, TEXT("[GE] Init: post SpawnPlayActor") );
+		debugf( NAME_Init, TEXT("[GE] Init: pre Viewport->Input->Init") );
 		Viewport->Input->Init( Viewport );
+		debugf( NAME_Init, TEXT("[GE] Init: post Viewport->Input->Init") );
+		debugf( NAME_Init, TEXT("[GE] Init: pre Viewport->OpenWindow") );
 		Viewport->OpenWindow( 0, 0, (INT) INDEX_NONE, (INT) INDEX_NONE, (INT) INDEX_NONE, (INT) INDEX_NONE );
+		debugf( NAME_Init, TEXT("[GE] Init: post Viewport->OpenWindow") );
+		debugf( NAME_Init, TEXT("[GE] Init: pre DetailChange (RenDev=0x%08X)"), (DWORD)(Viewport ? Viewport->RenDev : NULL) );
 		GLevel->DetailChange( Viewport->RenDev->HighDetailActors );
+		debugf( NAME_Init, TEXT("[GE] Init: post DetailChange") );
+		debugf( NAME_Init, TEXT("[GE] Init: pre InitAudio") );
 		InitAudio();
+		debugf( NAME_Init, TEXT("[GE] Init: post InitAudio") );
 		if( Audio )
 			Audio->SetViewport( Viewport );
 	}
@@ -1151,11 +1189,18 @@ ULevel* UGameEngine::LoadMap( const FURL& URL, UPendingLevel* Pending, const TMa
 void UGameEngine::Draw( UViewport* Viewport, UBOOL Blit, BYTE* HitData, INT* HitSize )
 {
 	guard(UGameEngine::Draw);
+	static INT DrawDiagCount = 0;
+	DrawDiagCount++;
+	UBOOL bDrawDiag = 0;
+	if( bDrawDiag )
+		debugf( NAME_Log, TEXT("XDRAW draw=%d begin viewport=%08X actor=%08X rendev=%08X"), DrawDiagCount, (DWORD)Viewport, Viewport ? (DWORD)Viewport->Actor : 0, Viewport ? (DWORD)Viewport->RenDev : 0 );
 
 	// If not up and running yet, don't draw.
 	if( !GIsRunning )
 		return;
 	UpdateConnectingMessage();
+	if( bDrawDiag )
+		debugf( NAME_Log, TEXT("XDRAW draw=%d after-connect-msg"), DrawDiagCount );
 
 	// Get view location.
 	AActor*      ViewActor    = Viewport->Actor;
@@ -1163,6 +1208,8 @@ void UGameEngine::Draw( UViewport* Viewport, UBOOL Blit, BYTE* HitData, INT* Hit
 	FRotator     ViewRotation = ViewActor->Rotation;
 	Viewport->Actor->eventPlayerCalcView( ViewActor, ViewLocation, ViewRotation );
 	check(ViewActor);
+	if( bDrawDiag )
+		debugf( NAME_Log, TEXT("XDRAW draw=%d after-calc-view loc=(%.1f,%.1f,%.1f)"), DrawDiagCount, ViewLocation.X, ViewLocation.Y, ViewLocation.Z );
 
 	// Precaching message.
 	BYTE SavedAction = ViewActor->Level->LevelAction;
@@ -1209,8 +1256,12 @@ void UGameEngine::Draw( UViewport* Viewport, UBOOL Blit, BYTE* HitData, INT* Hit
 	FlashFog.Z   = Clamp( FlashFog.Z  , 0.f, 1.f );
 	if( Viewport->Lock(FlashScale,FlashFog,FPlane(0,0,0,0),LockFlags,HitData,HitSize) )
 	{
+		if( bDrawDiag )
+			debugf( NAME_Log, TEXT("XDRAW draw=%d lock-ok"), DrawDiagCount );
 		// Setup rendering coords.
 		FSceneNode* Frame = Render->CreateMasterFrame( Viewport, ViewLocation, ViewRotation, NULL );
+		if( bDrawDiag )
+			debugf( NAME_Log, TEXT("XDRAW draw=%d master-frame=%08X"), DrawDiagCount, (DWORD)Frame );
 
 		// Update level audio.
 		if( Audio )
@@ -1222,6 +1273,8 @@ void UGameEngine::Draw( UViewport* Viewport, UBOOL Blit, BYTE* HitData, INT* Hit
 
 		// Render.
 		Render->PreRender( Frame );
+		if( bDrawDiag )
+			debugf( NAME_Log, TEXT("XDRAW draw=%d prerender-done"), DrawDiagCount );
 		Viewport->Canvas->Render = Render;
 		if( Viewport->Console )
 			Viewport->Console->PreRender( Frame );
@@ -1236,7 +1289,13 @@ void UGameEngine::Draw( UViewport* Viewport, UBOOL Blit, BYTE* HitData, INT* Hit
 		Frame->ComputeRenderSize();
 #endif
 		if( Frame->X>0 && Frame->Y>0 && (!Viewport->Console || Viewport->Console->GetDrawWorld()) )
+		{
+			if( bDrawDiag )
+				debugf( NAME_Log, TEXT("XDRAW draw=%d drawworld-begin frame=%08X"), DrawDiagCount, (DWORD)Frame );
 			Render->DrawWorld( Frame );
+			if( bDrawDiag )
+				debugf( NAME_Log, TEXT("XDRAW draw=%d drawworld-end"), DrawDiagCount );
+		}
 #if defined(LEGEND) //MWP
 		Frame->XB = SaveXB, Frame->YB = SaveYB, Frame->X = SaveX, Frame->Y = SaveY;
 		Frame->ComputeRenderSize();
@@ -1285,18 +1344,34 @@ void UGameEngine::Draw( UViewport* Viewport, UBOOL Blit, BYTE* HitData, INT* Hit
 
 		Viewport->Canvas->Render = 0;
 		Render->PostRender( Frame );
+		if( bDrawDiag )
+			debugf( NAME_Log, TEXT("XDRAW draw=%d postrender-done unlock-begin"), DrawDiagCount );
 		Viewport->Unlock( Blit );
+		if( bDrawDiag )
+			debugf( NAME_Log, TEXT("XDRAW draw=%d unlock-done finish-begin"), DrawDiagCount );
 		Render->FinishMasterFrame();
+		if( bDrawDiag )
+			debugf( NAME_Log, TEXT("XDRAW draw=%d finish-done"), DrawDiagCount );
 	}
 	ViewActor->Level->LevelAction = SavedAction;
+	if( bDrawDiag )
+		debugf( NAME_Log, TEXT("XDRAW draw=%d level-action-restored precache=%d suspend=%d"), DrawDiagCount, Viewport->RenDev ? Viewport->RenDev->PrecacheOnFlip : 0, Viewport->bSuspendPrecaching );
 
 	// Precache now if desired.
 	if( Viewport->RenDev->PrecacheOnFlip && !Viewport->bSuspendPrecaching )
 	{
 		Viewport->RenDev->PrecacheOnFlip = 0;
 		if ( !ViewActor->Level->bNeverPrecache )
+		{
+			if( bDrawDiag )
+				debugf( NAME_Log, TEXT("XDRAW draw=%d precache-begin"), DrawDiagCount );
 			Render->Precache( Viewport );
+			if( bDrawDiag )
+				debugf( NAME_Log, TEXT("XDRAW draw=%d precache-end"), DrawDiagCount );
+		}
 	}
+	if( bDrawDiag )
+		debugf( NAME_Log, TEXT("XDRAW draw=%d end"), DrawDiagCount );
 
 	unguard;
 }
@@ -1380,6 +1455,15 @@ FLOAT UGameEngine::GetMaxTickRate()
 void UGameEngine::Tick( FLOAT DeltaSeconds )
 {
 	guard(UGameEngine::Tick);
+	static INT EngineTickDiagCount = 0;
+	EngineTickDiagCount++;
+	UBOOL bTickDiag = (EngineTickDiagCount <= 3)
+		|| (EngineTickDiagCount >= 80 && EngineTickDiagCount <= 140)
+		|| (EngineTickDiagCount >= 180 && EngineTickDiagCount <= 280)
+		|| (EngineTickDiagCount >= 300 && EngineTickDiagCount <= 360)
+		|| ((EngineTickDiagCount % 300) == 0);
+	if( bTickDiag )
+		debugf( NAME_Log, TEXT("XTICK tick=%d begin dt=%.4f client=%08X glevel=%08X"), EngineTickDiagCount, DeltaSeconds, (DWORD)Client, (DWORD)GLevel );
 	INT LocalTickCycles=0;
 	clock(LocalTickCycles);
 
@@ -1412,11 +1496,21 @@ void UGameEngine::Tick( FLOAT DeltaSeconds )
 	else WasPaused=0;
 
 	// Update subsystems.
+	if( bTickDiag )
+		debugf( NAME_Log, TEXT("XTICK tick=%d static-begin"), EngineTickDiagCount );
 	UObject::StaticTick();				
+	if( bTickDiag )
+		debugf( NAME_Log, TEXT("XTICK tick=%d static-end"), EngineTickDiagCount );
+	if( bTickDiag )
+		debugf( NAME_Log, TEXT("XTICK tick=%d cache-begin"), EngineTickDiagCount );
 	GCache.Tick();
+	if( bTickDiag )
+		debugf( NAME_Log, TEXT("XTICK tick=%d cache-end"), EngineTickDiagCount );
 
 	// Update the level.
 	guard(TickLevel);
+	if( bTickDiag )
+		debugf( NAME_Log, TEXT("XTICK tick=%d level-begin"), EngineTickDiagCount );
 	GameCycles=0;
 	clock(GameCycles);
 	if( GLevel )
@@ -1435,10 +1529,14 @@ void UGameEngine::Tick( FLOAT DeltaSeconds )
 	if( Client && Client->Viewports.Num() && Client->Viewports(0)->Actor->GetLevel()!=GLevel )
 		Client->Viewports(0)->Actor->GetLevel()->Tick( LEVELTICK_All, DeltaSeconds );
 	unclock(GameCycles);
+	if( bTickDiag )
+		debugf( NAME_Log, TEXT("XTICK tick=%d level-end"), EngineTickDiagCount );
 	unguard;
 
 	// Handle server travelling.
 	guard(ServerTravel);
+	if( bTickDiag )
+		debugf( NAME_Log, TEXT("XTICK tick=%d servertravel-begin"), EngineTickDiagCount );
 	if( GLevel && GLevel->GetLevelInfo()->NextURL!=TEXT("") )
 	{
 		if( (GLevel->GetLevelInfo()->NextSwitchCountdown-=DeltaSeconds) <= 0.0 )
@@ -1477,10 +1575,14 @@ void UGameEngine::Tick( FLOAT DeltaSeconds )
 			return;
 		}
 	}
+	if( bTickDiag )
+		debugf( NAME_Log, TEXT("XTICK tick=%d servertravel-end"), EngineTickDiagCount );
 	unguard;
 
 	// Handle client travelling.
 	guard(ClientTravel);
+	if( bTickDiag )
+		debugf( NAME_Log, TEXT("XTICK tick=%d clienttravel-begin"), EngineTickDiagCount );
 	if( Client && Client->Viewports.Num() && Client->Viewports(0)->TravelURL!=TEXT("") )
 	{
 		// Travel to new level, and exit.
@@ -1507,10 +1609,14 @@ void UGameEngine::Tick( FLOAT DeltaSeconds )
 
 		return;
 	}
+	if( bTickDiag )
+		debugf( NAME_Log, TEXT("XTICK tick=%d clienttravel-end"), EngineTickDiagCount );
 	unguard;
 
 	// Update the pending level.
 	guard(TickPending);
+	if( bTickDiag )
+		debugf( NAME_Log, TEXT("XTICK tick=%d pending-begin"), EngineTickDiagCount );
 	if( GPendingLevel )
 	{
 		GPendingLevel->Tick( DeltaSeconds );
@@ -1556,6 +1662,8 @@ void UGameEngine::Tick( FLOAT DeltaSeconds )
 			unguard;
 		}
 	}
+	if( bTickDiag )
+		debugf( NAME_Log, TEXT("XTICK tick=%d pending-end"), EngineTickDiagCount );
 	unguard;
 
 	// Render everything.
@@ -1563,9 +1671,13 @@ void UGameEngine::Tick( FLOAT DeltaSeconds )
 	INT LocalClientCycles=0;
 	if( Client )
 	{
+		if( bTickDiag )
+			debugf( NAME_Log, TEXT("XTICK tick=%d client-begin"), EngineTickDiagCount );
 		clock(LocalClientCycles);
 		Client->Tick();
 		unclock(LocalClientCycles);
+		if( bTickDiag )
+			debugf( NAME_Log, TEXT("XTICK tick=%d client-end"), EngineTickDiagCount );
 	}
 	ClientCycles=LocalClientCycles;
 	unguard;
@@ -1573,6 +1685,8 @@ void UGameEngine::Tick( FLOAT DeltaSeconds )
 	unclock(LocalTickCycles);
 	TickCycles=LocalTickCycles;
 	GTicks++;
+	if( bTickDiag )
+		debugf( NAME_Log, TEXT("XTICK tick=%d end gticks=%d"), EngineTickDiagCount, GTicks );
 	unguard;
 }
 

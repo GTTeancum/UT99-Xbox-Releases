@@ -341,11 +341,6 @@ void UStruct::Link( FArchive& Ar, UBOOL Props )
 			Ar.Preload( GetInheritanceSuper() );
 			PropertiesSize = Align(GetInheritanceSuper()->GetPropertiesSize(),4);
 		}
-		debugf( TEXT("UStruct::Link[%s] start PropSize=%d (super=%s super-PropSize=%d) sizeof(UObject)=%d"),
-			GetName(), PropertiesSize,
-			GetInheritanceSuper() ? GetInheritanceSuper()->GetName() : TEXT("(none)"),
-			GetInheritanceSuper() ? GetInheritanceSuper()->GetPropertiesSize() : 0,
-			(INT)sizeof(UObject) );
 		UProperty* Prev = NULL;
 		INT FieldCount = 0, PropCount = 0;
 		for( UField* Field=Children; Field; Field=Field->Next )
@@ -354,6 +349,7 @@ void UStruct::Link( FArchive& Ar, UBOOL Props )
 			FieldCount++;
 			if( Field->GetOuter()!=this )
 			{
+				// Always log BREAK — it's an error condition, never spammy
 				debugf( TEXT("UStruct::Link[%s] BREAK at field %d (%s) — Outer=%s != this"),
 					GetName(), FieldCount, Field->GetName(),
 					Field->GetOuter() ? Field->GetOuter()->GetName() : TEXT("NULL") );
@@ -369,8 +365,12 @@ void UStruct::Link( FArchive& Ar, UBOOL Props )
 			}
 		}
 		PropertiesSize = Align(PropertiesSize,4);
-		debugf( TEXT("UStruct::Link[%s] end PropSize=%d Fields=%d Props=%d"),
-			GetName(), PropertiesSize, FieldCount, PropCount );
+		// Beacon: one line per class. Tells us scenario A (cascade break) vs B (Link not running) vs C (later reset).
+		debugf( TEXT("LINK[%s] PropSize=%d super=%s superPropSize=%d ownProps=%d fields=%d"),
+			GetName(), PropertiesSize,
+			GetInheritanceSuper() ? GetInheritanceSuper()->GetName() : TEXT("(none)"),
+			GetInheritanceSuper() ? GetInheritanceSuper()->GetPropertiesSize() : 0,
+			PropCount, FieldCount );
 	}
 	else
 	{
@@ -465,13 +465,38 @@ void UStruct::SerializeBin( FArchive& Ar, BYTE* Data )
 	FName PropertyName(NAME_None);
 	INT Index=0;
 	guard(UStruct::SerializeBin);
+	// Xbox-port: when this UStruct *is* the Camera UClass, log every property
+	// before+after serialization so we can pinpoint which property's
+	// SerializeItem walks into bad memory.  Camera is the only class that
+	// hangs in the GC mark pass; restricting the log to it keeps the volume
+	// manageable (a few hundred lines instead of tens of thousands).
+	const UBOOL bCameraTrace =
+		(appStricmp(GetName(), TEXT("Camera")) == 0);
+	if( bCameraTrace )
+		debugf( NAME_Log, TEXT("[Cam SerBin] %s enter Data=%p"),
+			GetFullName(), Data );
 	for( TFieldIterator<UProperty> It(this); It; ++It )
 	{
 		PropertyName = It->GetFName();
+		if( bCameraTrace )
+			debugf( NAME_Log,
+				TEXT("[Cam SerBin] prop '%s' (%s) offs=%d elemSize=%d dim=%d shouldSer=%d"),
+				It->GetName(),
+				It->GetClass()->GetName(),
+				It->Offset, It->ElementSize, It->ArrayDim,
+				It->ShouldSerializeValue(Ar) );
 		if( It->ShouldSerializeValue(Ar) )
 			for( Index=0; Index<It->ArrayDim; Index++ )
+			{
+				if( bCameraTrace )
+					debugf( NAME_Log, TEXT("[Cam SerBin]   item[%d] pre"), Index );
 				It->SerializeItem( Ar, Data + It->Offset + Index*It->ElementSize );
+				if( bCameraTrace )
+					debugf( NAME_Log, TEXT("[Cam SerBin]   item[%d] post"), Index );
+			}
 	}
+	if( bCameraTrace )
+		debugf( NAME_Log, TEXT("[Cam SerBin] %s exit"), GetFullName() );
 	unguardf(( TEXT("(%s %s[%i])"), GetFullName(), *PropertyName, Index ));
 }
 void UStruct::SerializeTaggedProperties( FArchive& Ar, BYTE* Data, UClass* DefaultsClass )
@@ -825,10 +850,9 @@ void UClass::Bind()
 			check(*ClassPtr==this);
 			ClassConstructor = (*ClassPtr)->ClassConstructor;
 		}
-		else if( !GIsEditor )
-		{
-			appErrorf( TEXT("Can't bind to native class %s"), GetPathName() );
-		}
+		// Xbox static-lib build has no DLLs; GetDllExport always returns NULL.
+		// Fall through to the parent walk below — ClassConstructor inherits from
+		// the nearest real native ancestor's IMPLEMENT_CLASS.
 	}
 	if( !ClassConstructor && GetSuperClass() )
 	{
@@ -929,13 +953,21 @@ void UClass::Link( FArchive& Ar, UBOOL Props )
 void UClass::Serialize( FArchive& Ar )
 {
 	guard(UClass::Serialize);
+	// Xbox-port: phase beacons so we can see which phase of UClass::Serialize
+	// hangs on the GC mark pass.  GC archives go through the third branch
+	// (neither IsLoading nor IsSaving) and call SerializeBin on Defaults,
+	// which walks every inherited UProperty and follows every object ptr —
+	// any bad pointer in Defaults will deref garbage from there.
+	debugf( NAME_Log, TEXT("[ClsSer] %s phase=pre-Super  loading=%d saving=%d"),
+		GetName(), Ar.IsLoading(), Ar.IsSaving() );
 	Super::Serialize( Ar );
+	debugf( NAME_Log, TEXT("[ClsSer] %s phase=post-Super, pre-ClassFlags"), GetName() );
 
 	// Variables.
 	if( Ar.Ver() <= 61 )//oldver
 	{
 		INT OldClassRecordSize=0;
-		Ar << OldClassRecordSize; 
+		Ar << OldClassRecordSize;
 		SetFlags( RF_Public | RF_Standalone );
 	}
 	Ar << ClassFlags << ClassGuid;
@@ -944,6 +976,9 @@ void UClass::Serialize( FArchive& Ar )
 		Ar << ClassWithin << ClassConfigName;
 	else
 		ClassConfigName = FName(TEXT("System"));
+
+	debugf( NAME_Log, TEXT("[ClsSer] %s phase=post-headers, Defaults.Num=%d PropSize=%d"),
+		GetName(), Defaults.Num(), GetPropertiesSize() );
 
 	// Defaults.
 	if( Ar.IsLoading() )
@@ -967,10 +1002,55 @@ void UClass::Serialize( FArchive& Ar )
 	}
 	else
 	{
+		// GC mark pass enters here.
+		debugf( NAME_Log, TEXT("[ClsSer] %s phase=pre-SerializeBin"), GetName() );
 		check(Defaults.Num()==GetPropertiesSize());
 		Defaults.CountBytes( Ar );
-		SerializeBin( Ar, &Defaults(0) );
+
+		// Xbox-port: SerializeBin walks the runtime property chain via
+		// TFieldIterator<UProperty>, which follows SuperField (loaded from
+		// the .u file) — NOT the C++ inheritance chain.  For stub classes
+		// (UTConsole, UnrealConsole, etc. — our auto-generated UMenu/UTMenu/
+		// BotPack stubs that are bodyless on the C++ side), our
+		// PropertiesSize == UObject size (40) because Children is empty
+		// in C++, but the runtime SuperField points at real classes
+		// (e.g. UTConsole → UnrealConsole → WindowConsole → UConsole)
+		// whose properties have Offset > 40.  The original SerializeBin
+		// then reads `Data + Offset` past the end of our 40-byte Defaults
+		// buffer and into adjacent heap memory — interpreting garbage as
+		// UObject pointers and following them.  That's what hangs the GC
+		// mark pass after Camera (root[99]) — UTConsole at root[151] sits
+		// past the C++/runtime mismatch boundary.
+		//
+		// Inline the SerializeBin loop here with a bounds check so we
+		// skip any property whose extent doesn't fit in our Defaults
+		// buffer.  Properties belong to the upper part of the runtime
+		// chain that has no backing memory in our (stub) defaults —
+		// silently ignoring them in the GC mark is correct: there's no
+		// actual UObject* stored at those (nonexistent) offsets to follow.
+		BYTE* Data       = &Defaults(0);
+		const INT DataSz = Defaults.Num();
+		INT      Skipped = 0;
+		for( TFieldIterator<UProperty> It(this); It; ++It )
+		{
+			if( !It->ShouldSerializeValue(Ar) )
+				continue;
+			const INT End = It->Offset + It->ArrayDim * It->ElementSize;
+			if( End > DataSz )
+			{
+				++Skipped;
+				continue;
+			}
+			for( INT Index=0; Index<It->ArrayDim; Index++ )
+				It->SerializeItem( Ar, Data + It->Offset + Index*It->ElementSize );
+		}
+		if( Skipped > 0 )
+			debugf( NAME_Log, TEXT("[ClsSer] %s skipped %d out-of-bounds prop(s) (Defaults.Num=%d)"),
+				GetName(), Skipped, DataSz );
+
+		debugf( NAME_Log, TEXT("[ClsSer] %s phase=post-SerializeBin"), GetName() );
 	}
+	debugf( NAME_Log, TEXT("[ClsSer] %s phase=done"), GetName() );
 	unguardobj;
 }
 
@@ -1427,8 +1507,13 @@ void UFunction::Bind()
 		// Find dynamic native.
 		TCHAR Proc[256];
 		appSprintf( Proc, TEXT("int%sexec%s"), GetOwnerClass()->GetNameCPP(), GetName() );
+		// Checked=0: silent NULL on DLL miss.  Xbox static-lib builds have no
+		// DLLs; we consult the dynamic-native registry (populated by
+		// IMPLEMENT_FUNCTION) as a fallback.
 		UPackage* ClassPackage = GetOwnerClass()->GetOuterUPackage();
-		Native* Ptr = (Native*)ClassPackage->GetDllExport( Proc, 1 );
+		Native* Ptr = (Native*)ClassPackage->GetDllExport( Proc, 0 );
+		if( !Ptr )
+			Ptr = GFindDynamicNative( Proc );
 		if( Ptr )
 			Func = *Ptr;
 	}

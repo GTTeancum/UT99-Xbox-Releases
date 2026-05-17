@@ -83,6 +83,8 @@
     #define GPackage GPackage_Engine
   #elif defined(RENDER_EXPORTS)
     #define GPackage GPackage_Render
+  #elif defined(FIRE_EXPORTS)
+    #define GPackage GPackage_Fire
   #endif
   // XboxDrv and XboxRender have their own forced includes that override this.
 

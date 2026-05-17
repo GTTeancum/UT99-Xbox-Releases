@@ -9,6 +9,96 @@
 #include "EnginePrivate.h"
 #include "UnNet.h"
 
+#if TARGET_XBOX
+static UBOOL XboxTickClassNameContains( UClass* Class, const TCHAR* Fragment )
+{
+	for( UClass* Test = Class; Test; Test = Test->GetSuperClass() )
+		if( appStrstr( Test->GetName(), Fragment ) )
+			return 1;
+	return 0;
+}
+
+static UBOOL XboxTickIsSmokePuffClass( UClass* Class )
+{
+	return XboxTickClassNameContains( Class, TEXT("SpriteSmokePuff") )
+		|| XboxTickClassNameContains( Class, TEXT("SmokePuff") )
+		|| XboxTickClassNameContains( Class, TEXT("BlackSmoke") )
+		|| XboxTickClassNameContains( Class, TEXT("BloodPuff") )
+		|| XboxTickClassNameContains( Class, TEXT("GreenGelPuff") );
+}
+
+static UBOOL XboxTickIsSmokeGeneratorClass( UClass* Class )
+{
+	return XboxTickClassNameContains( Class, TEXT("SmokeGenerator") )
+		|| XboxTickClassNameContains( Class, TEXT("ShortSmokeGen") )
+		|| XboxTickClassNameContains( Class, TEXT("SmokeHose") );
+}
+
+static INT XboxTickCountSmokePuffs( ULevel* Level )
+{
+	INT Count = 0;
+	for( INT i=0; i<Level->Actors.Num(); i++ )
+	{
+		AActor* Test = Level->Actors(i);
+		if( Test && !Test->bDeleteMe && XboxTickIsSmokePuffClass( Test->GetClass() ) )
+			Count++;
+	}
+	return Count;
+}
+
+static UBOOL XboxShouldSuppressSmokeTimer( AActor* Actor )
+{
+	if( !Actor || !XboxTickIsSmokeGeneratorClass( Actor->GetClass() ) )
+		return 0;
+
+	static INT SuppressCount = 0;
+	INT LiveSmoke = XboxTickCountSmokePuffs( Actor->GetLevel() );
+	Actor->TimerCounter = 0.0f;
+	Actor->TimerRate    = 0.0f;
+	Actor->bHidden      = 1;
+	Actor->DrawType     = DT_None;
+	Actor->RemoteRole   = ROLE_None;
+	SuppressCount++;
+	if( SuppressCount <= 8 )
+		debugf( NAME_Log, TEXT("XSMOKEGEN suppress=%d live=%d actor=%s class=%s rate=%.3f"),
+			SuppressCount, LiveSmoke, Actor->GetName(), Actor->GetClass()->GetName(), Actor->TimerRate );
+	return 1;
+}
+
+static INT   GXboxTickDiagLevel      = 0;
+static INT   GXboxTickDiagActorIndex = -1;
+static UBOOL GXboxTickDiagActorSteps = 0;
+
+static void XboxLogActorTickStep( AActor* Actor, const TCHAR* Phase )
+{
+	if( !GXboxTickDiagActorSteps || !Actor )
+		return;
+
+	debugf( NAME_Log, TEXT("XACTORSTEP ltick=%d i=%d phase=%s actor=%08X class=%s name=%s phys=%d role=%d remote=%d timer=%.3f/%.3f life=%.3f draw=%d hidden=%u del=%u loc=(%.1f,%.1f,%.1f) vel=(%.1f,%.1f,%.1f)"),
+		GXboxTickDiagLevel,
+		GXboxTickDiagActorIndex,
+		Phase,
+		(DWORD)Actor,
+		Actor->GetClass() ? Actor->GetClass()->GetName() : TEXT("None"),
+		Actor->GetName(),
+		(INT)Actor->Physics,
+		(INT)Actor->Role,
+		(INT)Actor->RemoteRole,
+		Actor->TimerCounter,
+		Actor->TimerRate,
+		Actor->LifeSpan,
+		(INT)Actor->DrawType,
+		(DWORD)Actor->bHidden,
+		(DWORD)Actor->bDeleteMe,
+		Actor->Location.X,
+		Actor->Location.Y,
+		Actor->Location.Z,
+		Actor->Velocity.X,
+		Actor->Velocity.Y,
+		Actor->Velocity.Z );
+}
+#endif
+
 /*-----------------------------------------------------------------------------
 	Helper classes.
 -----------------------------------------------------------------------------*/
@@ -48,6 +138,9 @@ struct FActorPriority
 UBOOL AActor::Tick( FLOAT DeltaSeconds, ELevelTick TickType )
 {
 	guard(AActor::Tick);
+#if TARGET_XBOX
+	XboxLogActorTickStep( this, TEXT("begin") );
+#endif
 
 	// Ignore actors in stasis
 	if
@@ -194,6 +287,9 @@ UBOOL AActor::Tick( FLOAT DeltaSeconds, ELevelTick TickType )
 			}
 		}
 	}
+#if TARGET_XBOX
+	XboxLogActorTickStep( this, TEXT("anim-end") );
+#endif
 
 	// This actor is tickable.
 	if( bSimulatedPawn )
@@ -214,7 +310,15 @@ UBOOL AActor::Tick( FLOAT DeltaSeconds, ELevelTick TickType )
 
 		// Tick the nonplayer.
 		if ( IsProbing(NAME_Tick) )
+		{
+#if TARGET_XBOX
+			XboxLogActorTickStep( this, TEXT("sim-eventtick-begin") );
+#endif
 			eventTick(DeltaSeconds);
+#if TARGET_XBOX
+			XboxLogActorTickStep( this, TEXT("sim-eventtick-end") );
+#endif
+		}
 	}
 	else if( RemoteRole == ROLE_AutonomousProxy ) 
 	{
@@ -256,7 +360,14 @@ UBOOL AActor::Tick( FLOAT DeltaSeconds, ELevelTick TickType )
 				}
 
 				// Call timer routine with count of timer events that have passed.
+#if TARGET_XBOX
+				XboxLogActorTickStep( this, TEXT("autotimer-begin") );
+				if( !XboxShouldSuppressSmokeTimer( this ) )
+#endif
 				eventTimer();
+#if TARGET_XBOX
+				XboxLogActorTickStep( this, TEXT("autotimer-end") );
+#endif
 			}
 		}
 	}
@@ -273,7 +384,15 @@ UBOOL AActor::Tick( FLOAT DeltaSeconds, ELevelTick TickType )
 
 			// Tick the nonplayer.
 			if ( IsProbing(NAME_Tick) )
+			{
+#if TARGET_XBOX
+				XboxLogActorTickStep( this, TEXT("eventtick-begin") );
+#endif
 				eventTick(DeltaSeconds);
+#if TARGET_XBOX
+				XboxLogActorTickStep( this, TEXT("eventtick-end") );
+#endif
+			}
 		}
 		else
 		{
@@ -295,7 +414,13 @@ UBOOL AActor::Tick( FLOAT DeltaSeconds, ELevelTick TickType )
 		}
 
 		// Update the actor's script state code.
+#if TARGET_XBOX
+		XboxLogActorTickStep( this, TEXT("state-begin") );
+#endif
 		ProcessState( DeltaSeconds );
+#if TARGET_XBOX
+		XboxLogActorTickStep( this, TEXT("state-end") );
+#endif
 
 		// Update timers.
 		if( TimerRate>0.0 && (TimerCounter+=DeltaSeconds)>=TimerRate )
@@ -315,10 +440,20 @@ UBOOL AActor::Tick( FLOAT DeltaSeconds, ELevelTick TickType )
 			}
 
 			// Call timer routine with count of timer events that have passed.
+#if TARGET_XBOX
+			XboxLogActorTickStep( this, TEXT("timer-begin") );
+			if( !XboxShouldSuppressSmokeTimer( this ) )
+#endif
 			eventTimer();
+#if TARGET_XBOX
+			XboxLogActorTickStep( this, TEXT("timer-end") );
+#endif
 		}
 
 		// Update LifeSpan.
+#if TARGET_XBOX
+		XboxLogActorTickStep( this, TEXT("lifespan-begin") );
+#endif
 		if( LifeSpan!=0.f )
 		{
 			LifeSpan -= DeltaSeconds;
@@ -330,13 +465,32 @@ UBOOL AActor::Tick( FLOAT DeltaSeconds, ELevelTick TickType )
 				return 1;
 			}
 		}
+#if TARGET_XBOX
+		XboxLogActorTickStep( this, TEXT("lifespan-end") );
+#endif
 
 		// Perform physics.
 		if( Physics!=PHYS_None && Role!=ROLE_AutonomousProxy )
+		{
+#if TARGET_XBOX
+			XboxLogActorTickStep( this, TEXT("physics-begin") );
+#endif
 			performPhysics( DeltaSeconds );
+#if TARGET_XBOX
+			XboxLogActorTickStep( this, TEXT("physics-end") );
+#endif
+		}
 	}
 	else if ( Physics == PHYS_Falling ) // dumbproxies simulate falling if client side physics set
+	{
+#if TARGET_XBOX
+		XboxLogActorTickStep( this, TEXT("dumbfall-physics-begin") );
+#endif
 		performPhysics( DeltaSeconds );
+#if TARGET_XBOX
+		XboxLogActorTickStep( this, TEXT("dumbfall-physics-end") );
+#endif
+	}
 
 	// During demo playback, setup view offsets for viewtarget
 	if( GetLevel()->DemoRecDriver && GetLevel()->DemoRecDriver->ServerConnection )
@@ -368,6 +522,9 @@ UBOOL AActor::Tick( FLOAT DeltaSeconds, ELevelTick TickType )
 	// Also sends PainTimer messages if PainTime
 	if( Pawn )
 	{
+#if TARGET_XBOX
+		XboxLogActorTickStep( this, TEXT("pawnpost-begin") );
+#endif
 		if( Pawn->bIsPlayer && Role>=ROLE_AutonomousProxy )
 		{
 			if ( Pawn->bViewTarget )
@@ -418,8 +575,14 @@ UBOOL AActor::Tick( FLOAT DeltaSeconds, ELevelTick TickType )
 			if ( Pawn->bAdvancedTactics )
 				Pawn->eventUpdateTactics(DeltaSeconds);
 		}
+#if TARGET_XBOX
+		XboxLogActorTickStep( this, TEXT("pawnpost-end") );
+#endif
 	}
 
+#if TARGET_XBOX
+	XboxLogActorTickStep( this, TEXT("return") );
+#endif
 	return 1;
 	unguard;
 }
@@ -750,6 +913,20 @@ INT ULevel::TickDemoPlayback( FLOAT DeltaSeconds )
 void ULevel::Tick( ELevelTick TickType, FLOAT DeltaSeconds )
 {
 	guard(ULevel::Tick);
+	static INT LevelTickDiagCount = 0;
+	LevelTickDiagCount++;
+	UBOOL bLevelDiag = (LevelTickDiagCount <= 3)
+		|| (LevelTickDiagCount >= 160 && LevelTickDiagCount <= 280)
+		|| (LevelTickDiagCount >= 240 && LevelTickDiagCount <= 280)
+		|| (LevelTickDiagCount >= 360 && LevelTickDiagCount <= 560)
+		|| (LevelTickDiagCount >= 600 && LevelTickDiagCount <= 720)
+		|| ((LevelTickDiagCount % 300) == 0);
+	UBOOL bActorDiag = (LevelTickDiagCount >= 160 && LevelTickDiagCount <= 280)
+		|| (LevelTickDiagCount >= 420 && LevelTickDiagCount <= 500)
+		|| (LevelTickDiagCount >= 520 && LevelTickDiagCount <= 545)
+		|| (LevelTickDiagCount >= 600 && LevelTickDiagCount <= 720);
+	if( bLevelDiag )
+		debugf( NAME_Log, TEXT("XLEVEL tick=%d begin type=%d dt=%.4f actors=%d"), LevelTickDiagCount, TickType, DeltaSeconds, Actors.Num() );
 	ALevelInfo* Info = GetLevelInfo();
 	InitStats();
 	FMemMark Mark(GMem);
@@ -770,32 +947,46 @@ void ULevel::Tick( ELevelTick TickType, FLOAT DeltaSeconds )
 
 	// Update the net code and fetch all incoming packets.
 	guard(UpdatePreNet);
+	if( bLevelDiag )
+		debugf( NAME_Log, TEXT("XLEVEL tick=%d prenet-begin net=%08X"), LevelTickDiagCount, (DWORD)NetDriver );
 	if( NetDriver )
 	{
 		NetDriver->TickDispatch( DeltaSeconds );
 		if( NetDriver->ServerConnection )
 			TickNetClient( DeltaSeconds );
 	}
+	if( bLevelDiag )
+		debugf( NAME_Log, TEXT("XLEVEL tick=%d prenet-end"), LevelTickDiagCount );
 	unguard;
 
 	// Fetch demo playback packets from demo file.
 	guard(UpdatePreDemoRec);
+	if( bLevelDiag )
+		debugf( NAME_Log, TEXT("XLEVEL tick=%d predemo-begin demo=%08X"), LevelTickDiagCount, (DWORD)DemoRecDriver );
 	if( DemoRecDriver )
 	{
 		DemoRecDriver->TickDispatch( DeltaSeconds );
 		if( DemoRecDriver->ServerConnection )
 			TickDemoPlayback( DeltaSeconds );
 	}
+	if( bLevelDiag )
+		debugf( NAME_Log, TEXT("XLEVEL tick=%d predemo-end"), LevelTickDiagCount );
 	unguard;
 
 	// Update collision.
 	guard(UpdateCollision);
+	if( bLevelDiag )
+		debugf( NAME_Log, TEXT("XLEVEL tick=%d collision-begin hash=%08X"), LevelTickDiagCount, (DWORD)Hash );
 	if( Hash )
 		Hash->Tick();
+	if( bLevelDiag )
+		debugf( NAME_Log, TEXT("XLEVEL tick=%d collision-end"), LevelTickDiagCount );
 	unguard;
 
 	// Update time.
 	guard(UpdateTime);
+	if( bLevelDiag )
+		debugf( NAME_Log, TEXT("XLEVEL tick=%d time-begin"), LevelTickDiagCount );
 	DeltaSeconds *= Info->TimeDilation;
 	TimeSeconds += DeltaSeconds;
 	Info->TimeSeconds = TimeSeconds;
@@ -806,6 +997,8 @@ void ULevel::Tick( ELevelTick TickType, FLOAT DeltaSeconds )
 
 	// Clamp time between 200 fps and 2.5 fps.
 	DeltaSeconds = Clamp(DeltaSeconds,0.005f,0.40f);
+	if( bLevelDiag )
+		debugf( NAME_Log, TEXT("XLEVEL tick=%d time-end clamped=%.4f"), LevelTickDiagCount, DeltaSeconds );
 
 	// If caller wants time update only, or we are paused, skip the rest.
 	clock(ActorTickCycles);
@@ -816,11 +1009,42 @@ void ULevel::Tick( ELevelTick TickType, FLOAT DeltaSeconds )
 	{
 		// Tick all actors, owners before owned.
 		guard(TickAllActors);
+		if( bLevelDiag )
+		debugf( NAME_Log, TEXT("XLEVEL tick=%d actors-begin first=%d num=%d"), LevelTickDiagCount, iFirstDynamicActor, Actors.Num() );
 		NewlySpawned = NULL;
 		INT Updated  = 0;
 		for( INT iActor=iFirstDynamicActor; iActor<Actors.Num(); iActor++ )
 			if( Actors( iActor ) )
-				Updated += Actors( iActor )->Tick(DeltaSeconds,TickType);
+			{
+				AActor* TickActor = Actors(iActor);
+				const UBOOL bActorFineDiag = bActorDiag
+					&& ( ((iActor >= 288 && iActor <= 324)
+					&&   ((LevelTickDiagCount >= 220 && LevelTickDiagCount <= 235)
+					||    (LevelTickDiagCount >= 435 && LevelTickDiagCount <= 455)))
+					||   ((iActor >= 178 && iActor <= 224)
+					&&    (LevelTickDiagCount >= 530 && LevelTickDiagCount <= 545)) );
+				if( bActorDiag && (bActorFineDiag || ((iActor & 31)==0 || iActor==Actors.Num()-1)) )
+					debugf( NAME_Log, TEXT("XLEVEL tick=%d actor-begin i=%d actor=%08X class=%s name=%s ticked=%u phys=%d role=%d remote=%d timer=%.3f/%.3f life=%.3f draw=%d hidden=%u"),
+						LevelTickDiagCount, iActor, (DWORD)TickActor,
+						TickActor->GetClass() ? TickActor->GetClass()->GetName() : TEXT("None"),
+						TickActor->GetName(), TickActor->bTicked,
+						(INT)TickActor->Physics, (INT)TickActor->Role, (INT)TickActor->RemoteRole,
+						TickActor->TimerCounter, TickActor->TimerRate, TickActor->LifeSpan,
+						(INT)TickActor->DrawType, (DWORD)TickActor->bHidden );
+#if TARGET_XBOX
+				GXboxTickDiagLevel      = LevelTickDiagCount;
+				GXboxTickDiagActorIndex = iActor;
+				GXboxTickDiagActorSteps = bActorFineDiag;
+#endif
+				Updated += TickActor->Tick(DeltaSeconds,TickType);
+#if TARGET_XBOX
+				GXboxTickDiagActorSteps = 0;
+				GXboxTickDiagActorIndex = -1;
+#endif
+				if( bActorDiag && (bActorFineDiag || ((iActor & 31)==0 || iActor==Actors.Num()-1)) )
+					debugf( NAME_Log, TEXT("XLEVEL tick=%d actor-end i=%d actor=%08X updated=%d"),
+						LevelTickDiagCount, iActor, (DWORD)TickActor, Updated );
+			}
 		while( NewlySpawned && Updated )
 		{
 			FActorLink* Link = NewlySpawned;
@@ -828,8 +1052,20 @@ void ULevel::Tick( ELevelTick TickType, FLOAT DeltaSeconds )
 			Updated          = 0;
 			for( Link; Link; Link=Link->Next )
 				if( Link->Actor->bTicked!=(DWORD)Ticked )
+				{
+					if( bActorDiag )
+						debugf( NAME_Log, TEXT("XLEVEL tick=%d spawned-begin actor=%08X class=%s name=%s ticked=%u"),
+							LevelTickDiagCount, (DWORD)Link->Actor,
+							Link->Actor->GetClass() ? Link->Actor->GetClass()->GetName() : TEXT("None"),
+							Link->Actor->GetName(), Link->Actor->bTicked );
 					Updated += Link->Actor->Tick( DeltaSeconds, TickType );
+					if( bActorDiag )
+						debugf( NAME_Log, TEXT("XLEVEL tick=%d spawned-end actor=%08X updated=%d"),
+							LevelTickDiagCount, (DWORD)Link->Actor, Updated );
+				}
 		}
+		if( bLevelDiag )
+			debugf( NAME_Log, TEXT("XLEVEL tick=%d actors-end updated=%d"), LevelTickDiagCount, Updated );
 		unguard;
 	}
 	else if( Info->Pauser!=TEXT("") )
@@ -856,22 +1092,30 @@ void ULevel::Tick( ELevelTick TickType, FLOAT DeltaSeconds )
 
 	// Update net server and flush networking.
 	guard(UpdateNetServer);
+	if( bLevelDiag )
+		debugf( NAME_Log, TEXT("XLEVEL tick=%d netserver-begin"), LevelTickDiagCount );
 	if( NetDriver )
 	{
 		if( !NetDriver->ServerConnection )
 			TickNetServer( DeltaSeconds );
 		NetDriver->TickFlush();
 	}
+	if( bLevelDiag )
+		debugf( NAME_Log, TEXT("XLEVEL tick=%d netserver-end"), LevelTickDiagCount );
 	unguard;
 
 	// Demo Recording.
 	guard(UpdatePostDemoRec);
+	if( bLevelDiag )
+		debugf( NAME_Log, TEXT("XLEVEL tick=%d postdemo-begin"), LevelTickDiagCount );
 	if( DemoRecDriver )
 	{
 		if( !DemoRecDriver->ServerConnection )
 			TickDemoRecord( DeltaSeconds );
 		DemoRecDriver->TickFlush();
 	}
+	if( bLevelDiag )
+		debugf( NAME_Log, TEXT("XLEVEL tick=%d postdemo-end"), LevelTickDiagCount );
 	unguard;
 
 	// Finish up.
@@ -880,6 +1124,8 @@ void ULevel::Tick( ELevelTick TickType, FLOAT DeltaSeconds )
 	Mark.Pop();
 	EngineMark.Pop();
 	CleanupDestroyed( 0 );
+	if( bLevelDiag )
+		debugf( NAME_Log, TEXT("XLEVEL tick=%d end"), LevelTickDiagCount );
 
 	unguardf(( TEXT("(NetMode=%i)"), GetLevelInfo()->NetMode ));
 }

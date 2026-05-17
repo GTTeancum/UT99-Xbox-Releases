@@ -174,6 +174,20 @@ CORE_API FArchive& operator<<( FArchive& Ar, FString& A )
 {
 	guard(FString<<);
 	A.CountBytes( Ar );
+	// Xbox-port: for archives that are neither loading nor saving — e.g.
+	// FArchiveTagUsed used by UObject::CollectGarbage's mark pass — there is
+	// no character data to transfer.  The original loop below still ran
+	// `Ar << BYTE` A.Num() times even for those archives (the inner call
+	// is a no-op, but the iteration itself isn't), and appIsPureAnsi walks
+	// A's buffer until NUL.  If an FString in a Defaults blob has a
+	// corrupted Num/Data pair (we hit this on Camera's localized
+	// `ViewingFrom` field after LoadLocalized → ImportText) appIsPureAnsi
+	// walks until it stumbles into a NUL byte — potentially gigabytes
+	// later — and the byte loop iterates billions of times before
+	// returning.  FArchiveTagUsed only cares about UObject*/FName tagging,
+	// so short-circuit here.
+	if( !Ar.IsLoading() && !Ar.IsSaving() )
+		return Ar;
 	INT SaveNum = appIsPureAnsi(*A) ? A.Num() : -A.Num();
 	Ar << AR_INDEX(SaveNum);
 	if( Ar.IsLoading() )
@@ -1449,6 +1463,27 @@ UBOOL appFindPackageFile( const TCHAR* In, const FGuid* Guid, TCHAR* Out )
 {
 	guard(appFindPackageFile);
 	TCHAR Temp[256];
+
+	// Xbox-port: when appFindPackageFile is called for UTMenu (the first
+	// package we have to open on-demand after GC), we observed every FileSize
+	// call coming in with just the bare name 'UTMenu' instead of path-prefixed
+	// variants like '../System/UTMenu'.  That suggests *GSys->Paths(i) is
+	// returning empty strings.  Dump the Paths table once at entry so we can
+	// confirm or rule out path-table corruption.
+	{
+		debugf( NAME_Log, TEXT("[appFindPkg] In='%s' GSys=%p Paths.Num=%d GCdPath[0]=%d"),
+			In, (void*)GSys, GSys ? GSys->Paths.Num() : -1,
+			(INT)GCdPath[0] );
+		if( GSys )
+		{
+			for( INT pi=0; pi<GSys->Paths.Num(); pi++ )
+			{
+				const TCHAR* P = *GSys->Paths(pi);
+				debugf( NAME_Log, TEXT("[appFindPkg]   Paths(%d) = '%s' (len=%d)"),
+					pi, P ? P : TEXT("(null)"), P ? appStrlen(P) : -1 );
+			}
+		}
+	}
 
 	// Don't return it if it's a library.
 	if( appStrlen(In)>appStrlen(DLLEXT) && appStricmp( In + appStrlen(In)-appStrlen(DLLEXT), DLLEXT )==0 )

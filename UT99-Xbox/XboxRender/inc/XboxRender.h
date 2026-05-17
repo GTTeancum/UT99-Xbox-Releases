@@ -4,8 +4,26 @@
 
 #pragma once
 
-// XDK first
+// Include ordering for Xbox D3D8:
+//
+// xtl.h guards its own D3D8 block with #ifndef NOD3D (not _D3D8_H_).
+// We must get Windows base types (windef.h / winbase.h) before D3D8.h because
+// D3D8Types.h uses DWORD/LONG/WORD/BYTE. The sequence:
+//
+// 1. Define NOD3D so xtl.h skips its implicit <d3d8.h>/<d3dx8.h> block.
+// 2. Include <xtl.h> to get windef.h, winbase.h, xbox.h.
+// 3. Include <D3D8.h> from C:\XDK_5558\XDK\xbox\include. This is the real
+//    5558 Xbox header: D3D_SDK_VERSION=0 and D3DPRESENT_PARAMETERS ends with
+//    BufferSurfaces[3] + DepthStencilSurface, matching CXBX-R and OpenJKDF2.
+//    Do not include 5849's D3D8-Xbox.h here; our 5849 fallback tree contains a
+//    fabricated d3d8types-xbox.h whose last 16 bytes are the wrong fields.
+// 4. Include <xgraphics.h> for D3DXSurf helpers after D3D8 types are live.
+#define NOD3D
+#define NODSOUND
 #include <xtl.h>
+#undef  NOD3D
+#undef  NODSOUND
+#include <D3D8.h>
 #include <xgraphics.h>
 
 // Kill XDK macros that collide with UT99
@@ -72,6 +90,7 @@ struct FXboxTLVertex2
 // Texture cache
 // ============================================================================
 enum { XBOX_TEX_CACHE_SIZE = 4096 };
+enum { XBOX_TEX_RESIDENT_LIMIT = 128 };
 
 struct FXboxTexCacheEntry
 {
@@ -79,6 +98,14 @@ struct FXboxTexCacheEntry
     IDirect3DTexture8*    pTexture;
     FLOAT                 UScale;
     FLOAT                 VScale;
+    INT                   USize;
+    INT                   VSize;
+    INT                   NumMips;
+    INT                   FirstMip;
+    INT                   UIndex;
+    INT                   VIndex;
+    D3DFORMAT             Format;
+    INT                   Bytes;
     INT                   FrameCounter;
     FXboxTexCacheEntry*   HashNext;
 };
@@ -87,6 +114,7 @@ struct FXboxTexCacheEntry
 // Max verts per draw call (stack buffer)
 // ============================================================================
 enum { XBOX_MAX_VERTS = 512 };
+enum { XBOX_DRAW_VB_BYTES = 512 * 1024 };
 
 // ============================================================================
 // Render device
@@ -101,7 +129,11 @@ public:
     IDirect3DDevice8*   Device;
     IDirect3DSurface8*  BackBuffer;
     IDirect3DSurface8*  DepthBuffer;
+    IDirect3DVertexBuffer8* DrawVertexBuffer;
+    UINT                DrawVBBytes;
+    UINT                DrawVBOffset;
     UBOOL               DeviceCreated;
+    UBOOL               SceneOpen;
 
     // Scene state
     FSceneNode*         CurrentFrame;
@@ -121,15 +153,25 @@ public:
     // Frame counter
     INT                 FrameCounter;
 
+    // Actual backbuffer dimensions (set in Init from GetBackBuffer/GetDesc).
+    // CXBX-R returns a host-chosen surface size (e.g. 480x518) that differs
+    // from what we asked for in present params; the engine still drives the
+    // viewport at 640x480 logical, so we have to honour what really exists.
+    UINT                ActualBackBufferW;
+    UINT                ActualBackBufferH;
+
     // Texture cache
     FXboxTexCacheEntry* TexCache[XBOX_TEX_CACHE_SIZE];
     FXboxTexCacheEntry  TexPool[XBOX_TEX_CACHE_SIZE]; // pre-allocated pool
     INT                 TexPoolNext;                   // next free in pool
+    INT                 TexLiveBytes;
 
     // Current texture stage state (for early-out)
     QWORD               BoundCacheID[2];
     FLOAT               StageUScale[2];
     FLOAT               StageVScale[2];
+    INT                 StageUIndex[2];
+    INT                 StageVIndex[2];
 
     // URenderDevice interface
     void  StaticConstructor();
@@ -156,5 +198,9 @@ public:
     // Private helpers
     void  SetBlending( DWORD PolyFlags );
     void  SetTextureD3D( INT Stage, FTextureInfo& Info, DWORD PolyFlags );
+    void  EndSceneForTextureUpload( const char* Reason );
+    void  ResumeSceneAfterTextureUpload( const char* Reason );
+    HRESULT DrawPrimitiveVB( D3DPRIMITIVETYPE PrimitiveType, UINT PrimitiveCount, const void* Vertices, UINT Stride, const char* OpName );
     void  FlushTexCache();
+    void  ReleaseDrawVertexBuffer();
 };

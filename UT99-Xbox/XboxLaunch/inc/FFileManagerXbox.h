@@ -166,15 +166,18 @@ public:
             if( (*Final)[ch] == '/' )
                 ((TCHAR*)*Final)[ch] = '\\';
 
-        // Diagnostic: log first 30 resolutions
+        // Diagnostic: log first 5000 resolutions (bumped from 30 so we can see
+        // file ops happening late in boot — e.g. during GetPackageLinker for
+        // UTMenu when it tries to open UTMenu.u for the first time).
         static INT LogCount = 0;
-        if( LogCount++ < 30 )
+        if( LogCount++ < 5000 )
         {
             char buf[512];
             _snprintf( buf, sizeof(buf), "RESOLVE: [%s] -> [%s]",
                 TCHAR_TO_ANSI(Filename), TCHAR_TO_ANSI(*Final) );
-            OutputDebugStringA( buf );
-            OutputDebugStringA( "\n" );
+            // GXboxLog.Write already echoes via OutputDebugStringA;
+            // a separate OutputDebugStringA(buf) here would duplicate
+            // every FileManager line in CXBX-R's console.
             GXboxLog.Write( "%s", buf );
         }
 
@@ -200,8 +203,9 @@ public:
             char buf[512];
             _snprintf( buf, sizeof(buf), "SetDefaultDirectory: BaseDir=[%s]",
                 TCHAR_TO_ANSI(BaseDir) );
-            OutputDebugStringA( buf );
-            OutputDebugStringA( "\n" );
+            // GXboxLog.Write already echoes via OutputDebugStringA;
+            // a separate OutputDebugStringA(buf) here would duplicate
+            // every FileManager line in CXBX-R's console.
             GXboxLog.Write( "%s", buf );
         }
         return 1;
@@ -286,8 +290,9 @@ public:
             char buf[512];
             _snprintf( buf, sizeof(buf), "FindFiles: [%s] -> [%s]",
                 TCHAR_TO_ANSI(Filename), TCHAR_TO_ANSI(*Path) );
-            OutputDebugStringA( buf );
-            OutputDebugStringA( "\n" );
+            // GXboxLog.Write already echoes via OutputDebugStringA;
+            // a separate OutputDebugStringA(buf) here would duplicate
+            // every FileManager line in CXBX-R's console.
             GXboxLog.Write( "%s", buf );
         }
 
@@ -311,8 +316,9 @@ public:
         {
             char buf[512];
             _snprintf( buf, sizeof(buf), "FindFiles: found %d results", Result.Num() );
-            OutputDebugStringA( buf );
-            OutputDebugStringA( "\n" );
+            // GXboxLog.Write already echoes via OutputDebugStringA;
+            // a separate OutputDebugStringA(buf) here would duplicate
+            // every FileManager line in CXBX-R's console.
             GXboxLog.Write( "%s", buf );
         }
 
@@ -325,9 +331,10 @@ public:
         guard(FFileManagerXbox::FileSize);
         FString Path = ResolvePath( Filename );
 
-        // Diagnostic: log first file size checks to help debug package loading.
+        // Diagnostic: log first 5000 file size checks (bumped from 40 to cover
+        // late-boot file ops like UTMenu package lookup).
         static INT FSCount = 0;
-        if( FSCount++ < 40 )
+        if( FSCount++ < 5000 )
         {
             char buf[512];
             HANDLE hTest = CreateFileA(
@@ -337,8 +344,9 @@ public:
             _snprintf( buf, sizeof(buf), "FileSize: [%s] -> [%s] = %s",
                 TCHAR_TO_ANSI(Filename), TCHAR_TO_ANSI(*Path),
                 hTest != INVALID_HANDLE_VALUE ? "FOUND" : "NOT FOUND" );
-            OutputDebugStringA( buf );
-            OutputDebugStringA( "\n" );
+            // GXboxLog.Write already echoes via OutputDebugStringA;
+            // a separate OutputDebugStringA(buf) here would duplicate
+            // every FileManager line in CXBX-R's console.
             GXboxLog.Write( "%s", buf );
             if( hTest != INVALID_HANDLE_VALUE )
             {

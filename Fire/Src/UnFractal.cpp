@@ -4058,14 +4058,73 @@ void UFireTexture::Clear( DWORD ClearFlags )
 void UFireTexture::PostLoad()
 {
 	guard(UFireTexture::PostLoad);
-	VERIFY_CLASS_SIZE(UFireTexture);
-	VERIFY_CLASS_SIZE(UWetTexture);
-	VERIFY_CLASS_SIZE(UWaveTexture);
-	VERIFY_CLASS_SIZE(UFractalTexture);
+	// Xbox: log actual-vs-expected and dump property chain for any class with
+	// drift, so we can diff .u's field list against our C++ class layout.
+	// First call only: dump once per class via static guard.
+	static UBOOL bFireDumpDone = 0;
+	if( !bFireDumpDone )
+	{
+		bFireDumpDone = 1;
+		UClass* DumpList[] = {
+			UFractalTexture::StaticClass(),
+			UFireTexture::StaticClass(),
+			UWaveTexture::StaticClass(),
+			UWetTexture::StaticClass(),
+		};
+		// Dump sizeof + PropertiesSize for every parent in the chain so we can
+		// see exactly which level introduces the 4-byte drift.
+		debugf( NAME_Init, TEXT("[FireDump] sizeof(UObject)=%d  PropertiesSize=%d  delta=%d"),
+			(INT)sizeof(UObject), UObject::StaticClass()->GetPropertiesSize(),
+			(INT)sizeof(UObject) - UObject::StaticClass()->GetPropertiesSize() );
+		debugf( NAME_Init, TEXT("[FireDump] sizeof(UBitmap)=%d  PropertiesSize=%d  delta=%d"),
+			(INT)sizeof(UBitmap), UBitmap::StaticClass()->GetPropertiesSize(),
+			(INT)sizeof(UBitmap) - UBitmap::StaticClass()->GetPropertiesSize() );
+		debugf( NAME_Init, TEXT("[FireDump] sizeof(UTexture)=%d  PropertiesSize=%d  delta=%d"),
+			(INT)sizeof(UTexture), UTexture::StaticClass()->GetPropertiesSize(),
+			(INT)sizeof(UTexture) - UTexture::StaticClass()->GetPropertiesSize() );
+		for( INT k=0; k<ARRAY_COUNT(DumpList); k++ )
+		{
+			UClass* C = DumpList[k];
+			INT PropSize = C->GetPropertiesSize();
+			INT SuperPropSize = C->GetSuperClass() ? C->GetSuperClass()->GetPropertiesSize() : 0;
+			debugf( NAME_Init, TEXT("[FireDump] %s  PropertiesSize=%d (super %s=%d, own=%d)"),
+				C->GetName(),
+				PropSize,
+				C->GetSuperClass() ? C->GetSuperClass()->GetName() : TEXT("(none)"),
+				SuperPropSize,
+				PropSize - SuperPropSize );
+			// Walk the property chain, log each property declared in this class
+			for( UField* F = C->Children; F; F = F->Next )
+			{
+				UProperty* P = Cast<UProperty>( F );
+				if( P )
+				{
+					debugf( NAME_Init, TEXT("[FireDump]   prop offset=%4d size=%4d  %s %s"),
+						P->Offset, P->GetSize(),
+						P->GetClass()->GetName(),
+						P->GetName() );
+				}
+			}
+		}
+	}
+	#define XBOX_REPORT_SIZE(C) \
+		debugf( NAME_Init, TEXT("[FireSize] %s: sizeof=%d  PropertiesSize=%d  delta=%d"), \
+			TEXT(#C), (INT)sizeof(C), C::StaticClass()->GetPropertiesSize(), \
+			(INT)sizeof(C) - C::StaticClass()->GetPropertiesSize() )
+	XBOX_REPORT_SIZE(UFireTexture);
+	XBOX_REPORT_SIZE(UWetTexture);
+	XBOX_REPORT_SIZE(UWaveTexture);
+	XBOX_REPORT_SIZE(UFractalTexture);
+	#undef XBOX_REPORT_SIZE
 
+	// Beacons: if the log truncates between any two of these we know
+	// exactly which call hung (previous one printed, next didn't).
+	debugf( NAME_Init, TEXT("[FireBoot] %s: pre Super::PostLoad()"), GetName() );
 	// Call base class.
 	Super::PostLoad();
-	PolyFlags &= ~PF_Masked;
+	debugf( NAME_Init, TEXT("[FireBoot] %s: post Super::PostLoad()"), GetName() );
+	PolyFlagsRef() &= ~PF_Masked;
+	debugf( NAME_Init, TEXT("[FireBoot] %s: PolyFlags cleared"), GetName() );
 
 	// Make sure the texture has its _own_ copy of the palette.
 #if COPYPALETTE

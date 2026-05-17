@@ -226,6 +226,10 @@
 				RelativePath=".\Src\XboxEngine.cpp"
 			>
 			</File>
+			<File
+				RelativePath=".\Src\EngineForceLinks.cpp"
+			>
+			</File>
 		</Filter>
 		<Filter
 			Name="Headers"

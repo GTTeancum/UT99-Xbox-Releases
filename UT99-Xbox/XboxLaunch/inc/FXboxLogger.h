@@ -78,13 +78,29 @@ public:
         Buf[Len]   = '\n';
         Buf[Len+1] = '\0';
 
+        // The file was opened with FILE_FLAG_WRITE_THROUGH, which already
+        // synchronously commits each WriteFile to disk before returning.
+        // A separate FlushFileBuffers() call was redundant and dominated
+        // GC time on Xbox (~10 ms per beacon for HDD sync × thousands of
+        // beacons during the mark pass).  Trust WRITE_THROUGH and skip it.
         DWORD Written;
         WriteFile( FileHandle, Buf, Len+1, &Written, NULL );
-        FlushFileBuffers( FileHandle );
 
-        // Also echo to debug output in case anything is listening
+        // Echo to debug output WITHOUT the trailing \n.  CXBX-R adds its own
+        // newline for each OutputDebugStringA call, so leaving the \n in Buf
+        // produces a blank "DEBUG_PRINT:" line after every log entry.
+        Buf[Len] = 0;
         OutputDebugStringA( Buf );
-        OutputDebugStringA( "\n" );
+    }
+
+    // Call this from critical points (post-LoadMap, pre-GC, etc.) if you want
+    // a hard guarantee the OS has flushed everything to disk before whatever
+    // the next operation is.  Not needed in the common path — WRITE_THROUGH
+    // already keeps the file up-to-date after each Write().
+    void Flush()
+    {
+        if( IsOpen && FileHandle != INVALID_HANDLE_VALUE )
+            FlushFileBuffers( FileHandle );
     }
 };
 

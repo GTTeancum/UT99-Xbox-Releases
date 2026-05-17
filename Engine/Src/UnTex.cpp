@@ -16,6 +16,64 @@
 typedef char _check_UObject_size  [(sizeof(UObject)  == 40) ? 1 : -1];
 typedef char _check_UBitmap_size  [(sizeof(UBitmap)  == 84) ? 1 : -1];
 
+// ── PolyFlags side-table ────────────────────────────────────────────────────
+// PolyFlags lives outside the UTexture instance (see UnTex.h comment for why).
+// Keyed by UTexture* so we can clear stale entries from Destroy() / FlushAll.
+// Lookup is hot-path-ish (every texture render queries it) but the working set
+// is small (number of unique textures), so a TMap is fine.
+//
+// LAZY INIT: we cannot have a file-scope `static TMap<...>` directly, because
+// TMapBase()'s constructor calls Rehash() which calls
+//   new(TEXT("HashMapHash"))INT[HashCount]
+// which routes through appMalloc -> GMalloc->Malloc.  C++ static initialization
+// runs BEFORE main(), and GMalloc is still &MallocError at that point —
+// MallocError::Malloc calls appErrorf and returns NULL, so Rehash writes
+// INDEX_NONE into a NULL Hash buffer.  On Xbox the low page is sometimes
+// writable enough to mask the bad write, but the first real Add() reads
+// Hash[hash] and silently corrupts memory or hangs — which is the
+// "[FireBoot] post Super::PostLoad()" then nothing pattern we hit on
+// fireeffect56's PostLoad.
+//
+// Fix: keep a file-scope POINTER (zero-initialized by the C++ runtime BEFORE
+// any constructor runs), and allocate the TMap on first access — by which
+// time appInit() has wired GMalloc to the real FMallocXbox.
+static TMap<UTexture*, DWORD>* GTexturePolyFlagsPtr = NULL;
+
+static TMap<UTexture*, DWORD>& GetTexturePolyFlags()
+{
+	if( !GTexturePolyFlagsPtr )
+		GTexturePolyFlagsPtr = new TMap<UTexture*, DWORD>;
+	return *GTexturePolyFlagsPtr;
+}
+
+DWORD UTexture::PolyFlags() const
+{
+	const DWORD* Found = GetTexturePolyFlags().Find( const_cast<UTexture*>(this) );
+	return Found ? *Found : 0;
+}
+
+void UTexture::PolyFlags( DWORD NewFlags )
+{
+	GetTexturePolyFlags().Set( this, NewFlags );
+}
+
+DWORD& UTexture::PolyFlagsRef()
+{
+	// TMap::Set returns a TI& — exactly the lvalue we need so callers can do
+	// `Tex->PolyFlagsRef() |= F` with the same semantics the old DWORD field had.
+	TMap<UTexture*, DWORD>& Map = GetTexturePolyFlags();
+	DWORD* Found = Map.Find( this );
+	if( Found )
+		return *Found;
+	return Map.Set( this, 0 );
+}
+
+void UTexture::ClearAllPolyFlags()
+{
+	if( GTexturePolyFlagsPtr )
+		GTexturePolyFlagsPtr->Empty();
+}
+
 // Sub-structs used as field types throughout (StructProperty contents).
 typedef char _check_FVector_size  [(sizeof(FVector)  == 12) ? 1 : -1];
 typedef char _check_FRotator_size [(sizeof(FRotator) == 12) ? 1 : -1];
@@ -483,7 +541,7 @@ void UTexture::CreateMips( UBOOL FullMips, UBOOL Downsample )
 				// Cascade down the mip sequence with truecolor source and destination textures.			
 				TrueSource = TrueDest; // Last destination is current source..
 				TrueDest = new(TEXT("FColor"))FColor[Src.USize * Src.VSize];
-				if( !(PolyFlags & PF_Masked) )
+				if( !(PolyFlags() & PF_Masked) )
 				{
 					// Source coordinate masking important for degenerate mipmap sizes.
 					DWORD MaskU = (ThisUTile-1);

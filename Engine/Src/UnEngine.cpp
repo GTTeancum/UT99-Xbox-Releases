@@ -60,6 +60,11 @@ void UEngine::StaticConstructor()
 void UEngine::InitAudio()
 {
 	guard(UEngine::InitAudio);
+#if TARGET_XBOX
+	// The current Xbox audio device is a silent stub. Avoid loading and then
+	// discarding audio subsystem objects while the renderer is memory-bound.
+	UseSound = 0;
+#endif
 	if
 	(	UseSound
 	&&	GIsClient
@@ -97,6 +102,13 @@ void UEngine::Init()
 	// Subsystems.
 	FURL::StaticInit();
 	GEngineMem.Init( 65536 );
+#if TARGET_XBOX
+	if( GIsClient && CacheSizeMegs > 1 )
+	{
+		debugf( NAME_Init, TEXT("Xbox: capping CacheSizeMegs from %i to 1"), CacheSizeMegs );
+		CacheSizeMegs = 1;
+	}
+#endif
 	GCache.Init( 1024 * 1024 * Clamp(GIsClient ? CacheSizeMegs : 1,1,1024), 4096 );
 
 	// Translation.

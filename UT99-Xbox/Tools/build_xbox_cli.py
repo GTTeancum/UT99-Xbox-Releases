@@ -19,11 +19,21 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 XBOX_DIR = os.path.dirname(SCRIPT_DIR)
 ROOT_DIR = os.path.dirname(XBOX_DIR)
 
-XDK_DIR = r"C:\XDK"
-XDK_BIN = os.path.join(XDK_DIR, "xbox", "bin")
+# Active toolchain is XDK 5558 (CL/Lib/Link/imagebld). 5849 stays in the
+# picture as a header + lib fallback for files 5558 lacks (e.g. s3tc.lib,
+# stdint.h, winsock2.h). The "v1.0.5849" stamps in the final XBE come from
+# patchxbe.py injecting library-version metadata into the XBE descriptor
+# table — that's what the kernel checks, independent of the compiler used.
+# OpenJKDF2 uses this exact layered setup; we adopt it here because 5849's
+# d3d8 libs ship debug validators (DbgPrint+int3 on "Invalid flags passed
+# to Clear") that 5558's d3d8.lib (2.1 MB full retail static) does not.
+XDK_DIR          = r"C:\XDK_5558\XDK"
+XDK_FALLBACK_DIR = r"C:\XDK"
+
+XDK_BIN  = os.path.join(XDK_DIR, "xbox", "bin")
 XDK_VC71 = os.path.join(XDK_BIN, "vc71")
-CL = os.path.join(XDK_VC71, "CL.Exe")
-LIB = os.path.join(XDK_VC71, "Lib.Exe")
+CL   = os.path.join(XDK_VC71, "CL.Exe")
+LIB  = os.path.join(XDK_VC71, "Lib.Exe")
 LINK = os.path.join(XDK_VC71, "Link.Exe")
 
 
@@ -31,8 +41,10 @@ PROJECTS = [
     ("UT99Core", os.path.join(ROOT_DIR, "Core", "UT99Core.vcproj"), "lib"),
     ("UT99Engine", os.path.join(ROOT_DIR, "Engine", "UT99Engine.vcproj"), "lib"),
     ("UT99Render", os.path.join(ROOT_DIR, "Render", "UT99Render.vcproj"), "lib"),
+    ("Fire", os.path.join(ROOT_DIR, "Fire", "Fire.vcproj"), "lib"),
     ("XboxDrv", os.path.join(XBOX_DIR, "XboxDrv", "XboxDrv.vcproj"), "lib"),
     ("XboxRender", os.path.join(XBOX_DIR, "XboxRender", "XboxRender.vcproj"), "lib"),
+    ("XboxAudio", os.path.join(XBOX_DIR, "XboxAudio", "XboxAudio.vcproj"), "lib"),
     ("XboxStubs", os.path.join(XBOX_DIR, "XboxStubs", "XboxStubs.vcproj"), "lib"),
     ("XboxLaunch", os.path.join(XBOX_DIR, "XboxLaunch", "XboxLaunch.vcproj"), "exe"),
 ]
@@ -142,9 +154,22 @@ def common_cl_flags(project_dir, cl_tool, out_dir, int_dir):
         flags.append("/O2")
 
     includes = split_semicolon(cl_tool.get("AdditionalIncludeDirectories"))
+    # 5558-first / 5849-fallback layering: anywhere a .vcproj references
+    # the 5849 include dir (C:\XDK\xbox\include), substitute the 5558 one
+    # in its place and append 5849 as a fallback. 5558 has Xbox-correct
+    # D3D8 enums; 5849 covers files 5558 lacks (stdint.h, winsock2.h).
+    expanded_5558 = os.path.join(XDK_DIR, "xbox", "include")
+    expanded_5849 = os.path.join(XDK_FALLBACK_DIR, "xbox", "include")
+    saw_xdk_include = False
     for include in includes:
         expanded = expand_macros(include, project_dir, out_dir, int_dir)
+        if os.path.normcase(os.path.normpath(expanded)) == os.path.normcase(expanded_5849):
+            flags.append('/I' + expanded_5558)
+            saw_xdk_include = True
+            continue
         flags.append('/I' + normalize_path(expanded, project_dir))
+    if saw_xdk_include:
+        flags.append('/I' + expanded_5849)
 
     for define in split_semicolon(cl_tool.get("PreprocessorDefinitions")):
         flags.append("/D" + define)
@@ -263,9 +288,24 @@ def build_launch(vcproj, config_name, build_root, built_libs):
         built_libs["UT99Core"],
         built_libs["UT99Engine"],
         built_libs["UT99Render"],
+        built_libs["Fire"],
         built_libs["XboxDrv"],
         built_libs["XboxRender"],
-        "d3d8-xbox.lib",
+        built_libs["XboxAudio"],
+        # 5558's d3d8.lib is the full 2.1 MB retail static lib (xQuake's
+        # link target). Lacks the debug DbgPrint+int3 validator that
+        # 5849's d3d8-xbox.lib and d3d8d.lib emit on "Invalid flags passed
+        # to Clear". 5558 LIBPATH is searched first via /LIBPATH above.
+        "d3d8.lib",
+        # d3dx8.lib and dsound.lib — added to match OpenJKDF2's link layout
+        # exactly. Linking these creates D3DX and DSOUND named sections in
+        # the XBE. CXBX-R's HLE pattern-matcher identifies D3D8 functions
+        # by section name; without D3DX/DSOUND sections present, our XBE
+        # appears to CXBX-R as a non-canonical D3D8 binary and the host
+        # display blit pipeline never engages.  We don't call into these
+        # libs ourselves — their presence is the entire point.
+        "d3dx8.lib",
+        "dsound.lib",
         "xboxkrnl.lib",
         "xgraphics.lib",
         "xonline.lib",
@@ -278,10 +318,26 @@ def build_launch(vcproj, config_name, build_root, built_libs):
     rsp = os.path.join(obj_dir, "link.rsp")
     with open(rsp, "w") as f:
         f.write('/OUT:"{}"\n'.format(out_exe))
-        f.write('/LIBPATH:"{}"\n'.format(os.path.join(XDK_DIR, "lib")))
+        # 5558 lib path first (full retail d3d8.lib lives here), 5849 as
+        # fallback for libs 5558 doesn't ship (s3tc.lib in particular).
+        f.write('/LIBPATH:"{}"\n'.format(os.path.join(XDK_DIR, "xbox", "lib")))
+        f.write('/LIBPATH:"{}"\n'.format(os.path.join(XDK_FALLBACK_DIR, "xbox", "lib")))
         f.write('/LIBPATH:"{}"\n'.format(os.path.join(ROOT_DIR, "Engine", "Lib")))
-        f.write('/SUBSYSTEM:CONSOLE\n')
+        # WINDOWS subsystem + explicit mainCRTStartup entry — matches OpenJKDF2.
+        # Xbox apps are always WINDOWS-subsystem on the PE side; patchxbe.py
+        # rewrites to subsystem 14 (Xbox) post-link. CONSOLE subsystem picks a
+        # different CRT init glue that may leave HLE-detectable state missing.
+        f.write('/SUBSYSTEM:WINDOWS\n')
+        f.write('/ENTRY:mainCRTStartup\n')
+        # Filter out /MERGE:.CRT=.data and /SECTION:.data,RW — OpenJKDF2 doesn't
+        # use these. /MERGE:.CRT=.data folds the C-runtime init pointer table
+        # into .data, which on Xbox can prevent the CRT from walking it during
+        # startup; if static constructors don't run, D3D8 lib globals may not
+        # initialise and CXBX-R won't see a fully-formed app.
         for opt in split_options(link_tool.get("AdditionalOptions")):
+            up = opt.upper()
+            if up.startswith("/MERGE:") or up.startswith("/SECTION:"):
+                continue
             f.write(opt + "\n")
         for dep in deps:
             f.write('"{}"\n'.format(dep))

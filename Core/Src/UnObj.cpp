@@ -2017,9 +2017,13 @@ ULinkerLoad* UObject::GetPackageLinker
 	// See if there is already a linker for this package.
 	ULinkerLoad* Result = NULL;
 	if( InOuter )
+	{
 		for( INT i=0; i<GObjLoaders.Num() && !Result; i++ )
+		{
 			if( GetLoader(i)->LinkerRoot == InOuter )
 				Result = GetLoader( i );
+		}
+	}
 
 	// Try to load the linker.
 	try
@@ -2036,7 +2040,8 @@ ULinkerLoad* UObject::GetPackageLinker
 			// Resolve filename from package name.
 			if( !InOuter )
 				appThrowf( LocalizeError("PackageResolveFailed") );
-			if( !appFindPackageFile( InOuter->GetName(), CompatibleGuid, NewFilename ) )
+			UBOOL FoundFile = appFindPackageFile( InOuter->GetName(), CompatibleGuid, NewFilename );
+			if( !FoundFile )
 			{
 				// See about looking in the dll.
 				if( (LoadFlags & LOAD_AllowDll) && InOuter->IsA(UPackage::StaticClass()) && ((UPackage*)InOuter)->DllHandle )
@@ -2092,7 +2097,9 @@ ULinkerLoad* UObject::GetPackageLinker
 
 		// Create new linker.
 		if( !Result )
+		{
 			Result = new ULinkerLoad( InOuter, NewFilename, LoadFlags );
+		}
 
 		// Verify compatibility.
 		if( CompatibleGuid && Result->Summary.Guid!=*CompatibleGuid )
@@ -2195,25 +2202,47 @@ UObject* UObject::StaticLoadObject( UClass* ObjectClass, UObject* InOuter, const
 
 	// Try to load.
 	UObject* Result=NULL;
+	debugf( NAME_Log, TEXT("[StaticLoadObject] cls=%s InName='%s' pre-BeginLoad"),
+		ObjectClass->GetName(), InName );
 	BeginLoad();
 	try
 	{
 		// Create a new linker object which goes off and tries load the file.
 		ULinkerLoad* Linker = NULL;
+		debugf( NAME_Log, TEXT("[StaticLoadObject] pre-ResolveName") );
 		ResolveName( InOuter, InName, 1, 1 );
+		debugf( NAME_Log, TEXT("[StaticLoadObject] post-ResolveName Outer=%s InName='%s'"),
+			InOuter ? InOuter->GetName() : TEXT("(null)"), InName );
 		while( InOuter && InOuter->GetOuter() )//!!can only load top-level packages from files
 			InOuter = InOuter->GetOuter();
 		if( !(LoadFlags & LOAD_DisallowFiles) )
+		{
+			debugf( NAME_Log, TEXT("[StaticLoadObject] pre-GetPackageLinker Outer=%s"),
+				InOuter ? InOuter->GetName() : TEXT("(null)") );
 			Linker = GetPackageLinker( InOuter, Filename, LoadFlags | LOAD_Throw | LOAD_AllowDll, Sandbox, NULL );
+			debugf( NAME_Log, TEXT("[StaticLoadObject] post-GetPackageLinker Linker=%p"), Linker );
+		}
 		//!!this sucks because it supports wildcard sub-package matching of InName, which requires a long search.
 		//!!also because linker classes require exact match
 		if( Linker )
+		{
+			debugf( NAME_Log, TEXT("[StaticLoadObject] pre-Linker->Create") );
 			Result = Linker->Create( ObjectClass, InName, LoadFlags, 0 );
+			debugf( NAME_Log, TEXT("[StaticLoadObject] post-Linker->Create Result=%s"),
+				Result ? Result->GetName() : TEXT("(null)") );
+		}
 		if( !Result )
+		{
+			debugf( NAME_Log, TEXT("[StaticLoadObject] pre-StaticFindObject") );
 			Result = StaticFindObject( ObjectClass, InOuter, InName );
+			debugf( NAME_Log, TEXT("[StaticLoadObject] post-StaticFindObject Result=%s"),
+				Result ? Result->GetName() : TEXT("(null)") );
+		}
 		if( !Result )
 			appThrowf( LocalizeError("ObjectNotFound"), ObjectClass->GetName(), InOuter ? InOuter->GetPathName() : TEXT("None"), InName );
+		debugf( NAME_Log, TEXT("[StaticLoadObject] pre-EndLoad") );
 		EndLoad();
+		debugf( NAME_Log, TEXT("[StaticLoadObject] post-EndLoad") );
 	}
 	catch( const TCHAR* Error )
 	{
@@ -2245,16 +2274,27 @@ UClass* UObject::StaticLoadClass( UClass* BaseClass, UObject* InOuter, const TCH
 {
 	guard(UObject::StaticLoadClass);
 	check(BaseClass);
+	debugf( NAME_Log, TEXT("[StaticLoadClass] InName='%s' Base='%s' pre"),
+		InName ? InName : TEXT("(null)"),
+		BaseClass ? BaseClass->GetName() : TEXT("(null)") );
 	try
 	{
 		UClass* Class = LoadObject<UClass>( InOuter, InName, Filename, LoadFlags | LOAD_Throw, Sandbox );
+		debugf( NAME_Log, TEXT("[StaticLoadClass] post LoadObject, Class=%s"),
+			Class ? Class->GetName() : TEXT("(null)") );
 		if( Class && !Class->IsChildOf(BaseClass) )
+		{
+			debugf( NAME_Log, TEXT("[StaticLoadClass] IsChildOf failed; throwing") );
 			appThrowf( LocalizeError("LoadClassMismatch"), Class->GetFullName(), BaseClass->GetFullName() );
+		}
+		debugf( NAME_Log, TEXT("[StaticLoadClass] post IsChildOf, returning %s"),
+			Class ? Class->GetName() : TEXT("(null)") );
 		return Class;
 	}
 	catch( const TCHAR* Error )
 	{
 		// Failed.
+		debugf( NAME_Log, TEXT("[StaticLoadClass] caught error: %s"), Error );
 		SafeLoadError( LoadFlags, Error, Error );
 		return NULL;
 	}
@@ -3206,17 +3246,37 @@ UObject* UObject::StaticConstructObject
 void UObject::SerializeRootSet( FArchive& Ar, DWORD KeepFlags, DWORD RequiredFlags )
 {
 	guard(UObject::SerializeRootSet);
+	// Xbox-port: granular beacons so we can spot which root object's
+	// Serialize() hangs the mark pass.  Print the name of every matched root
+	// just before we hand it to the archive — if the log stops at
+	// "[GC] root[N] X" with no [GC] root[N+1], X is the object whose
+	// Serialize is hanging (or recursing past the stack).
 	Ar << GObjRoot;
+	debugf( NAME_Log, TEXT("[GC]   SerializeRootSet: GObjRoot done, iterating objects") );
+
+	INT Scanned = 0, Matched = 0;
 	for( FObjectIterator It; It; ++It )
 	{
+		Scanned++;
 		if
 		(	(It->GetFlags() & KeepFlags)
 		&&	(It->GetFlags()&RequiredFlags)==RequiredFlags )
 		{
+			Matched++;
+			// Log EVERY matched root with both pre- and post- markers so we
+			// can see which root's Serialize() is the one that hangs.  If the
+			// log stops at "pre" for root[N] and never shows "post" for the
+			// same N, then root[N] is the offending object.
+			const TCHAR* CName = It->GetClass() ? It->GetClass()->GetName() : TEXT("<noclass>");
+			const TCHAR* OName = It->GetName();
+			debugf( NAME_Log, TEXT("[GC]   root[%d] %s '%s' pre"), Matched, CName, OName );
 			UObject* Obj = *It;
 			Ar << Obj;
+			debugf( NAME_Log, TEXT("[GC]   root[%d] %s '%s' post"), Matched, CName, OName );
 		}
 	}
+	debugf( NAME_Log, TEXT("[GC]   SerializeRootSet done: scanned=%d matched=%d"),
+		Scanned, Matched );
 	unguard;
 }
 
@@ -3379,12 +3439,23 @@ void UObject::CollectGarbage( DWORD KeepFlags )
 	guard(UObject::CollectGarbage);
 	debugf( NAME_Log, TEXT("Collecting garbage") );
 
+	// Xbox-port beacons: GC is the next place where the engine has historically
+	// stalled silently on hardware.  Print before/after each phase so we can
+	// localize a hang to (a) the mark pass over GObjObjects (SerializeRootSet),
+	// (b) the destroy-dispatch loop inside PurgeGarbage, or (c) past GC entirely.
+	debugf( NAME_Log, TEXT("[GC] objs=%d root=%d KeepFlags=%08X  pre-SerializeRootSet"),
+		GObjObjects.Num(), GObjRoot.Num(), KeepFlags );
+
 	// Tag and purge garbage.
 	FArchiveTagUsed TagUsedAr;
 	SerializeRootSet( TagUsedAr, KeepFlags, RF_TagGarbage );
 
+	debugf( NAME_Log, TEXT("[GC] post-SerializeRootSet, pre-PurgeGarbage") );
+
 	// Purge it.
 	PurgeGarbage();
+
+	debugf( NAME_Log, TEXT("[GC] post-PurgeGarbage  done") );
 
 	unguard;
 }

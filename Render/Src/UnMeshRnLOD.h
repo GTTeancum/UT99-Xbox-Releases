@@ -343,7 +343,7 @@ void URender::DrawLodMesh
 						Samples[i].Point.Z,
 						Color,
 						FPlane(0,0,0,0),
-						ExtraFlags | PF_TwoSided | Tex->PolyFlags
+						ExtraFlags | PF_TwoSided | Tex->PolyFlags()
 					);
 					Tex->AnimNext = SavedNext;
 					Tex->AnimCur  = SavedCur;

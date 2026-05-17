@@ -63,7 +63,7 @@ void UCanvas::DrawTile
 	Texture->Lock( Info, Viewport->CurrentTime, -1, Viewport->RenDev );
 	FLOAT UF = Info.UScale * Info.USize / Texture->USize; U *= UF; UL *= UF;
 	FLOAT VF = Info.VScale * Info.VSize / Texture->VSize; V *= VF; VL *= VF;
-	Viewport->RenDev->DrawTile( Frame, Info, X, Y, XL, YL, U, V, UL, VL, SpanBuffer, Z, Color, Fog, PolyFlags | (Texture->PolyFlags&PF_Masked) );
+	Viewport->RenDev->DrawTile( Frame, Info, X, Y, XL, YL, U, V, UL, VL, SpanBuffer, Z, Color, Fog, PolyFlags | (Texture->PolyFlags()&PF_Masked) );
 	Texture->Unlock( Info );
 
 	unguard;

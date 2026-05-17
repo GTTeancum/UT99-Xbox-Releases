@@ -58,7 +58,14 @@ void UXboxViewport::OpenWindow( DWORD ParentWindow, UBOOL Temporary,
 
         if( RenderClass )
         {
+            GXboxLog.Write( "OpenWindow: RenderClass name=%s", TCHAR_TO_ANSI(RenderClass->GetName()) );
             RenDev = ConstructObject<URenderDevice>( RenderClass, this );
+            GXboxLog.Write( "OpenWindow: ConstructObject returned RenDev=0x%08X", (DWORD)RenDev );
+
+            // ── Pre-deref: RenDev->Init will crash if ConstructObject returned NULL ──
+            if( !RenDev )
+                GXboxLog.Write( "OpenWindow: WARNING — RenDev is NULL, Init() will crash" );
+
             GXboxLog.Write( "OpenWindow: calling RenDev->Init(%dx%d)", SizeX, SizeY );
 
             if( !RenDev->Init( this, SizeX, SizeY, ColorBytes, 1 ) )

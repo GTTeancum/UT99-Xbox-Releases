@@ -178,13 +178,13 @@ void URender::Precache( UViewport* Viewport )
 				DWORD Flags = ItM->Surfs(i).PolyFlags&(PF_Masked|PF_NoSmooth);
 				if( Flags )
 				{
-					ItM->Surfs(i).Texture->PolyFlags |= Flags;
+					ItM->Surfs(i).Texture->PolyFlagsRef() |= Flags;
 				}
 				if( !It->bParametric )
 				{
 					FTextureInfo T;
 					It->Lock( T, Viewport->LastUpdateTime, -1, Viewport->RenDev );
-					Viewport->RenDev->PrecacheTexture( T, It->PolyFlags );
+					Viewport->RenDev->PrecacheTexture( T, It->PolyFlags() );
 					It->Unlock( T );
 				}
 				unguardf((TEXT("(%s)"),It->GetPathName()));
@@ -198,7 +198,7 @@ void URender::Precache( UViewport* Viewport )
 			guard(NormalTexture);
 			FTextureInfo T;
 			It->Lock( T, Viewport->LastUpdateTime, -1, Viewport->RenDev );
-			Viewport->RenDev->PrecacheTexture( T, It->PolyFlags );
+			Viewport->RenDev->PrecacheTexture( T, It->PolyFlags() );
 			It->Unlock( T );
 			unguardf((TEXT("(%s)"),It->GetPathName()));
 		}
@@ -2421,7 +2421,7 @@ void URender::OccludeBsp( FSceneNode* Frame )
 
 				// Assimilate the texture's flags.
 				if( Poly->Texture )
-					PolyFlags |= Poly->Texture->PolyFlags;
+					PolyFlags |= Poly->Texture->PolyFlags();
 				PolyFlags &= PolyFlagMask;
 
 				// See if we should merge.

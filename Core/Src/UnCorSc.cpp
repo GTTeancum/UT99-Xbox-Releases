@@ -3581,11 +3581,35 @@ BYTE CORE_API GRegisterNative( INT iNative, const Native& Func )
 	}
 	if( iNative != INDEX_NONE )
 	{
-		if( iNative<0 || iNative>ARRAY_COUNT(GNatives) || GNatives[iNative]!=&UObject::execUndefined) 
+		if( iNative<0 || iNative>ARRAY_COUNT(GNatives) || GNatives[iNative]!=&UObject::execUndefined)
 			GNativeDuplicate = iNative;
 		GNatives[iNative] = Func;
 	}
 	return 0;
+}
+
+//
+// Dynamic native registry: name-based lookup of C++ implementations for
+// FUNC_Native script functions with iNative==0.  Populated at static-init by
+// IMPLEMENT_FUNCTION; consulted by UFunction::Bind when GetDllExport fails
+// (e.g. static-lib builds with no DLLs).
+//
+CORE_API FDynamicNativeReg* GDynamicNatives = NULL;
+
+FDynamicNativeReg::FDynamicNativeReg( const TCHAR* InName, const Native& InFunc )
+:	Name( InName )
+,	Func( InFunc )
+{
+	Next = GDynamicNatives;
+	GDynamicNatives = this;
+}
+
+CORE_API Native* GFindDynamicNative( const TCHAR* Name )
+{
+	for( FDynamicNativeReg* p = GDynamicNatives; p; p = p->Next )
+		if( appStricmp( p->Name, Name )==0 )
+			return &p->Func;
+	return NULL;
 }
 
 /*-----------------------------------------------------------------------------

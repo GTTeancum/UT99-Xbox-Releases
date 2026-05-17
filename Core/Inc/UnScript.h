@@ -18,16 +18,45 @@ extern CORE_API Native GNatives[];
 BYTE CORE_API GRegisterNative( INT iNative, const Native& Func );
 
 //
+// Dynamic native registry (name-based lookup).
+//
+// In vanilla DLL builds, UFunction::Bind looks up the C++ implementation of a
+// FUNC_Native script function with iNative==0 via GetDllExport("int<Cls>exec<Func>").
+// In static-lib builds (Xbox), there are no DLLs and no exports — the symbol
+// exists as a plain global in Engine.lib but can't be found by name at runtime.
+//
+// This linked-list-based registry is populated at static-init time by every
+// IMPLEMENT_FUNCTION macro expansion. UFunction::Bind consults it when
+// GetDllExport returns NULL.
+//
+struct CORE_API FDynamicNativeReg
+{
+	const TCHAR*       Name;
+	Native             Func;
+	FDynamicNativeReg* Next;
+	FDynamicNativeReg( const TCHAR* InName, const Native& InFunc );
+};
+extern CORE_API FDynamicNativeReg* GDynamicNatives;
+CORE_API Native* GFindDynamicNative( const TCHAR* Name );
+
+//
 // Registering a native function.
+//
+// Note: the macro's `func` parameter already begins with `exec` (e.g.
+// `execConsoleCommand`), so the dynamic-registry name is `int<cls><func>` —
+// without an additional `exec` — to match UFunction::Bind's sprintf format
+// `int<Class>exec<FunctionName>`.
 //
 #if _MSC_VER
 	#define IMPLEMENT_FUNCTION(cls,num,func) \
 		extern "C" DLL_EXPORT Native int##cls##func = (Native)&cls::func; \
-		static BYTE cls##func##Temp = GRegisterNative( num, int##cls##func );
+		static BYTE cls##func##Temp = GRegisterNative( num, int##cls##func ); \
+		static FDynamicNativeReg cls##func##DynReg( TEXT("int") TEXT(#cls) TEXT(#func), int##cls##func );
 #else
 	#define IMPLEMENT_FUNCTION(cls,num,func) \
 		extern "C" DLL_EXPORT { Native int##cls##func = (Native)&cls::func; } \
-		static BYTE cls##func##Temp = GRegisterNative( num, int##cls##func );
+		static BYTE cls##func##Temp = GRegisterNative( num, int##cls##func ); \
+		static FDynamicNativeReg cls##func##DynReg( TEXT("int") TEXT(#cls) TEXT(#func), int##cls##func );
 #endif
 
 /*-----------------------------------------------------------------------------

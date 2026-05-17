@@ -788,7 +788,7 @@ void URender::DrawActorSprite( FSceneNode* Frame, FDynamicSprite* Sprite )
 			Sprite->Z,
 			Color,
 			FPlane(0,0,0,0),
-			PolyFlags | PF_TwoSided | Texture->PolyFlags
+			PolyFlags | PF_TwoSided | Texture->PolyFlags()
 		);
 		if( Sprite->Actor->DrawType==DT_SpriteAnimOnce )
 		{

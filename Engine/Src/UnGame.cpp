@@ -1456,12 +1456,13 @@ void UGameEngine::Tick( FLOAT DeltaSeconds )
 {
 	guard(UGameEngine::Tick);
 	static INT EngineTickDiagCount = 0;
+	static const UBOOL GXboxVerboseEngineTickLog = 0;
 	EngineTickDiagCount++;
-	UBOOL bTickDiag = (EngineTickDiagCount <= 3)
+	UBOOL bTickDiag = GXboxVerboseEngineTickLog && ((EngineTickDiagCount <= 3)
 		|| (EngineTickDiagCount >= 80 && EngineTickDiagCount <= 140)
 		|| (EngineTickDiagCount >= 180 && EngineTickDiagCount <= 280)
 		|| (EngineTickDiagCount >= 300 && EngineTickDiagCount <= 360)
-		|| ((EngineTickDiagCount % 300) == 0);
+		|| ((EngineTickDiagCount % 300) == 0));
 	if( bTickDiag )
 		debugf( NAME_Log, TEXT("XTICK tick=%d begin dt=%.4f client=%08X glevel=%08X"), EngineTickDiagCount, DeltaSeconds, (DWORD)Client, (DWORD)GLevel );
 	INT LocalTickCycles=0;

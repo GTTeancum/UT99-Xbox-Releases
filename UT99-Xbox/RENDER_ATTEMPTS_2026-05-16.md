@@ -333,3 +333,163 @@ Status:
   - `GETLOSS` returns `"0"`;
   - first 8 calls log `XCMD netstat`.
 - This preserves the script timer behavior while avoiding unnecessary local command-chain traversal for net stats that are meaningless in standalone intro playback.
+
+### 15. Tall Texture UV Scale Mismatch
+
+Change/evidence:
+
+- Steve validated Attempt 14 as stable: the intro map rendered through completely and restarted as expected.
+- The remaining visible issue is UV stretching/tearing, most obvious on distant building/window facades in the intro screenshot.
+- Audited `UXboxRenderDevice::SetTextureD3D` and `DrawComplexSurface` against the stock `D3DDrv` paths.
+- Stock D3D intentionally handles tall textures by storing them transposed in video memory:
+  - it chooses a pool by `Max(USize,VSize)+Min(USize,VSize)*65543`, so a 64x256 source lands in a 256x64 surface;
+  - it sets `UIndex=1`, `VIndex=0`;
+  - but it keeps `UScale=1/(source USize * mip * Info.UScale)` and `VScale=1/(source VSize * mip * Info.VScale)`.
+- The Xbox renderer was transposing the pixels and swapping `UIndex/VIndex`, but it computed `UScale/VScale` from the physical destination dimensions. For a 64x256 facade texture this made U divide by 256 and V divide by 64, exactly the kind of axis-stretch that would tear tall building textures.
+- Stock D3D also explicitly sets texture addressing to wrap; the Xbox renderer relied on default stage state.
+
+Result:
+
+- Treat this as a root-cause visual fix, not a probe: our math differed from stock D3D in a way that directly matches the screenshot.
+
+Status:
+
+- Changed `SetTextureD3D` so cache `UScale/VScale` use the source mip dimensions (`SrcUSize/SrcVSize`) even when the physical upload is transposed.
+- Explicitly set `D3DTSS_ADDRESSU/V` to `D3DTADDRESS_WRAP` for stages 0 and 1 during renderer state initialization.
+
+### 16. Disable BSP Multitexture Stage For Lightmaps
+
+Change/evidence:
+
+- Steve's screenshots after Attempt 15 still show heavy tearing/banding on world surfaces.
+- The base render is stable and `RFRAME` reports no failed draws or invalid vertices, but the log shows very high churn in stage-1 tiny RGBA7 lightmap textures.
+- Stock D3D has two supported BSP paths:
+  - a multitexture path using stage 0 for base texture and stage 1 for lightmap;
+  - a fallback path that draws base, macro, lightmap, and fog as separate stage-0 passes.
+- Since the artifacts look like world-surface lighting/combiner tears rather than simple diffuse upload corruption, the least speculative isolation/fix is to use the stock single-stage fallback on Xbox. That removes stage-1 FVF/combiner/coordinate risk while keeping lightmaps enabled.
+
+Result:
+
+- This should preserve stable rendering and keep lightmaps, but avoid the Xbox-specific stage-1 multitexture path until it can be audited separately.
+
+Status:
+
+- Added `GUseXboxBspMultitexture=0`.
+- `DrawComplexSurface` now routes BSP lightmaps through the stock multi-pass fallback instead of the stage-1 multitexture path.
+
+### 17. Remove PC Tall-Texture Transpose On Xbox
+
+Change/evidence:
+
+- Steve validated that Attempt 16 was not a lightmap/stage-1 issue: the same UV tearing persisted with BSP multitexture disabled.
+- That moves the visual bug back to the shared base texture path.
+- The remaining Xbox-specific behavior common to the torn BSP textures is the inherited PC D3D7 tall-texture transpose:
+  - PC D3D7 pools tall textures as wide surfaces and swaps `UIndex/VIndex`.
+  - OpenJKDF2's Xbox FakeGL path creates textures using the real source `width,height` and calls `XGSwizzleRect` with those real dimensions.
+  - Our textures are power-of-two, so Xbox swizzled A8R8G8B8 textures do not need the PC D3D7 aspect workaround.
+- Keeping a physical transpose means the upload path, cache key, and UV axis swap are all special-cased only for tall base textures. The screenshots show exactly those world/facade textures tearing while the scene otherwise renders.
+
+Result:
+
+- Treat the tall-texture transpose itself as the next root suspect, not the scale math around it.
+
+Status:
+
+- Disabled `bSwapUV` on Xbox so non-DXT textures are created and uploaded in source orientation.
+- Restored `GUseXboxBspMultitexture=1` because Attempt 16 disproved the lightmap isolation path and we want the renderer back on the normal BSP route for this test.
+
+### 18. Log Noise Cleanup For UV Testing
+
+Change/evidence:
+
+- Steve asked to clean up the log before the next run.
+- The current `ut99.log` tail is dominated by old actor diagnostics (`XTICK`, `XLEVEL`, `XACTORSTEP`) from the crash hunt.
+- Those breadcrumbs were useful for the now-fixed intro crash, but they obscure the render and texture evidence needed for the UV issue.
+
+Result:
+
+- Keep startup, render summaries, warnings, errors, and defensive crash guards.
+- Disable the broad actor/engine tick phase spam and remove harmless local net-stat success logs.
+
+Status:
+
+- Added disabled compile-time switches around `UGameEngine::Tick` and `ULevel::Tick` verbose diagnostics.
+- Removed `XCMD netstat` success logging while preserving the `GETPING`/`GETLOSS` Xbox short-circuit.
+- Reduced `RFRAME` logging to first frames, every 60th frame, failures, bad draws, or skipped textures instead of every texture-create frame.
+
+### 19. Texture Cache Thrash And Upload Log Cleanup
+
+Change/evidence:
+
+- Steve reported continued stretching plus occasional surface flicker.
+- The fresh log is useful:
+  - no `RDRAW FAILED`, no bad TL vertices, no texture rejects, and present succeeds;
+  - memory remains stable around 81 MB available;
+  - by frame ~1720 the renderer has created over 2300 textures while the resident pool is fixed at 128 entries;
+  - repeated `RTEX reuse` and stage-1 lightmap recreation continue during normal rendering.
+- The flicker symptom matches texture eviction/recreation churn better than UV math.
+- The log cleanup from Attempt 18 was incomplete because `RenderTextureHotTrace` stayed true forever once total texture creates exceeded the resident threshold, so upload internals still spammed the log.
+
+Result:
+
+- Treat flicker as a cache residency problem first.
+- Keep the UV investigation separate: unchanged stretching means the tall-texture transpose path was not the root visual cause.
+
+Status:
+
+- Increased the Xbox resident texture cache from 128 to 768 entries while keeping the 12 MB live-texture safety flush.
+- Changed hot texture tracing to trigger only near the resident pool limit, not forever after total creates pass the limit.
+- Throttled cache reuse logs and guarded mip `prelock` logs behind the hot-trace budget.
+- Explicitly disabled texture transform flags on stages 0 and 1 during frame state setup, matching the direct-coordinate usage expected by the renderer.
+
+### 20. Clamp-Fill Texture Padding During Xbox Swizzle
+
+Change/evidence:
+
+- Steve's latest log still shows no failed draws, no bad transformed vertices, no texture rejects, and stable memory/cache behavior, while the screenshot still shows smeared/tearing surfaces.
+- Audited the D3D primitive count suspicion against `C:\XDK_5558\XDK\xbox\include\D3D8.h` and OpenJKDF2:
+  - Xbox `IDirect3DDevice8::DrawPrimitive` takes standard primitive count and internally calls `D3DVERTEXCOUNT`;
+  - OpenJKDF2's C++ wrapper also passes standard primitive count;
+  - therefore our `DrawPrimitiveVB(..., Poly->NumPts - 2)` call is not the root of the visual tearing.
+- The next verified mismatch is texture composition before swizzling:
+  - UT textures often have a valid `UClamp/VClamp` rectangle inside a power-of-two mip allocation;
+  - the stock/OpenGL path clamps samples to that valid rectangle when composing BGRA/RGBA textures;
+  - the Xbox upload path either copied the whole power-of-two allocation or zero-filled outside clamp for RGBA7, leaving padding visible under wrap/filtering.
+- The log already shows many lightmap/realtime textures such as `256x16 clamp=160x14`, which means padding is absolutely present in rendered texture data.
+
+Result:
+
+- Treat the remaining smear/tear as a texture-composition mismatch rather than a D3D draw failure.
+- Edge-fill every uploaded A8R8G8B8 scratch image from the mip-scaled `UClamp/VClamp` rectangle before calling `XGSwizzleRect`.
+
+Status:
+
+- Added `RenderMipClampSize`.
+- Updated P8, RGBA7, and RGBA/RGBA8 conversion to sample with clamped source coordinates across the full destination mip.
+- Added sparse `RTEX clamp-pad` diagnostics for the first 32 padded uploads.
+
+### 21. GPU Projection For Perspective-Correct 3D UVs
+
+Change/evidence:
+
+- Steve pointed out OpenJKDF2 had a similar "texture projection" issue.
+- Verified against `C:\Programming\GitHub\OpenJKDF2ogx` commit `b31c660d`:
+  - the commit message identifies CPU pre-projection as the root cause of affine/swimming UVs;
+  - the fix keeps view-space vertices through the engine and lets the Xbox GPU projection matrix provide real W for perspective-correct interpolation.
+- Verified UT's original PC D3D7 renderer still used pretransformed vertices, but explicitly enabled `D3DRENDERSTATE_TEXTUREPERSPECTIVE`.
+- Verified Xbox D3D8 headers do not expose `D3DRS_TEXTUREPERSPECTIVE`, so our `D3DFVF_XYZRHW` world path had no equivalent switch to recover perspective-correct UVs.
+- The UT Xbox screenshots match that failure mode: geometry is stable enough to render, but large/slanted world surfaces smear and tear as if UVs are affine-interpolated after projection.
+
+Result:
+
+- Treat projection as the primary root suspect, ahead of lightmaps, texture padding, or primitive counts.
+- Keep 2D/HUD/fullscreen flash paths on `XYZRHW`.
+- Move 3D textured BSP and Gouraud/actor rendering to camera-space `XYZ` vertices so the NV2A performs the perspective divide.
+
+Status:
+
+- Added camera-space world vertex formats (`FXboxWorldVertex`, `FXboxWorldVertex2`) and UV helpers.
+- `SetSceneNode` now installs identity world/view transforms plus a UT-matched perspective projection matrix, with `RPROJ gpu` startup diagnostics.
+- `DrawComplexSurface` now uses world vertices for base, multitexture, macrotexture, lightmap, and fog passes.
+- `DrawGouraudPolygon` now uses world vertices for mesh/actor polygons.
+- `DrawTile`, 2D line/point, and `EndFlash` remain pretransformed.

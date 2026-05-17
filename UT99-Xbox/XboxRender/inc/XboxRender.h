@@ -86,11 +86,30 @@ struct FXboxTLVertex2
 };
 #define XBOX_FVF_TLVERTEX2 (D3DFVF_XYZRHW | D3DFVF_DIFFUSE | D3DFVF_TEX2)
 
+// Camera-space lit vertices. Used by world BSP so the Xbox fixed-function
+// pipeline performs the perspective divide and perspective-correct UVs.
+struct FXboxWorldVertex
+{
+    FLOAT x, y, z;
+    DWORD color;
+    FLOAT u, v;
+};
+#define XBOX_FVF_WORLDVERTEX (D3DFVF_XYZ | D3DFVF_DIFFUSE | D3DFVF_TEX1)
+
+struct FXboxWorldVertex2
+{
+    FLOAT x, y, z;
+    DWORD color;
+    FLOAT u0, v0;
+    FLOAT u1, v1;
+};
+#define XBOX_FVF_WORLDVERTEX2 (D3DFVF_XYZ | D3DFVF_DIFFUSE | D3DFVF_TEX2)
+
 // ============================================================================
 // Texture cache
 // ============================================================================
 enum { XBOX_TEX_CACHE_SIZE = 4096 };
-enum { XBOX_TEX_RESIDENT_LIMIT = 128 };
+enum { XBOX_TEX_RESIDENT_LIMIT = 768 };
 
 struct FXboxTexCacheEntry
 {
@@ -201,6 +220,7 @@ public:
     void  EndSceneForTextureUpload( const char* Reason );
     void  ResumeSceneAfterTextureUpload( const char* Reason );
     HRESULT DrawPrimitiveVB( D3DPRIMITIVETYPE PrimitiveType, UINT PrimitiveCount, const void* Vertices, UINT Stride, const char* OpName );
+    HRESULT DrawPrimitiveVBWorld( D3DPRIMITIVETYPE PrimitiveType, UINT PrimitiveCount, const void* Vertices, UINT Stride, const char* OpName );
     void  FlushTexCache();
     void  ReleaseDrawVertexBuffer();
 };

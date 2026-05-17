@@ -68,6 +68,7 @@ static UBOOL XboxShouldSuppressSmokeTimer( AActor* Actor )
 static INT   GXboxTickDiagLevel      = 0;
 static INT   GXboxTickDiagActorIndex = -1;
 static UBOOL GXboxTickDiagActorSteps = 0;
+static const UBOOL GXboxVerboseActorTickLog = 0;
 
 static void XboxLogActorTickStep( AActor* Actor, const TCHAR* Phase )
 {
@@ -915,16 +916,16 @@ void ULevel::Tick( ELevelTick TickType, FLOAT DeltaSeconds )
 	guard(ULevel::Tick);
 	static INT LevelTickDiagCount = 0;
 	LevelTickDiagCount++;
-	UBOOL bLevelDiag = (LevelTickDiagCount <= 3)
+	UBOOL bLevelDiag = GXboxVerboseActorTickLog && ((LevelTickDiagCount <= 3)
 		|| (LevelTickDiagCount >= 160 && LevelTickDiagCount <= 280)
 		|| (LevelTickDiagCount >= 240 && LevelTickDiagCount <= 280)
 		|| (LevelTickDiagCount >= 360 && LevelTickDiagCount <= 560)
 		|| (LevelTickDiagCount >= 600 && LevelTickDiagCount <= 720)
-		|| ((LevelTickDiagCount % 300) == 0);
-	UBOOL bActorDiag = (LevelTickDiagCount >= 160 && LevelTickDiagCount <= 280)
+		|| ((LevelTickDiagCount % 300) == 0));
+	UBOOL bActorDiag = GXboxVerboseActorTickLog && ((LevelTickDiagCount >= 160 && LevelTickDiagCount <= 280)
 		|| (LevelTickDiagCount >= 420 && LevelTickDiagCount <= 500)
 		|| (LevelTickDiagCount >= 520 && LevelTickDiagCount <= 545)
-		|| (LevelTickDiagCount >= 600 && LevelTickDiagCount <= 720);
+		|| (LevelTickDiagCount >= 600 && LevelTickDiagCount <= 720));
 	if( bLevelDiag )
 		debugf( NAME_Log, TEXT("XLEVEL tick=%d begin type=%d dt=%.4f actors=%d"), LevelTickDiagCount, TickType, DeltaSeconds, Actors.Num() );
 	ALevelInfo* Info = GetLevelInfo();

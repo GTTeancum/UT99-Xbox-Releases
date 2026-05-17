@@ -54,6 +54,7 @@ static INT   GRD_TotalVBWraps    = 0;
 static INT   GRD_BadDrawLogCount = 0;
 static INT   GRD_TotalTexBytes   = 0;
 static INT   GRD_TallTexLogCount = 0;
+static INT   GRD_ClampPadLogCount = 0;
 static INT   GRD_Rgba7MaxLogCount = 0;
 static INT   GRD_DxtUnexpectedLogCount = 0;
 static INT   GRD_MaxPolyVerts    = 0;
@@ -62,6 +63,7 @@ static DWORD GRD_LastTextureIDLo = 0;
 static DWORD GRD_LastTextureIDHi = 0;
 static const char* GRD_LastOp    = "boot";
 static const UBOOL GWireframeNoTextureProbe = 0;
+static const UBOOL GUseXboxBspMultitexture = 1;
 
 static void RenderDiagPrim( INT NumVerts, DWORD PolyFlags, const char* Op )
 {
@@ -181,7 +183,7 @@ static UBOOL RenderValidateTLVertices( const void* Vertices, UINT VertexCount, U
 
 static UBOOL RenderTextureHotTrace( INT Pool, INT TotalCreates )
 {
-    return Pool >= (XBOX_TEX_RESIDENT_LIMIT - 8) || TotalCreates >= (XBOX_TEX_RESIDENT_LIMIT - 8);
+    return Pool >= (XBOX_TEX_RESIDENT_LIMIT - 8);
 }
 
 static void RenderBlockAndReleaseTexture( IDirect3DTexture8*& Texture )
@@ -219,6 +221,43 @@ static inline void SetUV1( FXboxTLVertex2& Vert, FLOAT U, FLOAT V, const FLOAT* 
     T[VIndex[1]] = V * VScale[1];
     Vert.u1 = T[0];
     Vert.v1 = T[1];
+}
+
+static inline void SetUV( FXboxWorldVertex& Vert, INT Stage, FLOAT U, FLOAT V, const FLOAT* UScale, const FLOAT* VScale, const INT* UIndex, const INT* VIndex )
+{
+    FLOAT T[2];
+    T[UIndex[Stage]] = U * UScale[Stage];
+    T[VIndex[Stage]] = V * VScale[Stage];
+    Vert.u = T[0];
+    Vert.v = T[1];
+}
+
+static inline void SetUV0( FXboxWorldVertex2& Vert, FLOAT U, FLOAT V, const FLOAT* UScale, const FLOAT* VScale, const INT* UIndex, const INT* VIndex )
+{
+    FLOAT T[2];
+    T[UIndex[0]] = U * UScale[0];
+    T[VIndex[0]] = V * VScale[0];
+    Vert.u0 = T[0];
+    Vert.v0 = T[1];
+}
+
+static inline void SetUV1( FXboxWorldVertex2& Vert, FLOAT U, FLOAT V, const FLOAT* UScale, const FLOAT* VScale, const INT* UIndex, const INT* VIndex )
+{
+    FLOAT T[2];
+    T[UIndex[1]] = U * UScale[1];
+    T[VIndex[1]] = V * VScale[1];
+    Vert.u1 = T[0];
+    Vert.v1 = T[1];
+}
+
+static inline INT RenderMipClampSize( INT BaseClamp, INT MipIndex, INT MipSize )
+{
+    if( BaseClamp <= 0 )
+        return MipSize;
+    INT Result = BaseClamp >> MipIndex;
+    if( Result < 1 )
+        Result = 1;
+    return Clamp( Result, 1, MipSize );
 }
 
 // ============================================================================
@@ -297,6 +336,7 @@ UBOOL UXboxRenderDevice::Init( UViewport* InViewport, INT NewX, INT NewY, INT Ne
     GRD_TotalVBWraps    = 0;
     GRD_TotalTexBytes   = 0;
     GRD_TallTexLogCount = 0;
+    GRD_ClampPadLogCount = 0;
     GRD_Rgba7MaxLogCount = 0;
     GRD_DxtUnexpectedLogCount = 0;
     GRD_LastOp          = "Init";
@@ -567,7 +607,8 @@ HRESULT UXboxRenderDevice::DrawPrimitiveVB( D3DPRIMITIVETYPE PrimitiveType, UINT
         return E_FAIL;
     }
 
-    if( !RenderValidateTLVertices( Vertices, VertexCount, Stride, OpName, PrimitiveType, FrameCounter ) )
+    if( Stride != sizeof(FXboxWorldVertex) && Stride != sizeof(FXboxWorldVertex2) &&
+        !RenderValidateTLVertices( Vertices, VertexCount, Stride, OpName, PrimitiveType, FrameCounter ) )
         return E_FAIL;
 
     if( !SceneOpen )
@@ -676,6 +717,11 @@ HRESULT UXboxRenderDevice::DrawPrimitiveVB( D3DPRIMITIVETYPE PrimitiveType, UINT
     return hrDraw;
 }
 
+HRESULT UXboxRenderDevice::DrawPrimitiveVBWorld( D3DPRIMITIVETYPE PrimitiveType, UINT PrimitiveCount, const void* Vertices, UINT Stride, const char* OpName )
+{
+    return DrawPrimitiveVB( PrimitiveType, PrimitiveCount, Vertices, Stride, OpName );
+}
+
 // ============================================================================
 // Exec
 // ============================================================================
@@ -703,7 +749,7 @@ void UXboxRenderDevice::Lock( FPlane InFlashScale, FPlane InFlashFog, FPlane Scr
     if( !Device )
         return;
 
-    if( TexLiveBytes > (12 * 1024 * 1024) || TexPoolNext > 1024 )
+    if( TexLiveBytes > (12 * 1024 * 1024) || TexPoolNext > XBOX_TEX_RESIDENT_LIMIT )
     {
         GXboxLog.Write( "RTEX frame-flush frame=%d liveKB=%d pool=%d",
             FrameCounter, TexLiveBytes / 1024, TexPoolNext );
@@ -785,10 +831,16 @@ void UXboxRenderDevice::Lock( FPlane InFlashScale, FPlane InFlashFog, FPlane Scr
         Device->SetTextureStageState( 0, D3DTSS_ALPHAARG1, D3DTA_TEXTURE );
         Device->SetTextureStageState( 0, D3DTSS_ALPHAARG2, D3DTA_DIFFUSE );
         Device->SetTextureStageState( 0, D3DTSS_TEXCOORDINDEX, 0 );
+        Device->SetTextureStageState( 0, D3DTSS_ADDRESSU, D3DTADDRESS_WRAP );
+        Device->SetTextureStageState( 0, D3DTSS_ADDRESSV, D3DTADDRESS_WRAP );
+        Device->SetTextureStageState( 0, D3DTSS_TEXTURETRANSFORMFLAGS, D3DTTFF_DISABLE );
         Device->SetTextureStageState( 0, D3DTSS_MINFILTER, D3DTEXF_LINEAR );
         Device->SetTextureStageState( 0, D3DTSS_MAGFILTER, D3DTEXF_LINEAR );
         Device->SetTextureStageState( 0, D3DTSS_MIPFILTER, D3DTEXF_LINEAR );
         Device->SetTextureStageState( 1, D3DTSS_TEXCOORDINDEX, 1 );
+        Device->SetTextureStageState( 1, D3DTSS_ADDRESSU, D3DTADDRESS_WRAP );
+        Device->SetTextureStageState( 1, D3DTSS_ADDRESSV, D3DTADDRESS_WRAP );
+        Device->SetTextureStageState( 1, D3DTSS_TEXTURETRANSFORMFLAGS, D3DTTFF_DISABLE );
         Device->SetTextureStageState( 1, D3DTSS_COLOROP, D3DTOP_DISABLE );
         Device->SetTextureStageState( 1, D3DTSS_ALPHAOP, D3DTOP_DISABLE );
 
@@ -824,7 +876,7 @@ void UXboxRenderDevice::Unlock( UBOOL Blit )
     // that didn't push to the CRTC.
     HRESULT hrPresent = Device->Present( NULL, NULL, NULL, NULL );
 
-    if( FAILED(hrEnd) || FAILED(hrPresent) || FrameCounter <= 3 || (FrameCounter % 60) == 0 || RenderHotFrame( FrameCounter ) || RenderBoundaryFrame( FrameCounter ) || GRD_FrameTexCreates )
+    if( FAILED(hrEnd) || FAILED(hrPresent) || FrameCounter <= 3 || (FrameCounter % 60) == 0 || RenderHotFrame( FrameCounter ) || RenderBoundaryFrame( FrameCounter ) || GRD_FrameBadDraws || GRD_FrameTexSkipped )
         GXboxLog.Write( "RFRAME f=%d end=0x%08X present=0x%08X DCS=%d DGP=%d DT=%d prim=%d verts=%d maxPoly=%d badDraw=%d badVert=%d totalBad=%d splits=%d totalSplits=%d vbLocks=%d vbWraps=%d vbKB=%d totalVBLocks=%d totalVBWraps=%d texBind=%d texNew=%d texUp=%d texSkip=%d totalNew=%d totalUp=%d totalSkip=%d liveKB=%d texKB=%d availKB=%u lastTex=%08X:%08X flags=0x%08X last=%s",
             FrameCounter, (DWORD)hrEnd, (DWORD)hrPresent,
             GRD_FrameDCS, GRD_FrameDGP, GRD_FrameDT, GRD_FramePrims, GRD_FrameVerts, GRD_MaxPolyVerts,
@@ -883,6 +935,34 @@ void UXboxRenderDevice::SetSceneNode( FSceneNode* Frame )
     vp.MinZ   = 0.0f;
     vp.MaxZ   = 1.0f;
     Device->SetViewport( &vp );
+
+    D3DMATRIX Identity;
+    appMemzero( &Identity, sizeof(Identity) );
+    Identity._11 = 1.0f;
+    Identity._22 = 1.0f;
+    Identity._33 = 1.0f;
+    Identity._44 = 1.0f;
+    Device->SetTransform( D3DTS_WORLD, &Identity );
+    Device->SetTransform( D3DTS_VIEW,  &Identity );
+
+    D3DMATRIX Projection;
+    appMemzero( &Projection, sizeof(Projection) );
+    Projection._11 = (Frame->X > 0) ? (2.0f * Frame->Proj.Z / (FLOAT)Frame->X) : 1.0f;
+    Projection._22 = (Frame->Y > 0) ? (-2.0f * Frame->Proj.Z / (FLOAT)Frame->Y) : -1.0f;
+    Projection._33 = ProjZRatio;
+    Projection._34 = 1.0f;
+    Projection._43 = ProjZOffset;
+    Projection._44 = 0.0f;
+    Device->SetTransform( D3DTS_PROJECTION, &Projection );
+
+    static INT ProjectionLogCount = 0;
+    if( ProjectionLogCount < 4 )
+    {
+        ProjectionLogCount++;
+        GXboxLog.Write( "RPROJ gpu f=%d #%d frame=%dx%d projZ=%.6f m11=%.6f m22=%.6f zNear=%.3f zFar=%.1f",
+            FrameCounter, ProjectionLogCount, Frame->X, Frame->Y, Frame->Proj.Z,
+            Projection._11, Projection._22, zNear, zFar );
+    }
 
     unguard;
 }
@@ -1057,9 +1137,10 @@ void UXboxRenderDevice::SetTextureD3D( INT Stage, FTextureInfo& Info, DWORD Poly
                 }
                 TexLiveBytes -= Entry->Bytes;
                 Entry->Bytes = 0;
-                GXboxLog.Write( "RTEX reuse frame=%d slot=%d age=%d pool=%d liveKB=%d availKB=%u old=%08X:%08X",
-                    FrameCounter, BestIndex, BestAge, TexPoolNext, TexLiveBytes / 1024,
-                    (unsigned)RenderAvailPhysKB(), (DWORD)(Entry->CacheID >> 32), (DWORD)Entry->CacheID );
+                if( GRD_TotalTexCreates <= 16 || (GRD_TotalTexCreates % 128) == 0 )
+                    GXboxLog.Write( "RTEX reuse frame=%d slot=%d age=%d pool=%d liveKB=%d availKB=%u old=%08X:%08X",
+                        FrameCounter, BestIndex, BestAge, TexPoolNext, TexLiveBytes / 1024,
+                        (unsigned)RenderAvailPhysKB(), (DWORD)(Entry->CacheID >> 32), (DWORD)Entry->CacheID );
             }
             Entry->CacheID   = Info.CacheID;
             Entry->pTexture  = NULL;
@@ -1087,9 +1168,13 @@ void UXboxRenderDevice::SetTextureD3D( INT Stage, FTextureInfo& Info, DWORD Poly
             SrcUSize = Info.Mips[FirstMip]->USize;
             SrcVSize = Info.Mips[FirstMip]->VSize;
         }
-        UBOOL bSwapUV = (Info.Format != TEXF_DXT1 && SrcUSize < SrcVSize);
-        INT USize = bSwapUV ? SrcVSize : SrcUSize;
-        INT VSize = bSwapUV ? SrcUSize : SrcVSize;
+        // PC D3D7 transposed tall textures to satisfy old surface-pool
+        // constraints. Xbox D3D8 accepts rectangular power-of-two swizzled
+        // textures directly; keeping the source orientation avoids making the
+        // base texture upload path disagree with the UT surface UVs.
+        UBOOL bSwapUV = 0;
+        INT USize = SrcUSize;
+        INT VSize = SrcVSize;
 
         if( SrcUSize < 1 || SrcVSize < 1 || USize < 1 || VSize < 1 || USize > 1024 || VSize > 1024 )
         {
@@ -1130,8 +1215,8 @@ void UXboxRenderDevice::SetTextureD3D( INT Stage, FTextureInfo& Info, DWORD Poly
         if( SafeInfoUScale != Info.UScale || SafeInfoVScale != Info.VScale )
             GXboxLog.Write( "RTEX scale-sanitize f=%d stage=%d id=%08X:%08X us=%.6f vs=%.6f",
                 FrameCounter, Stage, GRD_LastTextureIDHi, GRD_LastTextureIDLo, Info.UScale, Info.VScale );
-        Entry->UScale = 1.0f / (FLOAT)(USize * Max((INT)1, (INT)(1 << FirstMip)) * SafeInfoUScale);
-        Entry->VScale = 1.0f / (FLOAT)(VSize * Max((INT)1, (INT)(1 << FirstMip)) * SafeInfoVScale);
+        Entry->UScale = 1.0f / (FLOAT)(SrcUSize * Max((INT)1, (INT)(1 << FirstMip)) * SafeInfoUScale);
+        Entry->VScale = 1.0f / (FLOAT)(SrcVSize * Max((INT)1, (INT)(1 << FirstMip)) * SafeInfoVScale);
         Entry->UIndex = bSwapUV ? 1 : 0;
         Entry->VIndex = bSwapUV ? 0 : 1;
 
@@ -1237,7 +1322,7 @@ void UXboxRenderDevice::SetTextureD3D( INT Stage, FTextureInfo& Info, DWORD Poly
                     if( !Info.Mips[m] || !Info.Mips[m]->DataPtr )
                         continue;
                     D3DLOCKED_RECT lr;
-                    if( bHotUpload )
+                    if( bHotUpload && RenderHotTrace() )
                         GXboxLog.Write( "RTEXUP dxt-prelock f=%d seq=%d mip=%d tex=0x%08X", FrameCounter, UploadSeq, m - FirstMip, (DWORD)Entry->pTexture );
                     HRESULT hrLock = Entry->pTexture->LockRect( m - FirstMip, &lr, NULL, 0 );
                     if( bHotUpload && RenderHotTrace() )
@@ -1353,49 +1438,54 @@ void UXboxRenderDevice::SetTextureD3D( INT Stage, FTextureInfo& Info, DWORD Poly
                         continue;
                     }
                     DWORD* Dst = Scratch;
+                    INT CopyW = RenderMipClampSize( Info.UClamp, m, MipW );
+                    INT CopyH = RenderMipClampSize( Info.VClamp, m, MipH );
+                    if( (CopyW != MipW || CopyH != MipH) && GRD_ClampPadLogCount < 32 )
+                    {
+                        GRD_ClampPadLogCount++;
+                        GXboxLog.Write( "RTEX clamp-pad #%d f=%d seq=%d stage=%d fmt=%d mip=%d tex=%dx%d clamp=%dx%d dest=%dx%d",
+                            GRD_ClampPadLogCount, FrameCounter, UploadSeq, Stage, Info.Format, m - FirstMip,
+                            MipW, MipH, CopyW, CopyH, DestW, DestH );
+                    }
 
                     if( Info.Format == TEXF_P8 )
                     {
                         BYTE* Src = (BYTE*)Info.Mips[m]->DataPtr;
                         FColor* Pal = Info.Palette;
-                        for( INT y = 0; y < MipH; y++ )
+                        for( INT y = 0; y < DestH; y++ )
                         {
-                            for( INT x = 0; x < MipW; x++ )
+                            INT sy = bSwapUV ? Min( y, CopyW - 1 ) : Min( y, CopyH - 1 );
+                            for( INT x = 0; x < DestW; x++ )
                             {
-                                BYTE Idx = Src[y * MipW + x];
+                                INT sx = bSwapUV ? Min( x, CopyH - 1 ) : Min( x, CopyW - 1 );
+                                BYTE Idx = Src[sy * MipW + sx];
                                 if( Idx == 0 && (PolyFlags & PF_Masked) )
-                                    Dst[bSwapUV ? (x * DestW + y) : (y * DestW + x)] = 0x00000000;
+                                    Dst[y * DestW + x] = 0x00000000;
                                 else if( Pal )
                                 {
                                     FColor& C = Pal[Idx];
-                                    Dst[bSwapUV ? (x * DestW + y) : (y * DestW + x)] = D3DCOLOR_ARGB( C.A, C.R, C.G, C.B );
+                                    Dst[y * DestW + x] = D3DCOLOR_ARGB( C.A, C.R, C.G, C.B );
                                 }
                                 else
-                                    Dst[bSwapUV ? (x * DestW + y) : (y * DestW + x)] = 0xFFFF00FF;
+                                    Dst[y * DestW + x] = 0xFFFF00FF;
                             }
                         }
                     }
                     else if( Info.Format == TEXF_RGBA7 )
                     {
                         DWORD* Src = (DWORD*)Info.Mips[m]->DataPtr;
-                        INT CopyW = MipW;
-                        INT CopyH = MipH;
-                        if( Info.NumMips == 1 )
-                        {
-                            CopyW = Clamp( Info.UClamp ? Info.UClamp : MipW, 1, MipW );
-                            CopyH = Clamp( Info.VClamp ? Info.VClamp : MipH, 1, MipH );
-                        }
-                        appMemzero( Dst, Need );
                         if( bHotUpload && RenderHotTrace() )
                             GXboxLog.Write( "RTEXUP rgba7-copy f=%d seq=%d mip=%d tex=%dx%d clamp=%dx%d",
                                 FrameCounter, UploadSeq, m - FirstMip, MipW, MipH, CopyW, CopyH );
                         INT SrcStride = MipW;
-                        for( INT y = 0; y < CopyH; y++ )
+                        for( INT y = 0; y < DestH; y++ )
                         {
-                            DWORD* SrcRow = Src + y * SrcStride;
-                            for( INT x = 0; x < CopyW; x++ )
+                            INT sy = bSwapUV ? Min( y, CopyW - 1 ) : Min( y, CopyH - 1 );
+                            DWORD* SrcRow = Src + sy * SrcStride;
+                            for( INT x = 0; x < DestW; x++ )
                             {
-                                Dst[bSwapUV ? (x * DestW + y) : (y * DestW + x)] = SrcRow[x] * 2;
+                                INT sx = bSwapUV ? Min( x, CopyH - 1 ) : Min( x, CopyW - 1 );
+                                Dst[y * DestW + x] = SrcRow[sx] * 2;
                             }
                         }
                         if( bHotUpload && RenderHotTrace() )
@@ -1405,12 +1495,14 @@ void UXboxRenderDevice::SetTextureD3D( INT Stage, FTextureInfo& Info, DWORD Poly
                     else
                     {
                         FColor* Src = (FColor*)Info.Mips[m]->DataPtr;
-                        for( INT y = 0; y < MipH; y++ )
+                        for( INT y = 0; y < DestH; y++ )
                         {
-                            for( INT x = 0; x < MipW; x++ )
+                            INT sy = bSwapUV ? Min( y, CopyW - 1 ) : Min( y, CopyH - 1 );
+                            for( INT x = 0; x < DestW; x++ )
                             {
-                                FColor& C = Src[y * MipW + x];
-                                Dst[bSwapUV ? (x * DestW + y) : (y * DestW + x)] = D3DCOLOR_ARGB( C.A, C.R, C.G, C.B );
+                                INT sx = bSwapUV ? Min( x, CopyH - 1 ) : Min( x, CopyW - 1 );
+                                FColor& C = Src[sy * MipW + sx];
+                                Dst[y * DestW + x] = D3DCOLOR_ARGB( C.A, C.R, C.G, C.B );
                             }
                         }
                     }
@@ -1418,7 +1510,7 @@ void UXboxRenderDevice::SetTextureD3D( INT Stage, FTextureInfo& Info, DWORD Poly
                     // Lock the swizzled destination and swizzle our linear scratch
                     // into it. Pattern from xQuake gl_fakegl.cpp:2457-2468.
                     D3DLOCKED_RECT lr;
-                    if( bHotUpload )
+                    if( bHotUpload && RenderHotTrace() )
                         GXboxLog.Write( "RTEXUP prelock f=%d seq=%d mip=%d tex=0x%08X", FrameCounter, UploadSeq, m - FirstMip, (DWORD)Entry->pTexture );
                     HRESULT hrLock = Entry->pTexture->LockRect( m - FirstMip, &lr, NULL, 0 );
                     if( bHotUpload && RenderHotTrace() )
@@ -1513,7 +1605,7 @@ void UXboxRenderDevice::DrawComplexSurface( FSceneNode* Frame, FSurfaceInfo& Sur
         Surface.DetailTexture = NULL;
 
     // Multitexture path: base texture + lightmap in one pass.
-    if( Surface.LightMap != NULL && Surface.MacroTexture == NULL )
+    if( GUseXboxBspMultitexture && Surface.LightMap != NULL && Surface.MacroTexture == NULL )
     {
         SetBlending( Surface.PolyFlags | PF_Memorized );
         SetTextureD3D( 0, *Surface.Texture, Surface.PolyFlags );
@@ -1527,7 +1619,7 @@ void UXboxRenderDevice::DrawComplexSurface( FSceneNode* Frame, FSurfaceInfo& Sur
         Device->SetTextureStageState( 1, D3DTSS_MINFILTER, D3DTEXF_LINEAR );
         Device->SetTextureStageState( 1, D3DTSS_MAGFILTER, D3DTEXF_LINEAR );
 
-        Device->SetVertexShader( XBOX_FVF_TLVERTEX2 );
+        Device->SetVertexShader( XBOX_FVF_WORLDVERTEX2 );
 
         // Draw each polygon in the facet.
         for( FSavedPoly* Poly = Facet.Polys; Poly; Poly = Poly->Next )
@@ -1540,14 +1632,12 @@ void UXboxRenderDevice::DrawComplexSurface( FSceneNode* Frame, FSurfaceInfo& Sur
                 continue;
             }
 
-            FXboxTLVertex2 Verts[XBOX_MAX_VERTS];
+            FXboxWorldVertex2 Verts[XBOX_MAX_VERTS];
             for( INT i = 0; i < Poly->NumPts; i++ )
             {
-                FLOAT RHW = Poly->Pts[i]->RZ * RProjZ;
-                Verts[i].x    = Poly->Pts[i]->ScreenX + Frame->XB - 0.5f;
-                Verts[i].y    = Poly->Pts[i]->ScreenY + Frame->YB - 0.5f;
-                Verts[i].z    = ProjZRatio + ProjZOffset * RHW;
-                Verts[i].rhw  = RHW;
+                Verts[i].x    = Poly->Pts[i]->Point.X;
+                Verts[i].y    = Poly->Pts[i]->Point.Y;
+                Verts[i].z    = Poly->Pts[i]->Point.Z;
                 Verts[i].color = 0xFFFFFFFF;
 
                 FLOAT u = Facet.MapCoords.XAxis | (*(FVector*)Poly->Pts[i] - Facet.MapCoords.Origin);
@@ -1559,8 +1649,8 @@ void UXboxRenderDevice::DrawComplexSurface( FSceneNode* Frame, FSurfaceInfo& Sur
             RenderDiagPrim( Poly->NumPts, Surface.PolyFlags, "DCS-multi" );
             if( RenderHotFrame( FrameCounter ) && RenderHotTrace() )
                 GXboxLog.Write( "RDRAW begin op=DCS-multi f=%d dcs=%d prim=%d pts=%d stride=%d flags=0x%08X",
-                    FrameCounter, GRD_FrameDCS, GRD_FramePrims + 1, Poly->NumPts, (INT)sizeof(FXboxTLVertex2), Surface.PolyFlags );
-            HRESULT hrDraw = DrawPrimitiveVB( D3DPT_TRIANGLEFAN, Poly->NumPts - 2, Verts, sizeof(FXboxTLVertex2), "DCS-multi" );
+                    FrameCounter, GRD_FrameDCS, GRD_FramePrims + 1, Poly->NumPts, (INT)sizeof(FXboxWorldVertex2), Surface.PolyFlags );
+            HRESULT hrDraw = DrawPrimitiveVBWorld( D3DPT_TRIANGLEFAN, Poly->NumPts - 2, Verts, sizeof(FXboxWorldVertex2), "DCS-multi" );
             if( RenderHotFrame( FrameCounter ) && RenderHotTrace() )
                 GXboxLog.Write( "RDRAW end op=DCS-multi f=%d hr=0x%08X", FrameCounter, (DWORD)hrDraw );
             if( FAILED(hrDraw) )
@@ -1578,7 +1668,7 @@ void UXboxRenderDevice::DrawComplexSurface( FSceneNode* Frame, FSurfaceInfo& Sur
         // in total, so never accumulate the whole surface into one buffer.
         SetTextureD3D( 0, *Surface.Texture, Surface.PolyFlags );
         SetBlending( Surface.PolyFlags & ~PF_Memorized );
-        Device->SetVertexShader( XBOX_FVF_TLVERTEX );
+        Device->SetVertexShader( XBOX_FVF_WORLDVERTEX );
 
         for( FSavedPoly* Poly = Facet.Polys; Poly; Poly = Poly->Next )
         {
@@ -1590,24 +1680,22 @@ void UXboxRenderDevice::DrawComplexSurface( FSceneNode* Frame, FSurfaceInfo& Sur
                 continue;
             }
 
-            FXboxTLVertex Verts[XBOX_MAX_VERTS];
+            FXboxWorldVertex Verts[XBOX_MAX_VERTS];
             for( INT i = 0; i < Poly->NumPts; i++ )
             {
-                FLOAT RHW = Poly->Pts[i]->RZ * RProjZ;
                 FLOAT u = Facet.MapCoords.XAxis | (*(FVector*)Poly->Pts[i] - Facet.MapCoords.Origin);
                 FLOAT v = Facet.MapCoords.YAxis | (*(FVector*)Poly->Pts[i] - Facet.MapCoords.Origin);
-                Verts[i].x     = Poly->Pts[i]->ScreenX + Frame->XB - 0.5f;
-                Verts[i].y     = Poly->Pts[i]->ScreenY + Frame->YB - 0.5f;
-                Verts[i].z     = ProjZRatio + ProjZOffset * RHW;
-                Verts[i].rhw   = RHW;
+                Verts[i].x     = Poly->Pts[i]->Point.X;
+                Verts[i].y     = Poly->Pts[i]->Point.Y;
+                Verts[i].z     = Poly->Pts[i]->Point.Z;
                 Verts[i].color = 0xFFFFFFFF;
                 SetUV( Verts[i], 0, u - Surface.Texture->Pan.X, v - Surface.Texture->Pan.Y, StageUScale, StageVScale, StageUIndex, StageVIndex );
             }
             RenderDiagPrim( Poly->NumPts, Surface.PolyFlags, "DCS-base" );
             if( RenderHotFrame( FrameCounter ) && RenderHotTrace() )
                 GXboxLog.Write( "RDRAW begin op=DCS-base f=%d dcs=%d prim=%d pts=%d stride=%d flags=0x%08X",
-                    FrameCounter, GRD_FrameDCS, GRD_FramePrims + 1, Poly->NumPts, (INT)sizeof(FXboxTLVertex), Surface.PolyFlags );
-            HRESULT hrDraw = DrawPrimitiveVB( D3DPT_TRIANGLEFAN, Poly->NumPts - 2, Verts, sizeof(FXboxTLVertex), "DCS-base" );
+                    FrameCounter, GRD_FrameDCS, GRD_FramePrims + 1, Poly->NumPts, (INT)sizeof(FXboxWorldVertex), Surface.PolyFlags );
+            HRESULT hrDraw = DrawPrimitiveVBWorld( D3DPT_TRIANGLEFAN, Poly->NumPts - 2, Verts, sizeof(FXboxWorldVertex), "DCS-base" );
             if( RenderHotFrame( FrameCounter ) && RenderHotTrace() )
                 GXboxLog.Write( "RDRAW end op=DCS-base f=%d hr=0x%08X", FrameCounter, (DWORD)hrDraw );
             if( FAILED(hrDraw) )
@@ -1628,16 +1716,14 @@ void UXboxRenderDevice::DrawComplexSurface( FSceneNode* Frame, FSurfaceInfo& Sur
                 if( Poly->NumPts < 3 || Poly->NumPts > XBOX_MAX_VERTS )
                     continue;
 
-                FXboxTLVertex Verts[XBOX_MAX_VERTS];
+                FXboxWorldVertex Verts[XBOX_MAX_VERTS];
                 for( INT i = 0; i < Poly->NumPts; i++ )
                 {
-                    FLOAT RHW = Poly->Pts[i]->RZ * RProjZ;
                     FLOAT u = Facet.MapCoords.XAxis | (*(FVector*)Poly->Pts[i] - Facet.MapCoords.Origin);
                     FLOAT v = Facet.MapCoords.YAxis | (*(FVector*)Poly->Pts[i] - Facet.MapCoords.Origin);
-                    Verts[i].x     = Poly->Pts[i]->ScreenX + Frame->XB - 0.5f;
-                    Verts[i].y     = Poly->Pts[i]->ScreenY + Frame->YB - 0.5f;
-                    Verts[i].z     = ProjZRatio + ProjZOffset * RHW;
-                    Verts[i].rhw   = RHW;
+                    Verts[i].x     = Poly->Pts[i]->Point.X;
+                    Verts[i].y     = Poly->Pts[i]->Point.Y;
+                    Verts[i].z     = Poly->Pts[i]->Point.Z;
                     Verts[i].color = 0xFFFFFFFF;
                     SetUV( Verts[i], 0, u - Surface.MacroTexture->Pan.X, v - Surface.MacroTexture->Pan.Y, StageUScale, StageVScale, StageUIndex, StageVIndex );
                 }
@@ -1645,7 +1731,7 @@ void UXboxRenderDevice::DrawComplexSurface( FSceneNode* Frame, FSurfaceInfo& Sur
                 if( RenderHotFrame( FrameCounter ) && RenderHotTrace() )
                     GXboxLog.Write( "RDRAW begin op=DCS-macro f=%d dcs=%d prim=%d pts=%d",
                         FrameCounter, GRD_FrameDCS, GRD_FramePrims + 1, Poly->NumPts );
-                HRESULT hrDraw = DrawPrimitiveVB( D3DPT_TRIANGLEFAN, Poly->NumPts - 2, Verts, sizeof(FXboxTLVertex), "DCS-macro" );
+                HRESULT hrDraw = DrawPrimitiveVBWorld( D3DPT_TRIANGLEFAN, Poly->NumPts - 2, Verts, sizeof(FXboxWorldVertex), "DCS-macro" );
                 if( RenderHotFrame( FrameCounter ) && RenderHotTrace() )
                     GXboxLog.Write( "RDRAW end op=DCS-macro f=%d hr=0x%08X", FrameCounter, (DWORD)hrDraw );
                 if( FAILED(hrDraw) )
@@ -1663,16 +1749,14 @@ void UXboxRenderDevice::DrawComplexSurface( FSceneNode* Frame, FSurfaceInfo& Sur
                 if( Poly->NumPts < 3 || Poly->NumPts > XBOX_MAX_VERTS )
                     continue;
 
-                FXboxTLVertex Verts[XBOX_MAX_VERTS];
+                FXboxWorldVertex Verts[XBOX_MAX_VERTS];
                 for( INT i = 0; i < Poly->NumPts; i++ )
                 {
-                    FLOAT RHW = Poly->Pts[i]->RZ * RProjZ;
                     FLOAT u = Facet.MapCoords.XAxis | (*(FVector*)Poly->Pts[i] - Facet.MapCoords.Origin);
                     FLOAT v = Facet.MapCoords.YAxis | (*(FVector*)Poly->Pts[i] - Facet.MapCoords.Origin);
-                    Verts[i].x     = Poly->Pts[i]->ScreenX + Frame->XB - 0.5f;
-                    Verts[i].y     = Poly->Pts[i]->ScreenY + Frame->YB - 0.5f;
-                    Verts[i].z     = ProjZRatio + ProjZOffset * RHW;
-                    Verts[i].rhw   = RHW;
+                    Verts[i].x     = Poly->Pts[i]->Point.X;
+                    Verts[i].y     = Poly->Pts[i]->Point.Y;
+                    Verts[i].z     = Poly->Pts[i]->Point.Z;
                     Verts[i].color = 0xFFFFFFFF;
                     SetUV( Verts[i], 0, u - Surface.LightMap->Pan.X + 0.5f * Surface.LightMap->UScale, v - Surface.LightMap->Pan.Y + 0.5f * Surface.LightMap->VScale, StageUScale, StageVScale, StageUIndex, StageVIndex );
                 }
@@ -1680,7 +1764,7 @@ void UXboxRenderDevice::DrawComplexSurface( FSceneNode* Frame, FSurfaceInfo& Sur
                 if( RenderHotFrame( FrameCounter ) && RenderHotTrace() )
                     GXboxLog.Write( "RDRAW begin op=DCS-light f=%d dcs=%d prim=%d pts=%d",
                         FrameCounter, GRD_FrameDCS, GRD_FramePrims + 1, Poly->NumPts );
-                HRESULT hrDraw = DrawPrimitiveVB( D3DPT_TRIANGLEFAN, Poly->NumPts - 2, Verts, sizeof(FXboxTLVertex), "DCS-light" );
+                HRESULT hrDraw = DrawPrimitiveVBWorld( D3DPT_TRIANGLEFAN, Poly->NumPts - 2, Verts, sizeof(FXboxWorldVertex), "DCS-light" );
                 if( RenderHotFrame( FrameCounter ) && RenderHotTrace() )
                     GXboxLog.Write( "RDRAW end op=DCS-light f=%d hr=0x%08X", FrameCounter, (DWORD)hrDraw );
                 if( FAILED(hrDraw) )
@@ -1694,23 +1778,21 @@ void UXboxRenderDevice::DrawComplexSurface( FSceneNode* Frame, FSurfaceInfo& Sur
     {
         SetBlending( PF_Highlighted );
         SetTextureD3D( 0, *Surface.FogMap, 0 );
-        Device->SetVertexShader( XBOX_FVF_TLVERTEX );
+        Device->SetVertexShader( XBOX_FVF_WORLDVERTEX );
 
         for( FSavedPoly* Poly = Facet.Polys; Poly; Poly = Poly->Next )
         {
             if( Poly->NumPts < 3 || Poly->NumPts > XBOX_MAX_VERTS )
                 continue;
 
-            FXboxTLVertex FogVerts[XBOX_MAX_VERTS];
+            FXboxWorldVertex FogVerts[XBOX_MAX_VERTS];
             for( INT i = 0; i < Poly->NumPts; i++ )
             {
-                FLOAT RHW = Poly->Pts[i]->RZ * RProjZ;
                 FLOAT u = Facet.MapCoords.XAxis | (*(FVector*)Poly->Pts[i] - Facet.MapCoords.Origin);
                 FLOAT v = Facet.MapCoords.YAxis | (*(FVector*)Poly->Pts[i] - Facet.MapCoords.Origin);
-                FogVerts[i].x     = Poly->Pts[i]->ScreenX + Frame->XB - 0.5f;
-                FogVerts[i].y     = Poly->Pts[i]->ScreenY + Frame->YB - 0.5f;
-                FogVerts[i].z     = ProjZRatio + ProjZOffset * RHW;
-                FogVerts[i].rhw   = RHW;
+                FogVerts[i].x     = Poly->Pts[i]->Point.X;
+                FogVerts[i].y     = Poly->Pts[i]->Point.Y;
+                FogVerts[i].z     = Poly->Pts[i]->Point.Z;
                 FogVerts[i].color = 0xFFFFFFFF;
                 SetUV( FogVerts[i], 0, u - Surface.FogMap->Pan.X + 0.5f * Surface.FogMap->UScale, v - Surface.FogMap->Pan.Y + 0.5f * Surface.FogMap->VScale, StageUScale, StageVScale, StageUIndex, StageVIndex );
             }
@@ -1718,7 +1800,7 @@ void UXboxRenderDevice::DrawComplexSurface( FSceneNode* Frame, FSurfaceInfo& Sur
             if( RenderHotFrame( FrameCounter ) && RenderHotTrace() )
                 GXboxLog.Write( "RDRAW begin op=DCS-fog f=%d dcs=%d prim=%d pts=%d",
                     FrameCounter, GRD_FrameDCS, GRD_FramePrims + 1, Poly->NumPts );
-            HRESULT hrDraw = DrawPrimitiveVB( D3DPT_TRIANGLEFAN, Poly->NumPts - 2, FogVerts, sizeof(FXboxTLVertex), "DCS-fog" );
+            HRESULT hrDraw = DrawPrimitiveVBWorld( D3DPT_TRIANGLEFAN, Poly->NumPts - 2, FogVerts, sizeof(FXboxWorldVertex), "DCS-fog" );
             if( RenderHotFrame( FrameCounter ) && RenderHotTrace() )
                 GXboxLog.Write( "RDRAW end op=DCS-fog f=%d hr=0x%08X", FrameCounter, (DWORD)hrDraw );
             if( FAILED(hrDraw) )
@@ -1770,16 +1852,14 @@ void UXboxRenderDevice::DrawGouraudPolygon( FSceneNode* Frame, FTextureInfo& Inf
     SetTextureD3D( 0, Info, PolyFlags );
     SetBlending( PolyFlags );
 
-    Device->SetVertexShader( XBOX_FVF_TLVERTEX );
+    Device->SetVertexShader( XBOX_FVF_WORLDVERTEX );
 
-    FXboxTLVertex Verts[XBOX_MAX_VERTS];
+    FXboxWorldVertex Verts[XBOX_MAX_VERTS];
     for( INT i = 0; i < NumPts; i++ )
     {
-        FLOAT RHW      = Pts[i]->RZ * RProjZ;
-        Verts[i].x     = Pts[i]->ScreenX + Frame->XB - 0.5f;
-        Verts[i].y     = Pts[i]->ScreenY + Frame->YB - 0.5f;
-        Verts[i].z     = ProjZRatio + ProjZOffset * RHW;
-        Verts[i].rhw   = RHW;
+        Verts[i].x     = Pts[i]->Point.X;
+        Verts[i].y     = Pts[i]->Point.Y;
+        Verts[i].z     = Pts[i]->Point.Z;
         SetUV( Verts[i], 0, Pts[i]->U, Pts[i]->V, StageUScale, StageVScale, StageUIndex, StageVIndex );
 
         if( GWireframeNoTextureProbe )
@@ -1804,8 +1884,8 @@ void UXboxRenderDevice::DrawGouraudPolygon( FSceneNode* Frame, FTextureInfo& Inf
     RenderDiagPrim( NumPts, PolyFlags, "DGP" );
     if( RenderHotFrame( FrameCounter ) && RenderHotTrace() )
         GXboxLog.Write( "RDRAW begin op=DGP f=%d dgp=%d prim=%d pts=%d stride=%d flags=0x%08X",
-            FrameCounter, GRD_FrameDGP, GRD_FramePrims + 1, NumPts, (INT)sizeof(FXboxTLVertex), PolyFlags );
-    HRESULT hrDraw = DrawPrimitiveVB( D3DPT_TRIANGLEFAN, NumPts - 2, Verts, sizeof(FXboxTLVertex), "DGP" );
+            FrameCounter, GRD_FrameDGP, GRD_FramePrims + 1, NumPts, (INT)sizeof(FXboxWorldVertex), PolyFlags );
+    HRESULT hrDraw = DrawPrimitiveVBWorld( D3DPT_TRIANGLEFAN, NumPts - 2, Verts, sizeof(FXboxWorldVertex), "DGP" );
     if( RenderHotFrame( FrameCounter ) && RenderHotTrace() )
         GXboxLog.Write( "RDRAW end op=DGP f=%d hr=0x%08X", FrameCounter, (DWORD)hrDraw );
     if( FAILED(hrDraw) )

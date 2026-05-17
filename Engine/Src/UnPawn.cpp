@@ -332,13 +332,6 @@ void APlayerPawn::execConsoleCommand( FFrame& Stack, RESULT_DECL )
 #if TARGET_XBOX
 	if( appStricmp( *Command, TEXT("GETPING") )==0 || appStricmp( *Command, TEXT("GETLOSS") )==0 )
 	{
-		static INT XboxNetStatCommandCount = 0;
-		XboxNetStatCommandCount++;
-		if( XboxNetStatCommandCount <= 8 )
-			debugf( NAME_Log, TEXT("XCMD netstat command=%s result=0 actor=%s player=%08X"),
-				*Command,
-				GetName(),
-				(DWORD)Player );
 		*(FString*)Result = TEXT("0");
 		return;
 	}

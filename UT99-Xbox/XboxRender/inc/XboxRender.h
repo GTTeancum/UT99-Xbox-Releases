@@ -221,6 +221,9 @@ public:
     void  ResumeSceneAfterTextureUpload( const char* Reason );
     HRESULT DrawPrimitiveVB( D3DPRIMITIVETYPE PrimitiveType, UINT PrimitiveCount, const void* Vertices, UINT Stride, const char* OpName );
     HRESULT DrawPrimitiveVBWorld( D3DPRIMITIVETYPE PrimitiveType, UINT PrimitiveCount, const void* Vertices, UINT Stride, const char* OpName );
+    void  FlushDGPBatch( const char* Reason );
+    void  RestoreDefaultTextureStages();
+    void  DrawPerfOverlay();
     void  FlushTexCache();
     void  ReleaseDrawVertexBuffer();
 };

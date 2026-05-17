@@ -16,6 +16,62 @@
 
 IMPLEMENT_CLASS(UGameEngine);
 
+#if TARGET_XBOX
+static UBOOL GetXboxStartURL( TCHAR* OutURL, INT MaxLen )
+{
+	guard(GetXboxStartURL);
+
+	OutURL[0] = 0;
+
+	FString ConfigText;
+	if( !appLoadFileToString( ConfigText, TEXT("D:\\XboxStartURL.ini"), GFileManager ) )
+	{
+		debugf( NAME_Init, TEXT("XboxStartURL: D:\\XboxStartURL.ini missing; using normal startup") );
+		return 0;
+	}
+
+	const TCHAR* Stream = *ConfigText;
+	TCHAR Line[4096];
+	while( ParseLine( &Stream, Line, ARRAY_COUNT(Line), 1 ) )
+	{
+		TCHAR* Start = Line;
+		while( *Start==' ' || *Start=='\t' )
+			Start++;
+
+		TCHAR* End = Start + appStrlen(Start);
+		while( End > Start && (End[-1]==' ' || End[-1]=='\t' || End[-1]=='\r' || End[-1]=='\n') )
+			*--End = 0;
+
+		if( !Start[0] || Start[0]==';' || Start[0]=='#' || Start[0]=='[' )
+			continue;
+
+		if( appStrnicmp( Start, TEXT("StartURL="), 9 ) == 0 )
+			Start += 9;
+		else if( appStrnicmp( Start, TEXT("URL="), 4 ) == 0 )
+			Start += 4;
+
+		while( *Start==' ' || *Start=='\t' )
+			Start++;
+		End = Start + appStrlen(Start);
+		while( End > Start && (End[-1]==' ' || End[-1]=='\t') )
+			*--End = 0;
+
+		if( Start[0] )
+		{
+			appStrncpy( OutURL, Start, MaxLen );
+			OutURL[MaxLen-1] = 0;
+			debugf( NAME_Init, TEXT("XboxStartURL: using [%s]"), OutURL );
+			return 1;
+		}
+	}
+
+	debugf( NAME_Init, TEXT("XboxStartURL: file empty; using normal startup") );
+	return 0;
+
+	unguard;
+}
+#endif
+
 /*-----------------------------------------------------------------------------
 	cleanup!!
 -----------------------------------------------------------------------------*/
@@ -195,6 +251,9 @@ void UGameEngine::Init()
 	||	(appStricmp(Parm,TEXT("SERVER"))==0 && !ParseToken( Tmp, Parm, ARRAY_COUNT(Parm), 0 ))
 	||	Parm[0]=='-' )
 		appStrcpy( Parm, *FURL::DefaultLocalMap );
+#if TARGET_XBOX
+	GetXboxStartURL( Parm, ARRAY_COUNT(Parm) );
+#endif
 	FURL URL( &DefaultURL, Parm, TRAVEL_Partial );
 	if( !URL.Valid )
 		appErrorf( LocalizeError("InvalidUrl"), Parm );

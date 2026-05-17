@@ -152,17 +152,18 @@ void MainLoop( UEngine* Engine )
 				GXboxLog.Write( "MainLoop: pre-tick-1 GLevel->Actors.Num=%d", GE->GLevel->Actors.Num() );
 		}
 
-		UBOOL bBoundaryTick = (TickCount >= 79 && TickCount <= 139)
+		const UBOOL bVerboseTickLog = 0;
+		UBOOL bBoundaryTick = bVerboseTickLog && ((TickCount >= 79 && TickCount <= 139)
 			|| (TickCount >= 209 && TickCount <= 259)
-			|| (TickCount >= 299 && TickCount <= 359);
+			|| (TickCount >= 299 && TickCount <= 359));
 
-		if( (TickCount >= 300 && (TickCount % 300) == 0) || bBoundaryTick )
+		if( bBoundaryTick )
 			GXboxLog.Write( "MainLoop: pre-tick %d dt=%.3f", TickCount + 1, DeltaTime );
 
 		// Tick the engine
 		Engine->Tick( DeltaTime );
 
-		if( (TickCount >= 300 && (TickCount % 300) == 0) || bBoundaryTick )
+		if( bBoundaryTick )
 			GXboxLog.Write( "MainLoop: post-tick %d", TickCount + 1 );
 
 		// Controller input is polled in UXboxViewport::Tick

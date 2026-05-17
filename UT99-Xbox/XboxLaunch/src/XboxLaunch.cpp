@@ -39,6 +39,15 @@ void __cdecl main()
     GXboxLog.Write( "BOOT: main() entered" );
     GXboxLog.Write( "BOOT: build %s %s", __DATE__, __TIME__ );
 
+    XDEVICE_PREALLOC_TYPE DeviceTypes[2];
+    DeviceTypes[0].DeviceType = XDEVICE_TYPE_GAMEPAD;
+    DeviceTypes[0].dwPreallocCount = 4;
+    DeviceTypes[1].DeviceType = XDEVICE_TYPE_MEMORY_UNIT;
+    DeviceTypes[1].dwPreallocCount = 8;
+    GXboxLog.Write( "BOOT: calling XInitDevices gamepads=4 memoryUnits=8" );
+    XInitDevices( ARRAY_COUNT(DeviceTypes), DeviceTypes );
+    GXboxLog.Write( "BOOT: XInitDevices returned initialGamepadMask=0x%08X", XGetDevices( XDEVICE_TYPE_GAMEPAD ) );
+
     // Local platform objects -- named to avoid clashing with UT99 globals
     FMallocXbox          XboxMalloc;
     FOutputDeviceXboxError XboxError;

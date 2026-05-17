@@ -2202,47 +2202,59 @@ UObject* UObject::StaticLoadObject( UClass* ObjectClass, UObject* InOuter, const
 
 	// Try to load.
 	UObject* Result=NULL;
-	debugf( NAME_Log, TEXT("[StaticLoadObject] cls=%s InName='%s' pre-BeginLoad"),
-		ObjectClass->GetName(), InName );
+	static const UBOOL GTraceStaticLoadObject = 0;
+	if( GTraceStaticLoadObject )
+		debugf( NAME_Log, TEXT("[StaticLoadObject] cls=%s InName='%s' pre-BeginLoad"),
+			ObjectClass->GetName(), InName );
 	BeginLoad();
 	try
 	{
 		// Create a new linker object which goes off and tries load the file.
 		ULinkerLoad* Linker = NULL;
-		debugf( NAME_Log, TEXT("[StaticLoadObject] pre-ResolveName") );
+		if( GTraceStaticLoadObject )
+			debugf( NAME_Log, TEXT("[StaticLoadObject] pre-ResolveName") );
 		ResolveName( InOuter, InName, 1, 1 );
-		debugf( NAME_Log, TEXT("[StaticLoadObject] post-ResolveName Outer=%s InName='%s'"),
-			InOuter ? InOuter->GetName() : TEXT("(null)"), InName );
+		if( GTraceStaticLoadObject )
+			debugf( NAME_Log, TEXT("[StaticLoadObject] post-ResolveName Outer=%s InName='%s'"),
+				InOuter ? InOuter->GetName() : TEXT("(null)"), InName );
 		while( InOuter && InOuter->GetOuter() )//!!can only load top-level packages from files
 			InOuter = InOuter->GetOuter();
 		if( !(LoadFlags & LOAD_DisallowFiles) )
 		{
-			debugf( NAME_Log, TEXT("[StaticLoadObject] pre-GetPackageLinker Outer=%s"),
-				InOuter ? InOuter->GetName() : TEXT("(null)") );
+			if( GTraceStaticLoadObject )
+				debugf( NAME_Log, TEXT("[StaticLoadObject] pre-GetPackageLinker Outer=%s"),
+					InOuter ? InOuter->GetName() : TEXT("(null)") );
 			Linker = GetPackageLinker( InOuter, Filename, LoadFlags | LOAD_Throw | LOAD_AllowDll, Sandbox, NULL );
-			debugf( NAME_Log, TEXT("[StaticLoadObject] post-GetPackageLinker Linker=%p"), Linker );
+			if( GTraceStaticLoadObject )
+				debugf( NAME_Log, TEXT("[StaticLoadObject] post-GetPackageLinker Linker=%p"), Linker );
 		}
 		//!!this sucks because it supports wildcard sub-package matching of InName, which requires a long search.
 		//!!also because linker classes require exact match
 		if( Linker )
 		{
-			debugf( NAME_Log, TEXT("[StaticLoadObject] pre-Linker->Create") );
+			if( GTraceStaticLoadObject )
+				debugf( NAME_Log, TEXT("[StaticLoadObject] pre-Linker->Create") );
 			Result = Linker->Create( ObjectClass, InName, LoadFlags, 0 );
-			debugf( NAME_Log, TEXT("[StaticLoadObject] post-Linker->Create Result=%s"),
-				Result ? Result->GetName() : TEXT("(null)") );
+			if( GTraceStaticLoadObject )
+				debugf( NAME_Log, TEXT("[StaticLoadObject] post-Linker->Create Result=%s"),
+					Result ? Result->GetName() : TEXT("(null)") );
 		}
 		if( !Result )
 		{
-			debugf( NAME_Log, TEXT("[StaticLoadObject] pre-StaticFindObject") );
+			if( GTraceStaticLoadObject )
+				debugf( NAME_Log, TEXT("[StaticLoadObject] pre-StaticFindObject") );
 			Result = StaticFindObject( ObjectClass, InOuter, InName );
-			debugf( NAME_Log, TEXT("[StaticLoadObject] post-StaticFindObject Result=%s"),
-				Result ? Result->GetName() : TEXT("(null)") );
+			if( GTraceStaticLoadObject )
+				debugf( NAME_Log, TEXT("[StaticLoadObject] post-StaticFindObject Result=%s"),
+					Result ? Result->GetName() : TEXT("(null)") );
 		}
 		if( !Result )
 			appThrowf( LocalizeError("ObjectNotFound"), ObjectClass->GetName(), InOuter ? InOuter->GetPathName() : TEXT("None"), InName );
-		debugf( NAME_Log, TEXT("[StaticLoadObject] pre-EndLoad") );
+		if( GTraceStaticLoadObject )
+			debugf( NAME_Log, TEXT("[StaticLoadObject] pre-EndLoad") );
 		EndLoad();
-		debugf( NAME_Log, TEXT("[StaticLoadObject] post-EndLoad") );
+		if( GTraceStaticLoadObject )
+			debugf( NAME_Log, TEXT("[StaticLoadObject] post-EndLoad") );
 	}
 	catch( const TCHAR* Error )
 	{

@@ -6,6 +6,8 @@ void UXboxClient::StaticConstructor()
     new(GetClass(),TEXT("InvertVertical"),         RF_Public) UBoolProperty (CPP_PROPERTY(InvertVertical),        TEXT("Display"), CPF_Config);
     new(GetClass(),TEXT("ControllerSensitivity"),  RF_Public) UFloatProperty(CPP_PROPERTY(ControllerSensitivity), TEXT("Display"), CPF_Config);
     new(GetClass(),TEXT("DeadZone"),               RF_Public) UFloatProperty(CPP_PROPERTY(DeadZone),              TEXT("Display"), CPF_Config);
+    new(GetClass(),TEXT("ScaleXYZ"),               RF_Public) UFloatProperty(CPP_PROPERTY(ScaleXYZ),              TEXT("Display"), CPF_Config);
+    new(GetClass(),TEXT("ScaleRUV"),               RF_Public) UFloatProperty(CPP_PROPERTY(ScaleRUV),              TEXT("Display"), CPF_Config);
 }
 
 void UXboxClient::Init( UEngine* InEngine )
@@ -16,17 +18,30 @@ void UXboxClient::Init( UEngine* InEngine )
     // engine link and generic client config validation.
     Super::Init( InEngine );
 
-    NumLocalPlayers       = 1;
-    HasFocus              = 1;
     InvertVertical        = 0;
     ControllerSensitivity = 1.0f;
     DeadZone              = 0.2f;
-    TextureLODSet[LODSET_World] = 2;
-    TextureLODSet[LODSET_Skin]  = 2;
-    MinDesiredFrameRate   = 20.0f;
+    ScaleXYZ              = 100.0f;
+    ScaleRUV              = 100.0f;
+
+    LoadConfig();
+
+    NumLocalPlayers       = 1;
+    HasFocus              = 1;
+
+    // Keep the Xbox profile deterministic even when an older generated
+    // UnrealTournament.ini still contains desktop defaults. These three are
+    // especially important while we are diagnosing distant surface flicker and
+    // render cost.
     ScreenFlashes         = 0;
     Decals                = 0;
     NoDynamicLights       = 1;
+    MinDesiredFrameRate   = 20.0f;
+    TextureLODSet[LODSET_World] = 2;
+    TextureLODSet[LODSET_Skin]  = 2;
+
+    GXboxLog.Write( "XboxClient::Init: settings flashes=%d decals=%d dynLights=%d minFPS=%.1f scaleXYZ=%.1f scaleRUV=%.1f",
+        ScreenFlashes, Decals, NoDynamicLights, MinDesiredFrameRate, ScaleXYZ, ScaleRUV );
 
     PostEditChange();
     unguard;
@@ -45,7 +60,8 @@ void UXboxClient::Tick()
     static UBOOL bFirstTick = 1;
     static INT ClientTickCount = 0;
     ClientTickCount++;
-    UBOOL bBoundaryTick = (ClientTickCount >= 210 && ClientTickCount <= 260);
+    const UBOOL bVerboseTickLog = 0;
+    UBOOL bBoundaryTick = bVerboseTickLog && (ClientTickCount >= 210 && ClientTickCount <= 260);
     if( bFirstTick )
     {
         GXboxLog.Write( "XboxClient::Tick: FIRST CALL Viewports.Num=%d Engine=0x%08X",

@@ -22,6 +22,8 @@ public:
     UBOOL           InvertVertical;
     FLOAT           ControllerSensitivity;
     FLOAT           DeadZone;
+    FLOAT           ScaleXYZ;
+    FLOAT           ScaleRUV;
 
     void            StaticConstructor();
     void            Init( UEngine* InEngine );

@@ -60,11 +60,6 @@ void UEngine::StaticConstructor()
 void UEngine::InitAudio()
 {
 	guard(UEngine::InitAudio);
-#if TARGET_XBOX
-	// The current Xbox audio device is a silent stub. Avoid loading and then
-	// discarding audio subsystem objects while the renderer is memory-bound.
-	UseSound = 0;
-#endif
 	if
 	(	UseSound
 	&&	GIsClient

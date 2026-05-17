@@ -1544,8 +1544,8 @@ function bool SetEndCams(string Reason)
 
 defaultproperties
 {
-	bLocalLog=True
-	bWorldLog=True
+	bLocalLog=False
+	bWorldLog=False
 	bLoggingGame=False
 	bNoCheating=True
 	MaxPlayers=16

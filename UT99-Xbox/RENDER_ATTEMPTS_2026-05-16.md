@@ -493,3 +493,129 @@ Status:
 - `DrawComplexSurface` now uses world vertices for base, multitexture, macrotexture, lightmap, and fog passes.
 - `DrawGouraudPolygon` now uses world vertices for mesh/actor polygons.
 - `DrawTile`, 2D line/point, and `EndFlash` remain pretransformed.
+
+### 22. Disable Stat Logs And Remove Performance-Distorting Diagnostics
+
+Change/evidence:
+
+- Steve asked about `D:\Logs`; the directory is produced by UT's built-in ngStats/stat logger, not by `ut99.log`.
+- The live `UnrealTournament.ini` had `bLocalLog=True` and `bWorldLog=True`, with `[Engine.StatLog]` writing to `../Logs` and `../NetGamesUSA.com/ngWorldStats/logs`.
+- The current `ut99.log` also showed leftover crash-hunt noise during active gameplay:
+  - repeated `StaticLoadObject` traces for weapon loads;
+  - render summaries every 60 frames;
+  - repeated `RDRAW FAILED op=DT` summaries every frame once the timedemo/HUD path hit unsupported tile draws.
+- Performance evidence from the latest log points first at CPU/driver overhead rather than texture upload:
+  - texture creation/upload drops after warmup;
+  - gameplay frames still issue hundreds to ~1500 primitives and nearly one dynamic vertex-buffer lock per primitive;
+  - synchronous debug logging was happening in those same hot paths.
+
+Result:
+
+- Stop user-facing stat log files from accumulating on Xbox storage.
+- Remove diagnostic logging cost before judging FPS.
+- Keep sparse error diagnostics and startup logs, but do not let a known repeated DrawTile failure flood every frame.
+
+Status:
+
+- Set `bLocalLog=False` and `bWorldLog=False` in repo defaults, live CXBX defaults, and live `UnrealTournament.ini`.
+- Changed `GameInfo.uc` default properties to disabled for source correctness.
+- Gated `StaticLoadObject` tracing behind a disabled local switch.
+- Added a disabled verbose render-performance switch and reduced render summaries/splits/wraps to error-only by default.
+- Rate-limited `RDRAW FAILED` logs and removed per-bad-frame summary spam from `Unlock`.
+
+### 23. Native FPS Overlay And First Perf Baseline
+
+Change/evidence:
+
+- Steve requires FPS to always be visible.
+- The built-in `TIMEDEMO 1` display uses Console/Canvas text, which adds texture-backed `DrawTile` traffic and was mixed into the thing we were trying to measure.
+- Replaced automatic timedemo activation with a render-device overlay made from simple line geometry.
+- First test showed a renderer-state regression: textures became flat/untextured after the overlay because the overlay changed texture-stage args to diffuse-only and did not restore them.
+- The same test gave a useful baseline:
+  - intro/menu is near 58 FPS;
+  - once gameplay starts, render time jumps as high as 90-124 ms;
+  - hot frames show `DGP` actor/mesh polygons around 800-1268 and total VB locks around 1300-1700 per frame;
+  - present time is tiny, so this is not primarily vsync/present;
+  - repeated `DrawTile` failures show negative RHW from invalid/behind-camera tile Z values.
+
+Result:
+
+- Treat the next major optimization as render submission/VB locking, especially actor/mesh `DrawGouraudPolygon`, not present/vsync.
+- Keep the always-visible native FPS overlay, but make it restore D3D texture-stage state correctly.
+- Cull invalid-Z `DrawTile` calls before they hit D3D.
+
+Status:
+
+- Restored stage-0 and stage-1 texture args after the FPS overlay.
+- Added early invalid-Z rejection in `DrawTile` with sparse diagnostics.
+
+### 24. Deterministic Texture-Stage Restore After Flicker Report
+
+Change/evidence:
+
+- Steve reported distant walls flickering between what looked like lit and unlit.
+- Latest log showed textures are still bound and uploads are low during gameplay, so this is not the earlier "textures disappeared" overlay regression.
+- The same log still showed BSP lightmaps active on stage 1, while several 2D paths (`Draw2DLine`, `Draw2DPoint`, FPS overlay, `EndFlash`) changed fixed-function texture-stage state and only restored part of it.
+- The BSP multitexture path was relying partly on `CurrentPolyFlags` to decide whether stage 1 lightmap ops were already correct. That is fragile after any overlay/HUD/flash path touches the same D3D stages.
+
+Result:
+
+- Treat lit/unlit flicker as a plausible stage-state leak before assuming bad lightmap data.
+- Make the BSP lightmap pass explicitly program stage 0 and stage 1 every time it uses base texture + lightmap.
+- Add one renderer helper to restore normal textured defaults after untextured 2D/overlay/flash draws.
+- Disable old crash-window tick logs so future `ut99.log` runs are dominated by `PERF` and sparse render diagnostics.
+
+Status:
+
+- Added `RestoreDefaultTextureStages()`.
+- FPS overlay, `Draw2DLine`, `Draw2DPoint`, and `EndFlash` now restore full stage state instead of only color/alpha ops.
+- BSP multitexture explicitly sets stage-1 `COLOROP=MODULATE`, `ALPHAOP=SELECTARG2`, args, filtering, and texcoord index before drawing.
+- Disabled `XCLIENT` and `MainLoop` boundary logging windows.
+
+### 25. Config Overwrite Found After Flicker/Perf Log
+
+Change/evidence:
+
+- The next run's log was much cleaner and had no render failures, but FPS still dropped hard during active gameplay.
+- `PERF` showed present time at 1-4 ms, while render time jumped to 40-142 ms with roughly 1,100-1,700 primitive submissions / VB locks per gameplay frame.
+- The live generated `UnrealTournament.ini` still had desktop-style client settings:
+  - `ScreenFlashes=True`
+  - `Decals=True`
+  - `NoDynamicLights=False`
+  - `MinDesiredFrameRate=30.0`
+- `UXboxClient::Init` was setting Xbox-safe defaults before `LoadConfig()`, so a stale or desktop-derived ini could immediately overwrite the intended Xbox settings.
+- This is directly relevant to the reported far-wall lit/unlit flicker because dynamic lighting was still enabled in the effective config.
+
+Result:
+
+- Treat the current run as not yet representative of the intended Xbox render profile.
+- Preserve controller config loading, but force the Xbox render-cost defaults after `LoadConfig()`.
+- Add a single startup log line with the effective client settings so future logs prove whether these settings stuck.
+
+Status:
+
+- `UXboxClient::Init` now loads config, then enforces `ScreenFlashes=0`, `Decals=0`, `NoDynamicLights=1`, `MinDesiredFrameRate=20`, and low texture LODs.
+- Added explicit Xbox client entries for those settings in repo defaults and the live CXBX `Default.ini` / `UnrealTournament.ini`.
+
+### 26. First High-Payoff FPS Pass: DGP Batching
+
+Change/evidence:
+
+- Reordered the FPS work by expected gain in `FPS_OPTIMIZATION_PLAN.md`.
+- Current `PERF` logs identify actor/mesh `DrawGouraudPolygon` as the largest hot-path contributor:
+  - active gameplay commonly has 650-1,180 `DGP` calls per logged frame;
+  - total primitive submissions / VB locks can hit 1,100-1,700 per frame;
+  - present time remains low, so reducing submission/lock overhead is the first target.
+
+Result:
+
+- Add a conservative batcher for compatible `DGP` calls.
+- Batch only when texture `CacheID`, normalized `PolyFlags`, and realtime texture status are safe.
+- Convert each fan into triangles in a shared per-frame triangle-list buffer.
+- Flush before BSP, tile, 2D line/point, clear-Z, FPS overlay, flash, texture-cache flush, scene-node changes, and frame end.
+- Keep immediate fallback for realtime texture changes, oversized batches, or incompatible state.
+
+Status:
+
+- Added `FlushDGPBatch()`.
+- Added `dgpBatch=batches/polys` to `PERF` logs so the next run can prove whether the hot mesh path is actually being collapsed.

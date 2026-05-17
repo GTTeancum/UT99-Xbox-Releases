@@ -1,5 +1,15 @@
 // XboxViewport.cpp
 
+static FLOAT XboxStickAxis( SHORT Raw, FLOAT DeadZone )
+{
+    FLOAT Delta = (FLOAT)Raw / 32768.0f;
+    if( Delta > DeadZone )
+        return (Delta - DeadZone) / (1.0f - DeadZone);
+    if( Delta < -DeadZone )
+        return (Delta + DeadZone) / (1.0f - DeadZone);
+    return 0.0f;
+}
+
 void UXboxViewport::OpenWindow( DWORD ParentWindow, UBOOL Temporary,
                                  INT NewX, INT NewY, INT OpenX, INT OpenY )
 {
@@ -129,11 +139,28 @@ void UXboxViewport::PollController()
     if( !ControllerHandle )
     {
         DWORD DeviceMask = XGetDevices( XDEVICE_TYPE_GAMEPAD );
+        static INT NoPadLogCount = 0;
+        if( !(DeviceMask & (1 << ControllerPort)) && NoPadLogCount < 16 )
+        {
+            NoPadLogCount++;
+            GXboxLog.Write( "PollController: no gamepad port=%d mask=0x%08X attempt=%d",
+                ControllerPort, DeviceMask, NoPadLogCount );
+        }
         if( DeviceMask & (1 << ControllerPort) )
         {
             ControllerHandle = XInputOpen( XDEVICE_TYPE_GAMEPAD, ControllerPort, XDEVICE_NO_SLOT, NULL );
             if( ControllerHandle )
+            {
                 ControllerConnected = 1;
+                GXboxLog.Write( "PollController: controller %d opened handle=0x%08X mask=0x%08X",
+                    ControllerPort, (DWORD)ControllerHandle, DeviceMask );
+            }
+            else if( NoPadLogCount < 16 )
+            {
+                NoPadLogCount++;
+                GXboxLog.Write( "PollController: XInputOpen failed port=%d mask=0x%08X attempt=%d",
+                    ControllerPort, DeviceMask, NoPadLogCount );
+            }
         }
         if( !ControllerHandle )
             return;
@@ -166,7 +193,8 @@ void UXboxViewport::ProcessControllerInput( const XINPUT_GAMEPAD& Pad )
         return;
 
     // ---- Digital buttons (bitmask in wButtons) ----
-    // D-pad, Start, Back, Left/Right Thumb clicks.
+    // Use normal UT keyboard/mouse keys instead of old PC joystick slots for
+    // actions that must work before the player's User.ini has useful pad binds.
     struct FDigitalMap { WORD Mask; EInputKey Key; };
     static const FDigitalMap DigitalMap[] =
     {
@@ -174,21 +202,28 @@ void UXboxViewport::ProcessControllerInput( const XINPUT_GAMEPAD& Pad )
         { XINPUT_GAMEPAD_DPAD_DOWN,   IK_JoyPovDown },
         { XINPUT_GAMEPAD_DPAD_LEFT,   IK_JoyPovLeft },
         { XINPUT_GAMEPAD_DPAD_RIGHT,  IK_JoyPovRight },
-        { XINPUT_GAMEPAD_START,       IK_Escape },     // Menu / Pause
+        { XINPUT_GAMEPAD_START,       IK_LeftMouse },  // Start match / fire
         { XINPUT_GAMEPAD_BACK,        IK_Tab },        // Scoreboard
-        { XINPUT_GAMEPAD_LEFT_THUMB,  IK_Joy5 },       // Crouch
-        { XINPUT_GAMEPAD_RIGHT_THUMB, IK_Joy6 },       // Zoom
+        { XINPUT_GAMEPAD_LEFT_THUMB,  IK_C },          // Crouch
+        { XINPUT_GAMEPAD_RIGHT_THUMB, IK_Joy6 },       // Reserved / zoom bind
     };
 
     WORD CurDigital  = Pad.wButtons;
     WORD PrevDigital = PrevControllerState.Gamepad.wButtons;
     WORD DigChanged  = CurDigital ^ PrevDigital;
+    static INT InputLogCount = 0;
 
     for( INT i = 0; i < ARRAY_COUNT(DigitalMap); i++ )
     {
         if( DigChanged & DigitalMap[i].Mask )
         {
             EInputAction Action = (CurDigital & DigitalMap[i].Mask) ? IST_Press : IST_Release;
+            if( InputLogCount < 32 )
+            {
+                InputLogCount++;
+                GXboxLog.Write( "XINPUT digital #%d mask=0x%04X key=%d action=%d",
+                    InputLogCount, DigitalMap[i].Mask, DigitalMap[i].Key, Action );
+            }
             Client->Engine->InputEvent( this, DigitalMap[i].Key, Action, 0.0f );
         }
     }
@@ -199,14 +234,14 @@ void UXboxViewport::ProcessControllerInput( const XINPUT_GAMEPAD& Pad )
     struct FAnalogBtnMap { INT Index; EInputKey Key; };
     static const FAnalogBtnMap AnalogMap[] =
     {
-        { XINPUT_GAMEPAD_A,              IK_Joy1 },   // Jump / Accept
-        { XINPUT_GAMEPAD_B,              IK_Joy2 },   // Alt-fire
-        { XINPUT_GAMEPAD_X,              IK_Joy3 },   // Use
-        { XINPUT_GAMEPAD_Y,              IK_Joy4 },   // Weapon switch
-        { XINPUT_GAMEPAD_BLACK,          IK_Joy7 },   // Prev weapon
-        { XINPUT_GAMEPAD_WHITE,          IK_Joy8 },   // Next weapon
-        { XINPUT_GAMEPAD_LEFT_TRIGGER,   IK_Joy9 },   // Fire
-        { XINPUT_GAMEPAD_RIGHT_TRIGGER,  IK_Joy10 },  // Alt-fire
+        { XINPUT_GAMEPAD_A,              IK_Space },      // Jump
+        { XINPUT_GAMEPAD_B,              IK_RightMouse }, // Alt-fire
+        { XINPUT_GAMEPAD_X,              IK_Enter },      // Use / accept
+        { XINPUT_GAMEPAD_Y,              IK_Slash },      // Next weapon
+        { XINPUT_GAMEPAD_BLACK,          IK_LeftBracket },// Previous item/weapon
+        { XINPUT_GAMEPAD_WHITE,          IK_RightBracket },// Next item/weapon
+        { XINPUT_GAMEPAD_LEFT_TRIGGER,   IK_RightMouse }, // Alt-fire
+        { XINPUT_GAMEPAD_RIGHT_TRIGGER,  IK_LeftMouse },  // Fire / start match
     };
 
     for( INT i = 0; i < ARRAY_COUNT(AnalogMap); i++ )
@@ -214,31 +249,39 @@ void UXboxViewport::ProcessControllerInput( const XINPUT_GAMEPAD& Pad )
         UBOOL Now  = Pad.bAnalogButtons[AnalogMap[i].Index] > AnalogThreshold;
         UBOOL Prev = PrevControllerState.Gamepad.bAnalogButtons[AnalogMap[i].Index] > AnalogThreshold;
         if( Now != Prev )
+        {
+            if( InputLogCount < 32 )
+            {
+                InputLogCount++;
+                GXboxLog.Write( "XINPUT analog #%d index=%d value=%d key=%d action=%d",
+                    InputLogCount, AnalogMap[i].Index, Pad.bAnalogButtons[AnalogMap[i].Index],
+                    AnalogMap[i].Key, Now ? IST_Press : IST_Release );
+            }
             Client->Engine->InputEvent( this, AnalogMap[i].Key, Now ? IST_Press : IST_Release, 0.0f );
+        }
     }
 
     // ---- Analog sticks ----
-    FLOAT DeadZone = Client->DeadZone * 32767.0f;
+    // WinDrv feeds Unreal a normalized joystick delta multiplied by the
+    // configured joystick scale (Default.ini: ScaleXYZ=1000, ScaleRUV=2000).
+    // Feeding raw -1..1 Xbox values makes UInput's 0.01 axis multiplier crawl.
+    FLOAT DeadZone = Client->DeadZone;
+    if( DeadZone < 0.0f )
+        DeadZone = 0.0f;
+    if( DeadZone > 0.95f )
+        DeadZone = 0.95f;
     FLOAT Sensitivity = Client->ControllerSensitivity;
 
     // Left stick: movement (IK_JoyX = strafe, IK_JoyY = forward/back).
-    FLOAT LX = (FLOAT)Pad.sThumbLX;
-    FLOAT LY = (FLOAT)Pad.sThumbLY;
-    if( LX > -DeadZone && LX < DeadZone ) LX = 0.0f;
-    if( LY > -DeadZone && LY < DeadZone ) LY = 0.0f;
-    LX = LX / 32767.0f * Sensitivity;
-    LY = LY / 32767.0f * Sensitivity;
+    FLOAT LX = XboxStickAxis( Pad.sThumbLX, DeadZone ) * Client->ScaleXYZ * Sensitivity;
+    FLOAT LY = XboxStickAxis( Pad.sThumbLY, DeadZone ) * Client->ScaleXYZ * Sensitivity;
 
     Client->Engine->InputEvent( this, IK_JoyX, IST_Axis, LX );
     Client->Engine->InputEvent( this, IK_JoyY, IST_Axis, LY );
 
     // Right stick: look (IK_JoyU = yaw, IK_JoyV = pitch).
-    FLOAT RX = (FLOAT)Pad.sThumbRX;
-    FLOAT RY = (FLOAT)Pad.sThumbRY;
-    if( RX > -DeadZone && RX < DeadZone ) RX = 0.0f;
-    if( RY > -DeadZone && RY < DeadZone ) RY = 0.0f;
-    RX = RX / 32767.0f * Sensitivity;
-    RY = RY / 32767.0f * Sensitivity;
+    FLOAT RX = XboxStickAxis( Pad.sThumbRX, DeadZone ) * Client->ScaleRUV * Sensitivity;
+    FLOAT RY = XboxStickAxis( Pad.sThumbRY, DeadZone ) * Client->ScaleRUV * Sensitivity;
     if( Client->InvertVertical )
         RY = -RY;
 

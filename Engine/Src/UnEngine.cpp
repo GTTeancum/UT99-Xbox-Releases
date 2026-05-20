@@ -65,6 +65,18 @@ void UEngine::InitAudio()
 	&&	GIsClient
 	&&	!ParseParam(appCmdLine(),TEXT("NOSOUND")) )
 	{
+#if TARGET_XBOX
+		// Hardware can keep an old generated UnrealTournament.ini across FTP
+		// deploys. Never let a stale PC Galaxy driver string reach
+		// StaticLoadClass on Xbox; Galaxy is not linked into this build.
+		const TCHAR* ConfigAudio = GConfig ? GConfig->GetStr( TEXT("Engine.Engine"), TEXT("AudioDevice"), NULL ) : TEXT("");
+		if( appStricmp( ConfigAudio, TEXT("XboxAudio.XboxAudioDevice") ) != 0 )
+		{
+			debugf( NAME_Log, TEXT("Xbox: overriding AudioDevice '%s' -> XboxAudio.XboxAudioDevice"), ConfigAudio );
+			if( GConfig )
+				GConfig->SetString( TEXT("Engine.Engine"), TEXT("AudioDevice"), TEXT("XboxAudio.XboxAudioDevice"), NULL );
+		}
+#endif
 		UClass* AudioClass = StaticLoadClass( UAudioSubsystem::StaticClass(), NULL, TEXT("ini:Engine.Engine.AudioDevice"), NULL, LOAD_NoFail, NULL );
 		Audio = ConstructObject<UAudioSubsystem>( AudioClass );
 		if( !Audio->Init() )

@@ -24,6 +24,7 @@ public:
     FLOAT           DeadZone;
     FLOAT           ScaleXYZ;
     FLOAT           ScaleRUV;
+    INT             ButtonLayout;
 
     void            StaticConstructor();
     void            Init( UEngine* InEngine );

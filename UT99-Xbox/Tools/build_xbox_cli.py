@@ -49,6 +49,8 @@ PROJECTS = [
     ("XboxLaunch", os.path.join(XBOX_DIR, "XboxLaunch", "XboxLaunch.vcproj"), "exe"),
 ]
 
+XMP_DIR = os.path.join(XBOX_DIR, "ThirdParty", "libxmp")
+
 
 def fail(message):
     print("ERROR: " + message)
@@ -234,7 +236,8 @@ def build_library(name, vcproj, config_name, build_root):
     print("== Building " + name + " ==")
     for file_node, rel in iter_source_files(root):
         src = normalize_path(rel, project_dir)
-        obj = os.path.join(obj_dir, os.path.splitext(os.path.basename(rel))[0] + ".obj")
+        safe_obj = rel.replace("\\", "_").replace("/", "_").replace(".", "_")
+        obj = os.path.join(obj_dir, safe_obj + ".obj")
         cmd = [CL] + base_flags + file_extra_options(file_node, config_name) + ["/Fo" + obj, src]
         if run_command(cmd, project_dir) != 0:
             fail("Compile failed: " + src)
@@ -247,6 +250,94 @@ def build_library(name, vcproj, config_name, build_root):
             f.write('"{}"\n'.format(obj))
 
     if run_command([LIB, "@" + rsp], project_dir) != 0:
+        fail("Library failed: " + out_lib)
+
+    return out_lib
+
+
+def iter_xmp_sources():
+    makefile = os.path.join(XMP_DIR, "Makefile.vc")
+    if not os.path.isfile(makefile):
+        fail("Missing libxmp Makefile.vc: " + makefile)
+
+    in_objs = False
+    with open(makefile, "r") as f:
+        for raw in f:
+            line = raw.strip()
+            if line.startswith("OBJS"):
+                in_objs = True
+                line = line.split("=", 1)[1].strip()
+            elif in_objs and (not line or line.startswith("PROWIZ_OBJS")):
+                break
+            if not in_objs:
+                continue
+            line = line.rstrip("\\").strip()
+            if not line:
+                continue
+            for item in line.split():
+                if not item.lower().endswith(".obj"):
+                    continue
+                rel = item[:-4] + ".c"
+                # UMX wraps ordinary tracker modules; the extra packer probes
+                # are intentionally disabled for Xbox memory and startup cost.
+                if "\\prowizard\\" in rel.lower() or "\\depackers\\" in rel.lower():
+                    continue
+                if rel.lower() in ("src\\filetype.c", "src\\tempfile.c", "src\\mkstemp.c", "src\\win32.c"):
+                    continue
+                yield rel
+    yield "xbox_shims.c"
+
+
+def build_xmp_library(build_root):
+    name = "XboxXmp"
+    obj_dir = os.path.join(build_root, "obj", name)
+    lib_dir = os.path.join(build_root, "lib")
+    out_lib = os.path.join(lib_dir, name + ".lib")
+
+    if not os.path.isdir(obj_dir):
+        os.makedirs(obj_dir)
+    if not os.path.isdir(lib_dir):
+        os.makedirs(lib_dir)
+
+    include_5558 = os.path.join(XDK_DIR, "xbox", "include")
+    include_5849 = os.path.join(XDK_FALLBACK_DIR, "xbox", "include")
+    flags = [
+        "/nologo", "/c", "/TC", "/O2", "/W2", "/MT",
+        "/I" + include_5558,
+        "/I" + include_5849,
+        "/I" + os.path.join(XMP_DIR, "include"),
+        "/I" + os.path.join(XMP_DIR, "src"),
+        "/DWIN32",
+        "/DNDEBUG",
+        "/DTARGET_XBOX=1",
+        "/DLIBXMP_STATIC",
+        "/DLIBXMP_NO_PROWIZARD",
+        "/DLIBXMP_NO_DEPACKERS",
+        "/D_CRT_SECURE_NO_WARNINGS",
+        "/D_CRT_NONSTDC_NO_WARNINGS",
+        "/D_USE_MATH_DEFINES",
+        "/wd4244", "/wd4267", "/wd4996", "/wd4018", "/wd4305",
+    ]
+
+    objects = []
+    print("")
+    print("== Building XboxXmp ==")
+    for rel in iter_xmp_sources():
+        src = os.path.join(XMP_DIR, rel)
+        safe_obj = rel.replace("\\", "_").replace("/", "_").replace(".", "_")
+        obj = os.path.join(obj_dir, safe_obj + ".obj")
+        cmd = [CL] + flags + ["/Fo" + obj, src]
+        if run_command(cmd, XMP_DIR) != 0:
+            fail("Compile failed: " + src)
+        objects.append(obj)
+
+    rsp = os.path.join(obj_dir, "lib.rsp")
+    with open(rsp, "w") as f:
+        f.write('/OUT:"{}"\n'.format(out_lib))
+        for obj in objects:
+            f.write('"{}"\n'.format(obj))
+
+    if run_command([LIB, "@" + rsp], XMP_DIR) != 0:
         fail("Library failed: " + out_lib)
 
     return out_lib
@@ -277,7 +368,8 @@ def build_launch(vcproj, config_name, build_root, built_libs):
     print("== Building XboxLaunch ==")
     for file_node, rel in iter_source_files(root):
         src = normalize_path(rel, project_dir)
-        obj = os.path.join(obj_dir, os.path.splitext(os.path.basename(rel))[0] + ".obj")
+        safe_obj = rel.replace("\\", "_").replace("/", "_").replace(".", "_")
+        obj = os.path.join(obj_dir, safe_obj + ".obj")
         cmd = [CL] + base_flags + file_extra_options(file_node, config_name) + ["/Fo" + obj, src]
         if run_command(cmd, project_dir) != 0:
             fail("Compile failed: " + src)
@@ -292,6 +384,7 @@ def build_launch(vcproj, config_name, build_root, built_libs):
         built_libs["XboxDrv"],
         built_libs["XboxRender"],
         built_libs["XboxAudio"],
+        built_libs["XboxXmp"],
         # 5558's d3d8.lib is the full 2.1 MB retail static lib (xQuake's
         # link target). Lacks the debug DbgPrint+int3 validator that
         # 5849's d3d8-xbox.lib and d3d8d.lib emit on "Invalid flags passed
@@ -386,6 +479,7 @@ def main():
         os.makedirs(build_root)
 
     built_libs = {}
+    built_libs["XboxXmp"] = build_xmp_library(build_root)
     for name, vcproj, kind in PROJECTS:
         if kind == "lib":
             built_libs[name] = build_library(name, vcproj, args.config, build_root)

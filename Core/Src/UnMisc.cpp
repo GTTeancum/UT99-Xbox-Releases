@@ -1464,27 +1464,6 @@ UBOOL appFindPackageFile( const TCHAR* In, const FGuid* Guid, TCHAR* Out )
 	guard(appFindPackageFile);
 	TCHAR Temp[256];
 
-	// Xbox-port: when appFindPackageFile is called for UTMenu (the first
-	// package we have to open on-demand after GC), we observed every FileSize
-	// call coming in with just the bare name 'UTMenu' instead of path-prefixed
-	// variants like '../System/UTMenu'.  That suggests *GSys->Paths(i) is
-	// returning empty strings.  Dump the Paths table once at entry so we can
-	// confirm or rule out path-table corruption.
-	{
-		debugf( NAME_Log, TEXT("[appFindPkg] In='%s' GSys=%p Paths.Num=%d GCdPath[0]=%d"),
-			In, (void*)GSys, GSys ? GSys->Paths.Num() : -1,
-			(INT)GCdPath[0] );
-		if( GSys )
-		{
-			for( INT pi=0; pi<GSys->Paths.Num(); pi++ )
-			{
-				const TCHAR* P = *GSys->Paths(pi);
-				debugf( NAME_Log, TEXT("[appFindPkg]   Paths(%d) = '%s' (len=%d)"),
-					pi, P ? P : TEXT("(null)"), P ? appStrlen(P) : -1 );
-			}
-		}
-	}
-
 	// Don't return it if it's a library.
 	if( appStrlen(In)>appStrlen(DLLEXT) && appStricmp( In + appStrlen(In)-appStrlen(DLLEXT), DLLEXT )==0 )
 		return 0;

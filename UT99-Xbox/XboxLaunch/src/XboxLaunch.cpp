@@ -46,6 +46,17 @@ void __cdecl main()
     DeviceTypes[1].dwPreallocCount = 8;
     GXboxLog.Write( "BOOT: calling XInitDevices gamepads=4 memoryUnits=8" );
     XInitDevices( ARRAY_COUNT(DeviceTypes), DeviceTypes );
+    INT EnumWaits = 0;
+    while( XGetDeviceEnumerationStatus() == XDEVICE_ENUMERATION_BUSY )
+    {
+        Sleep( 10 );
+        EnumWaits++;
+        if( EnumWaits >= 200 )
+        {
+            GXboxLog.Write( "BOOT: XInitDevices enumeration still busy after %d waits", EnumWaits );
+            break;
+        }
+    }
     GXboxLog.Write( "BOOT: XInitDevices returned initialGamepadMask=0x%08X", XGetDevices( XDEVICE_TYPE_GAMEPAD ) );
 
     // Local platform objects -- named to avoid clashing with UT99 globals

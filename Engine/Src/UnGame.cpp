@@ -17,6 +17,8 @@
 IMPLEMENT_CLASS(UGameEngine);
 
 #if TARGET_XBOX
+extern void XboxMenuPostRender( UViewport* Viewport, UCanvas* Canvas );
+
 static UBOOL GetXboxStartURL( TCHAR* OutURL, INT MaxLen )
 {
 	guard(GetXboxStartURL);
@@ -252,7 +254,9 @@ void UGameEngine::Init()
 	||	Parm[0]=='-' )
 		appStrcpy( Parm, *FURL::DefaultLocalMap );
 #if TARGET_XBOX
-	GetXboxStartURL( Parm, ARRAY_COUNT(Parm) );
+	TCHAR XboxStartURL[4096]=TEXT("");
+	if( GetXboxStartURL( XboxStartURL, ARRAY_COUNT(XboxStartURL) ) )
+		appStrcpy( Parm, XboxStartURL );
 #endif
 	FURL URL( &DefaultURL, Parm, TRAVEL_Partial );
 	if( !URL.Valid )
@@ -1366,6 +1370,9 @@ void UGameEngine::Draw( UViewport* Viewport, UBOOL Blit, BYTE* HitData, INT* Hit
 			Viewport->Console->PostRender( Frame );
 			Viewport->Console->eventPostRender( Viewport->Canvas );
 		}
+#if TARGET_XBOX
+		XboxMenuPostRender( Viewport, Viewport->Canvas );
+#endif
 		if( Audio )
 			Audio->PostRender( Frame );
 

@@ -187,7 +187,8 @@ void MainLoop( UEngine* Engine )
 			GXboxLog.Write( "MainLoop: tick %d (dt=%.3f)", TickCount, DeltaTime );
 
 		// Periodic heartbeat — every 60 ticks (~1s at 60Hz) so we know we're alive
-		if( TickCount > 2 && (TickCount % 300) == 0 )
+		static const UBOOL GXboxVerboseHeartbeatLog = 0;
+		if( GXboxVerboseHeartbeatLog && TickCount > 2 && (TickCount % 300) == 0 )
 			GXboxLog.Write( "MainLoop: heartbeat tick=%d", TickCount );
 	}
 

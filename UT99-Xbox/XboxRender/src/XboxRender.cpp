@@ -106,6 +106,11 @@ static INT   GRD_DTBatchTiles = 0;
 static QWORD GRD_DTBatchCacheID = 0;
 static DWORD GRD_DTBatchPolyFlags = 0;
 static UBOOL GRD_DTBatchActive = 0;
+static UBOOL GRD_MenuTextMode = 0;
+static INT   GRD_MenuTextSerial = 0;
+static INT   GRD_MenuTextTiles = 0;
+static INT   GRD_MenuTextLogBudget = 0;
+static char  GRD_MenuTextLabel[64] = {0};
 static UBOOL GRD_DrawVBStreamBound = 0;
 static UINT  GRD_DrawVBStreamStride = 0;
 
@@ -1249,6 +1254,9 @@ void UXboxRenderDevice::SetSceneNode( FSceneNode* Frame )
     Identity._44 = 1.0f;
     Device->SetTransform( D3DTS_WORLD, &Identity );
     Device->SetTransform( D3DTS_VIEW,  &Identity );
+    SetCachedRenderState( D3DRS_ZENABLE, D3DZB_TRUE );
+    SetCachedRenderState( D3DRS_ZWRITEENABLE, TRUE );
+    SetCachedRenderState( D3DRS_ZFUNC, D3DCMP_LESSEQUAL );
 
     D3DMATRIX Projection;
     appMemzero( &Projection, sizeof(Projection) );
@@ -1393,7 +1401,7 @@ void UXboxRenderDevice::SetTextureD3D( INT Stage, FTextureInfo& Info, DWORD Poly
         bRgba7NeedsMaxColor = 0;
         GRD_FrameTexDeferred++;
         GRD_TotalTexDeferred++;
-        if( GRD_TotalTexDeferred <= 16 || (GVerboseRenderPerfLog && (GRD_TotalTexDeferred % 256) == 0) )
+        if( GVerboseRenderPerfLog && (GRD_TotalTexDeferred <= 16 || (GRD_TotalTexDeferred % 256) == 0) )
             GXboxLog.Write( "RTEX defer-update f=%d total=%d stage=%d id=%08X:%08X fmt=%d tex=0x%08X",
                 FrameCounter, GRD_TotalTexDeferred, Stage, GRD_LastTextureIDHi, GRD_LastTextureIDLo,
                 Info.Format, (DWORD)Entry->pTexture );
@@ -1556,7 +1564,7 @@ void UXboxRenderDevice::SetTextureD3D( INT Stage, FTextureInfo& Info, DWORD Poly
         {
             DWORD BeforeMaxColor = GET_COLOR_DWORD(*Info.MaxColor);
             Info.CacheMaxColor();
-            if( BeforeMaxColor == 0xFFFFFFFF && GRD_Rgba7MaxLogCount < 24 )
+            if( GVerboseRenderPerfLog && BeforeMaxColor == 0xFFFFFFFF && GRD_Rgba7MaxLogCount < 24 )
             {
                 GRD_Rgba7MaxLogCount++;
                 GXboxLog.Write( "RTEX rgba7-max #%d f=%d stage=%d id=%08X:%08X size=%dx%d clamp=%dx%d max=%08X",
@@ -1618,7 +1626,7 @@ void UXboxRenderDevice::SetTextureD3D( INT Stage, FTextureInfo& Info, DWORD Poly
                 {
                     RenderBlockAndReleaseTexture( Entry->pTexture );
                 }
-                if( bHotUpload )
+                if( bHotUpload && GVerboseRenderPerfLog )
                     GXboxLog.Write( "RTEX precreate f=%d seq=%d createNext=%d stage=%d id=%08X:%08X fmt=DXT1 size=%dx%d mips=%d bytes=%d pool=%d liveKB=%d availKB=%u",
                         FrameCounter, UploadSeq, GRD_TotalTexCreates + 1, Stage, GRD_LastTextureIDHi, GRD_LastTextureIDLo,
                         USize, VSize, NumMips, ApproxBytes, TexPoolNext, TexLiveBytes / 1024, (unsigned)RenderAvailPhysKB() );
@@ -1639,7 +1647,7 @@ void UXboxRenderDevice::SetTextureD3D( INT Stage, FTextureInfo& Info, DWORD Poly
             GRD_FrameTexUploads++;
             GRD_TotalTexUploads++;
             GRD_TotalTexBytes += ApproxBytes;
-            if( FAILED(hrCreate) || !Entry->pTexture || (bNeedCreate && (GRD_TotalTexCreates <= 16 || (GRD_TotalTexCreates % 64) == 0)) )
+            if( FAILED(hrCreate) || !Entry->pTexture || (GVerboseRenderPerfLog && bNeedCreate && (GRD_TotalTexCreates <= 16 || (GRD_TotalTexCreates % 64) == 0)) )
                 GXboxLog.Write( "RTEX %s create#=%d upload#=%d frame=%d stage=%d id=%08X:%08X fmt=DXT1 size=%dx%d mips=%d bytes=%d hr=0x%08X tex=0x%08X d3dpool=DEFAULT cache=%d realtime=%d",
                     bNeedCreate ? "create" : "update", GRD_TotalTexCreates, GRD_TotalTexUploads, FrameCounter, Stage, GRD_LastTextureIDHi, GRD_LastTextureIDLo,
                     USize, VSize, NumMips, ApproxBytes, (DWORD)hrCreate, (DWORD)Entry->pTexture, TexPoolNext, bRealtimeChanged || bForceRgba7MaxUpload );
@@ -1694,7 +1702,7 @@ void UXboxRenderDevice::SetTextureD3D( INT Stage, FTextureInfo& Info, DWORD Poly
                 {
                     RenderBlockAndReleaseTexture( Entry->pTexture );
                 }
-                if( bHotUpload )
+                if( bHotUpload && GVerboseRenderPerfLog )
                     GXboxLog.Write( "RTEX precreate f=%d seq=%d createNext=%d stage=%d id=%08X:%08X fmt=%d->A8R8G8B8 size=%dx%d mips=%d bytes=%d pool=%d liveKB=%d availKB=%u",
                         FrameCounter, UploadSeq, GRD_TotalTexCreates + 1, Stage, GRD_LastTextureIDHi, GRD_LastTextureIDLo,
                         Info.Format, USize, VSize, NumMips, ApproxBytes, TexPoolNext, TexLiveBytes / 1024, (unsigned)RenderAvailPhysKB() );
@@ -1715,7 +1723,7 @@ void UXboxRenderDevice::SetTextureD3D( INT Stage, FTextureInfo& Info, DWORD Poly
             GRD_FrameTexUploads++;
             GRD_TotalTexUploads++;
             GRD_TotalTexBytes += ApproxBytes;
-            if( FAILED(hrCreate) || !Entry->pTexture || (bNeedCreate && (GRD_TotalTexCreates <= 16 || (GRD_TotalTexCreates % 64) == 0)) )
+            if( FAILED(hrCreate) || !Entry->pTexture || (GVerboseRenderPerfLog && bNeedCreate && (GRD_TotalTexCreates <= 16 || (GRD_TotalTexCreates % 64) == 0)) )
                 GXboxLog.Write( "RTEX %s create#=%d upload#=%d frame=%d stage=%d id=%08X:%08X fmt=%d->A8R8G8B8 size=%dx%d mips=%d bytes=%d hr=0x%08X tex=0x%08X d3dpool=DEFAULT cache=%d realtime=%d",
                     bNeedCreate ? "create" : "update", GRD_TotalTexCreates, GRD_TotalTexUploads, FrameCounter, Stage, GRD_LastTextureIDHi, GRD_LastTextureIDLo,
                     Info.Format, USize, VSize, NumMips, ApproxBytes, (DWORD)hrCreate, (DWORD)Entry->pTexture, TexPoolNext, bRealtimeChanged || bForceRgba7MaxUpload );
@@ -1768,7 +1776,7 @@ void UXboxRenderDevice::SetTextureD3D( INT Stage, FTextureInfo& Info, DWORD Poly
                     DWORD* Dst = Scratch;
                     INT CopyW = RenderMipClampSize( Info.UClamp, m, MipW );
                     INT CopyH = RenderMipClampSize( Info.VClamp, m, MipH );
-                    if( (CopyW != MipW || CopyH != MipH) && GRD_ClampPadLogCount < 32 )
+                    if( GVerboseRenderPerfLog && (CopyW != MipW || CopyH != MipH) && GRD_ClampPadLogCount < 32 )
                     {
                         GRD_ClampPadLogCount++;
                         GXboxLog.Write( "RTEX clamp-pad #%d f=%d seq=%d stage=%d fmt=%d mip=%d tex=%dx%d clamp=%dx%d dest=%dx%d",
@@ -2314,13 +2322,6 @@ void UXboxRenderDevice::DrawTile( FSceneNode* Frame, FTextureInfo& Info, FLOAT X
     else
         Clr = FColor(Color).TrueColor() | 0xFF000000;
 
-    FXboxTLVertex Verts[4];
-    Verts[0].x = X;      Verts[0].y = Y;      Verts[0].rhw = RZ; Verts[0].z = SZ; Verts[0].color = Clr; SetUV( Verts[0], 0, U,      V,      StageUScale, StageVScale, StageUIndex, StageVIndex );
-    Verts[1].x = X;      Verts[1].y = Y + YL; Verts[1].rhw = RZ; Verts[1].z = SZ; Verts[1].color = Clr; SetUV( Verts[1], 0, U,      V + VL, StageUScale, StageVScale, StageUIndex, StageVIndex );
-    Verts[2].x = X + XL; Verts[2].y = Y + YL; Verts[2].rhw = RZ; Verts[2].z = SZ; Verts[2].color = Clr; SetUV( Verts[2], 0, U + UL, V + VL, StageUScale, StageVScale, StageUIndex, StageVIndex );
-    Verts[3].x = X + XL; Verts[3].y = Y;      Verts[3].rhw = RZ; Verts[3].z = SZ; Verts[3].color = Clr; SetUV( Verts[3], 0, U + UL, V,      StageUScale, StageVScale, StageUIndex, StageVIndex );
-
-    RenderDiagPrim( 4, PolyFlags, "DT" );
     UBOOL bCanBatch = !Info.bRealtimeChanged && GRD_DTBatchVerts + 6 <= XBOX_DT_BATCH_VERTS;
     if( bCanBatch && GRD_DTBatchActive &&
         (GRD_DTBatchCacheID != Info.CacheID || GRD_DTBatchPolyFlags != PolyFlags || GRD_DTBatchVerts + 6 > XBOX_DT_BATCH_VERTS) )
@@ -2335,7 +2336,33 @@ void UXboxRenderDevice::DrawTile( FSceneNode* Frame, FTextureInfo& Info, FLOAT X
         GRD_DTBatchCacheID = Info.CacheID;
         GRD_DTBatchPolyFlags = PolyFlags;
     }
+    else if( !bCanBatch )
+    {
+        FlushDTBatch( "DT-fallback" );
+        SetBlending( PolyFlags );
+        SetTextureD3D( 0, Info, PolyFlags );
+        SetCachedVertexShader( XBOX_FVF_TLVERTEX );
+    }
 
+    FXboxTLVertex Verts[4];
+    Verts[0].x = X;      Verts[0].y = Y;      Verts[0].rhw = RZ; Verts[0].z = SZ; Verts[0].color = Clr; SetUV( Verts[0], 0, U,      V,      StageUScale, StageVScale, StageUIndex, StageVIndex );
+    Verts[1].x = X;      Verts[1].y = Y + YL; Verts[1].rhw = RZ; Verts[1].z = SZ; Verts[1].color = Clr; SetUV( Verts[1], 0, U,      V + VL, StageUScale, StageVScale, StageUIndex, StageVIndex );
+    Verts[2].x = X + XL; Verts[2].y = Y + YL; Verts[2].rhw = RZ; Verts[2].z = SZ; Verts[2].color = Clr; SetUV( Verts[2], 0, U + UL, V + VL, StageUScale, StageVScale, StageUIndex, StageVIndex );
+    Verts[3].x = X + XL; Verts[3].y = Y;      Verts[3].rhw = RZ; Verts[3].z = SZ; Verts[3].color = Clr; SetUV( Verts[3], 0, U + UL, V,      StageUScale, StageVScale, StageUIndex, StageVIndex );
+
+    RenderDiagPrim( 4, PolyFlags, "DT" );
+    if( GRD_MenuTextMode )
+    {
+        GRD_MenuTextTiles++;
+        if( GRD_MenuTextLogBudget > 0 && GRD_MenuTextTiles <= 2 )
+        {
+            GRD_MenuTextLogBudget--;
+            GXboxLog.Write( "MTEXT tile id=%d glyph=%d text='%s' f=%d xy=%.1f,%.1f size=%.1f,%.1f uv=%.1f,%.1f %.1f,%.1f scaled=%.6f,%.6f flags=0x%08X fmt=%d cache=%08X:%08X batch=%d up=%d",
+                GRD_MenuTextSerial, GRD_MenuTextTiles, GRD_MenuTextLabel, FrameCounter,
+                X, Y, XL, YL, U, V, UL, VL, Verts[0].u, Verts[0].v, PolyFlags, Info.Format,
+                (DWORD)(Info.CacheID >> 32), (DWORD)Info.CacheID, bCanBatch, GUseDrawPrimitiveUP );
+        }
+    }
     if( bCanBatch && GRD_DTBatchActive && GRD_DTBatchCacheID == Info.CacheID && GRD_DTBatchPolyFlags == PolyFlags )
     {
         GRD_DTBatch[GRD_DTBatchVerts++] = Verts[0];
@@ -2348,10 +2375,6 @@ void UXboxRenderDevice::DrawTile( FSceneNode* Frame, FTextureInfo& Info, FLOAT X
     }
     else
     {
-        FlushDTBatch( "DT-fallback" );
-        SetBlending( PolyFlags );
-        SetTextureD3D( 0, Info, PolyFlags );
-        SetCachedVertexShader( XBOX_FVF_TLVERTEX );
         if( RenderHotFrame( FrameCounter ) && RenderHotTrace() )
             GXboxLog.Write( "RDRAW begin op=DT f=%d dt=%d prim=%d stride=%d flags=0x%08X",
                 FrameCounter, GRD_FrameDT, GRD_FramePrims + 1, (INT)sizeof(FXboxTLVertex), PolyFlags );
@@ -2479,6 +2502,313 @@ void UXboxRenderDevice::Draw2DPoint( FSceneNode* Frame, FPlane Color, DWORD Line
     SetCachedRenderState( D3DRS_SHADEMODE, D3DSHADE_GOURAUD );
 
     unguard;
+}
+
+extern "C" void XboxRenderPrepareMenuText( FSceneNode* Frame, const char* Label )
+{
+    guard(XboxRenderPrepareMenuText);
+
+    UXboxRenderDevice* Ren = Cast<UXboxRenderDevice>( GRenderDevice );
+    if( !Ren || !Ren->Device || !Frame )
+        return;
+
+    Ren->FlushDGPBatch( "menu-text-pre" );
+    Ren->FlushDTBatch( "menu-text-pre" );
+    GRD_MenuTextMode = 1;
+    GRD_MenuTextTiles = 0;
+    GRD_MenuTextSerial++;
+    if( Label )
+    {
+        appStrncpy( GRD_MenuTextLabel, Label, ARRAY_COUNT(GRD_MenuTextLabel) );
+        GRD_MenuTextLabel[ARRAY_COUNT(GRD_MenuTextLabel)-1] = 0;
+    }
+    else
+    {
+        GRD_MenuTextLabel[0] = 0;
+    }
+    if( GRD_MenuTextLogBudget > 0 )
+    {
+        GRD_MenuTextLogBudget--;
+        GXboxLog.Write( "MTEXT begin id=%d text='%s' frame=%d", GRD_MenuTextSerial, GRD_MenuTextLabel, Ren->FrameCounter );
+    }
+    Ren->RestoreDefaultTextureStages();
+    Ren->SetCachedRenderState( D3DRS_ALPHABLENDENABLE, FALSE );
+    Ren->SetCachedRenderState( D3DRS_ALPHATESTENABLE, FALSE );
+    Ren->SetCachedRenderState( D3DRS_ZENABLE, D3DZB_FALSE );
+    Ren->SetCachedRenderState( D3DRS_ZWRITEENABLE, FALSE );
+    Ren->SetCachedRenderState( D3DRS_SHADEMODE, D3DSHADE_GOURAUD );
+    Ren->CurrentPolyFlags = 0xFFFFFFFF;
+
+    unguard;
+}
+
+extern "C" void XboxRenderFinishMenuText( FSceneNode* Frame )
+{
+    guard(XboxRenderFinishMenuText);
+
+    UXboxRenderDevice* Ren = Cast<UXboxRenderDevice>( GRenderDevice );
+    if( !Ren || !Ren->Device || !Frame )
+        return;
+
+    Ren->FlushDTBatch( "menu-text-post" );
+    Ren->FlushDGPBatch( "menu-text-post" );
+    if( GRD_MenuTextLogBudget > 0 )
+    {
+        GRD_MenuTextLogBudget--;
+        GXboxLog.Write( "MTEXT end id=%d text='%s' tiles=%d frame=%d", GRD_MenuTextSerial, GRD_MenuTextLabel, GRD_MenuTextTiles, Ren->FrameCounter );
+    }
+    GRD_MenuTextMode = 0;
+    Ren->RestoreDefaultTextureStages();
+    Ren->SetCachedRenderState( D3DRS_ALPHABLENDENABLE, FALSE );
+    Ren->SetCachedRenderState( D3DRS_ALPHATESTENABLE, FALSE );
+    Ren->SetCachedRenderState( D3DRS_ZENABLE, D3DZB_FALSE );
+    Ren->SetCachedRenderState( D3DRS_ZWRITEENABLE, FALSE );
+    Ren->SetCachedRenderState( D3DRS_SHADEMODE, D3DSHADE_GOURAUD );
+    Ren->CurrentPolyFlags = 0xFFFFFFFF;
+
+    unguard;
+}
+
+extern "C" void XboxRenderDrawMenuRect( FSceneNode* Frame, FLOAT X1, FLOAT Y1, FLOAT X2, FLOAT Y2, BYTE R, BYTE G, BYTE B, BYTE A )
+{
+    guard(XboxRenderDrawMenuRect);
+
+    UXboxRenderDevice* Ren = Cast<UXboxRenderDevice>( GRenderDevice );
+    if( !Ren || !Ren->Device || !Frame )
+        return;
+
+    Ren->FlushDGPBatch( "menu-rect" );
+    Ren->FlushDTBatch( "menu-rect" );
+    Ren->DisableStage1();
+
+    DWORD Clr = ((DWORD)A << 24) | ((DWORD)R << 16) | ((DWORD)G << 8) | (DWORD)B;
+    FLOAT RHW = 1.0f;
+    FLOAT SZ  = Ren->ProjZRatio + Ren->ProjZOffset * RHW;
+
+    FXboxTLVertex Verts[4];
+    Verts[0].x = X1 - 0.5f; Verts[0].y = Y1 - 0.5f; Verts[0].rhw = RHW; Verts[0].z = SZ; Verts[0].color = Clr; Verts[0].u = 0; Verts[0].v = 0;
+    Verts[1].x = X2 - 0.5f; Verts[1].y = Y1 - 0.5f; Verts[1].rhw = RHW; Verts[1].z = SZ; Verts[1].color = Clr; Verts[1].u = 0; Verts[1].v = 0;
+    Verts[2].x = X2 - 0.5f; Verts[2].y = Y2 - 0.5f; Verts[2].rhw = RHW; Verts[2].z = SZ; Verts[2].color = Clr; Verts[2].u = 0; Verts[2].v = 0;
+    Verts[3].x = X1 - 0.5f; Verts[3].y = Y2 - 0.5f; Verts[3].rhw = RHW; Verts[3].z = SZ; Verts[3].color = Clr; Verts[3].u = 0; Verts[3].v = 0;
+
+    Ren->SetCachedRenderState( D3DRS_SHADEMODE, D3DSHADE_FLAT );
+    Ren->SetCachedTextureStageState( 0, D3DTSS_COLOROP, D3DTOP_SELECTARG1 );
+    Ren->SetCachedTextureStageState( 0, D3DTSS_COLORARG1, D3DTA_DIFFUSE );
+    Ren->SetCachedTextureStageState( 0, D3DTSS_ALPHAOP, D3DTOP_SELECTARG1 );
+    Ren->SetCachedTextureStageState( 0, D3DTSS_ALPHAARG1, D3DTA_DIFFUSE );
+    Ren->Device->SetTexture( 0, NULL );
+    Ren->BoundCacheID[0] = 0;
+    Ren->SetCachedRenderState( D3DRS_ZENABLE, D3DZB_FALSE );
+    Ren->SetCachedRenderState( D3DRS_ZWRITEENABLE, FALSE );
+    Ren->SetCachedRenderState( D3DRS_ZFUNC, D3DCMP_ALWAYS );
+    Ren->SetCachedRenderState( D3DRS_ALPHATESTENABLE, FALSE );
+
+    if( A < 255 )
+    {
+        Ren->SetCachedRenderState( D3DRS_ALPHABLENDENABLE, TRUE );
+        Ren->SetCachedRenderState( D3DRS_SRCBLEND, D3DBLEND_SRCALPHA );
+        Ren->SetCachedRenderState( D3DRS_DESTBLEND, D3DBLEND_INVSRCALPHA );
+    }
+    else
+    {
+        Ren->SetCachedRenderState( D3DRS_ALPHABLENDENABLE, FALSE );
+    }
+
+    Ren->SetCachedVertexShader( XBOX_FVF_TLVERTEX );
+    Ren->DrawPrimitiveVB( D3DPT_TRIANGLEFAN, 2, Verts, sizeof(FXboxTLVertex), "menu-rect" );
+
+    Ren->RestoreDefaultTextureStages();
+    if( A < 255 )
+        Ren->SetCachedRenderState( D3DRS_ALPHABLENDENABLE, FALSE );
+    Ren->SetCachedRenderState( D3DRS_ALPHATESTENABLE, FALSE );
+    Ren->SetCachedRenderState( D3DRS_SHADEMODE, D3DSHADE_GOURAUD );
+    Ren->CurrentPolyFlags = 0xFFFFFFFF;
+
+    unguard;
+}
+
+struct FXboxMenuTexture
+{
+    char Name[64];
+    IDirect3DTexture8* Texture;
+    DWORD Width;
+    DWORD Height;
+};
+
+static FXboxMenuTexture GXboxMenuTextures[8];
+
+static FXboxMenuTexture* XboxFindMenuTexture( const char* Name )
+{
+    for( INT i=0; i<ARRAY_COUNT(GXboxMenuTextures); i++ )
+        if( GXboxMenuTextures[i].Texture && appStricmp(GXboxMenuTextures[i].Name, Name)==0 )
+            return &GXboxMenuTextures[i];
+    return NULL;
+}
+
+static FXboxMenuTexture* XboxLoadMenuTexture( UXboxRenderDevice* Ren, const char* Name )
+{
+    if( !Ren || !Ren->Device || !Name )
+        return NULL;
+
+    FXboxMenuTexture* Existing = XboxFindMenuTexture( Name );
+    if( Existing )
+        return Existing;
+
+    FXboxMenuTexture* Slot = NULL;
+    for( INT i=0; i<ARRAY_COUNT(GXboxMenuTextures); i++ )
+    {
+        if( !GXboxMenuTextures[i].Texture )
+        {
+            Slot = &GXboxMenuTextures[i];
+            break;
+        }
+    }
+    if( !Slot )
+        return NULL;
+
+    char Path[256];
+    appSprintf( Path, "D:\\MenuAssets\\%s", Name );
+    HANDLE File = CreateFileA( Path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL );
+    if( File == INVALID_HANDLE_VALUE )
+    {
+        GXboxLog.Write( "XMENU tex missing %s err=%lu", Path, GetLastError() );
+        return NULL;
+    }
+
+    DWORD Header[3] = {0,0,0};
+    DWORD Read = 0;
+    if( !ReadFile( File, Header, sizeof(Header), &Read, NULL ) || Read != sizeof(Header) || Header[0] != 0x30495558 )
+    {
+        CloseHandle( File );
+        GXboxLog.Write( "XMENU tex bad header %s", Path );
+        return NULL;
+    }
+
+    DWORD Width = Header[1];
+    DWORD Height = Header[2];
+    if( Width < 1 || Height < 1 || Width > 1024 || Height > 1024 )
+    {
+        CloseHandle( File );
+        GXboxLog.Write( "XMENU tex bad size %s %lux%lu", Path, Width, Height );
+        return NULL;
+    }
+
+    IDirect3DTexture8* Texture = NULL;
+    HRESULT hr = Ren->Device->CreateTexture( Width, Height, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_DEFAULT, &Texture );
+    if( FAILED(hr) || !Texture )
+    {
+        CloseHandle( File );
+        GXboxLog.Write( "XMENU tex create failed %s %lux%lu hr=0x%08X", Path, Width, Height, (DWORD)hr );
+        return NULL;
+    }
+
+    D3DLOCKED_RECT Locked;
+    hr = Texture->LockRect( 0, &Locked, NULL, 0 );
+    if( FAILED(hr) )
+    {
+        Texture->Release();
+        CloseHandle( File );
+        GXboxLog.Write( "XMENU tex lock failed %s hr=0x%08X", Path, (DWORD)hr );
+        return NULL;
+    }
+
+    DWORD RowBytes = Width * 4;
+    DWORD ImageBytes = RowBytes * Height;
+    BYTE* Linear = (BYTE*)appMalloc( ImageBytes, TEXT("MenuTextureLinear") );
+    UBOOL Ok = Linear != NULL;
+    if( Ok && (!ReadFile( File, Linear, ImageBytes, &Read, NULL ) || Read != ImageBytes) )
+        Ok = 0;
+    if( Ok )
+    {
+        RECT SrcRect = { 0, 0, (LONG)Width, (LONG)Height };
+        POINT DstPoint = { 0, 0 };
+        XGSwizzleRect(
+            Linear,
+            RowBytes,
+            &SrcRect,
+            Locked.pBits,
+            Width,
+            Height,
+            &DstPoint,
+            4
+        );
+    }
+    if( Linear )
+        appFree( Linear );
+    Texture->UnlockRect( 0 );
+    CloseHandle( File );
+
+    if( !Ok )
+    {
+        Texture->Release();
+        GXboxLog.Write( "XMENU tex short read %s", Path );
+        return NULL;
+    }
+
+    appStrncpy( Slot->Name, Name, ARRAY_COUNT(Slot->Name) );
+    Slot->Name[ARRAY_COUNT(Slot->Name)-1] = 0;
+    Slot->Texture = Texture;
+    Slot->Width = Width;
+    Slot->Height = Height;
+    GXboxLog.Write( "XMENU tex loaded %s %lux%lu", Path, Width, Height );
+    return Slot;
+}
+
+extern "C" UBOOL XboxRenderDrawMenuTexture( FSceneNode* Frame, const char* Name, FLOAT X, FLOAT Y, FLOAT XL, FLOAT YL, FLOAT Alpha )
+{
+    guard(XboxRenderDrawMenuTexture);
+
+    UXboxRenderDevice* Ren = Cast<UXboxRenderDevice>( GRenderDevice );
+    if( !Ren || !Ren->Device || !Frame || !Name )
+        return 0;
+
+    FXboxMenuTexture* Tex = XboxLoadMenuTexture( Ren, Name );
+    if( !Tex || !Tex->Texture )
+        return 0;
+
+    Ren->FlushDGPBatch( "menu-tex" );
+    Ren->FlushDTBatch( "menu-tex" );
+    Ren->DisableStage1();
+
+    BYTE A = (BYTE)Clamp<INT>( (INT)(Alpha * 255.0f), 0, 255 );
+    DWORD Clr = (A << 24) | 0x00FFFFFF;
+    FLOAT RHW = 1.0f;
+    FLOAT SZ  = Ren->ProjZRatio + Ren->ProjZOffset * RHW;
+
+    FXboxTLVertex Verts[4];
+    Verts[0].x = X - 0.5f;      Verts[0].y = Y - 0.5f;      Verts[0].z = SZ; Verts[0].rhw = RHW; Verts[0].color = Clr; Verts[0].u = 0.0f; Verts[0].v = 0.0f;
+    Verts[1].x = X+XL - 0.5f;   Verts[1].y = Y - 0.5f;      Verts[1].z = SZ; Verts[1].rhw = RHW; Verts[1].color = Clr; Verts[1].u = 1.0f; Verts[1].v = 0.0f;
+    Verts[2].x = X+XL - 0.5f;   Verts[2].y = Y+YL - 0.5f;   Verts[2].z = SZ; Verts[2].rhw = RHW; Verts[2].color = Clr; Verts[2].u = 1.0f; Verts[2].v = 1.0f;
+    Verts[3].x = X - 0.5f;      Verts[3].y = Y+YL - 0.5f;   Verts[3].z = SZ; Verts[3].rhw = RHW; Verts[3].color = Clr; Verts[3].u = 0.0f; Verts[3].v = 1.0f;
+
+    Ren->SetCachedRenderState( D3DRS_ALPHABLENDENABLE, TRUE );
+    Ren->SetCachedRenderState( D3DRS_ALPHATESTENABLE, FALSE );
+    Ren->SetCachedRenderState( D3DRS_ZENABLE, D3DZB_FALSE );
+    Ren->SetCachedRenderState( D3DRS_ZWRITEENABLE, FALSE );
+    Ren->SetCachedRenderState( D3DRS_ZFUNC, D3DCMP_ALWAYS );
+    Ren->SetCachedRenderState( D3DRS_SRCBLEND, D3DBLEND_SRCALPHA );
+    Ren->SetCachedRenderState( D3DRS_DESTBLEND, D3DBLEND_INVSRCALPHA );
+    Ren->SetCachedTextureStageState( 0, D3DTSS_COLOROP, D3DTOP_MODULATE );
+    Ren->SetCachedTextureStageState( 0, D3DTSS_COLORARG1, D3DTA_TEXTURE );
+    Ren->SetCachedTextureStageState( 0, D3DTSS_COLORARG2, D3DTA_DIFFUSE );
+    Ren->SetCachedTextureStageState( 0, D3DTSS_ALPHAOP, D3DTOP_MODULATE );
+    Ren->SetCachedTextureStageState( 0, D3DTSS_ALPHAARG1, D3DTA_TEXTURE );
+    Ren->SetCachedTextureStageState( 0, D3DTSS_ALPHAARG2, D3DTA_DIFFUSE );
+    Ren->SetCachedTextureStageState( 0, D3DTSS_MINFILTER, D3DTEXF_LINEAR );
+    Ren->SetCachedTextureStageState( 0, D3DTSS_MAGFILTER, D3DTEXF_LINEAR );
+    Ren->Device->SetTexture( 0, Tex->Texture );
+    Ren->BoundCacheID[0] = 0;
+    Ren->SetCachedVertexShader( XBOX_FVF_TLVERTEX );
+    Ren->DrawPrimitiveVB( D3DPT_TRIANGLEFAN, 2, Verts, sizeof(FXboxTLVertex), "menu-tex" );
+    Ren->Device->SetTexture( 0, NULL );
+    Ren->BoundCacheID[0] = 0;
+    Ren->RestoreDefaultTextureStages();
+    Ren->SetCachedRenderState( D3DRS_ALPHABLENDENABLE, FALSE );
+    Ren->SetCachedRenderState( D3DRS_ALPHATESTENABLE, FALSE );
+    Ren->CurrentPolyFlags = 0xFFFFFFFF;
+
+    unguard;
+    return 1;
 }
 
 // ============================================================================

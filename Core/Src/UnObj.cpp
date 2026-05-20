@@ -2286,27 +2286,18 @@ UClass* UObject::StaticLoadClass( UClass* BaseClass, UObject* InOuter, const TCH
 {
 	guard(UObject::StaticLoadClass);
 	check(BaseClass);
-	debugf( NAME_Log, TEXT("[StaticLoadClass] InName='%s' Base='%s' pre"),
-		InName ? InName : TEXT("(null)"),
-		BaseClass ? BaseClass->GetName() : TEXT("(null)") );
 	try
 	{
 		UClass* Class = LoadObject<UClass>( InOuter, InName, Filename, LoadFlags | LOAD_Throw, Sandbox );
-		debugf( NAME_Log, TEXT("[StaticLoadClass] post LoadObject, Class=%s"),
-			Class ? Class->GetName() : TEXT("(null)") );
 		if( Class && !Class->IsChildOf(BaseClass) )
 		{
-			debugf( NAME_Log, TEXT("[StaticLoadClass] IsChildOf failed; throwing") );
 			appThrowf( LocalizeError("LoadClassMismatch"), Class->GetFullName(), BaseClass->GetFullName() );
 		}
-		debugf( NAME_Log, TEXT("[StaticLoadClass] post IsChildOf, returning %s"),
-			Class ? Class->GetName() : TEXT("(null)") );
 		return Class;
 	}
 	catch( const TCHAR* Error )
 	{
 		// Failed.
-		debugf( NAME_Log, TEXT("[StaticLoadClass] caught error: %s"), Error );
 		SafeLoadError( LoadFlags, Error, Error );
 		return NULL;
 	}
@@ -3258,13 +3249,15 @@ UObject* UObject::StaticConstructObject
 void UObject::SerializeRootSet( FArchive& Ar, DWORD KeepFlags, DWORD RequiredFlags )
 {
 	guard(UObject::SerializeRootSet);
+	static const UBOOL GXboxVerboseGCLog = 0;
 	// Xbox-port: granular beacons so we can spot which root object's
 	// Serialize() hangs the mark pass.  Print the name of every matched root
 	// just before we hand it to the archive — if the log stops at
 	// "[GC] root[N] X" with no [GC] root[N+1], X is the object whose
 	// Serialize is hanging (or recursing past the stack).
 	Ar << GObjRoot;
-	debugf( NAME_Log, TEXT("[GC]   SerializeRootSet: GObjRoot done, iterating objects") );
+	if( GXboxVerboseGCLog )
+		debugf( NAME_Log, TEXT("[GC]   SerializeRootSet: GObjRoot done, iterating objects") );
 
 	INT Scanned = 0, Matched = 0;
 	for( FObjectIterator It; It; ++It )
@@ -3281,14 +3274,16 @@ void UObject::SerializeRootSet( FArchive& Ar, DWORD KeepFlags, DWORD RequiredFla
 			// same N, then root[N] is the offending object.
 			const TCHAR* CName = It->GetClass() ? It->GetClass()->GetName() : TEXT("<noclass>");
 			const TCHAR* OName = It->GetName();
-			debugf( NAME_Log, TEXT("[GC]   root[%d] %s '%s' pre"), Matched, CName, OName );
+			if( GXboxVerboseGCLog )
+				debugf( NAME_Log, TEXT("[GC]   root[%d] %s '%s' pre"), Matched, CName, OName );
 			UObject* Obj = *It;
 			Ar << Obj;
-			debugf( NAME_Log, TEXT("[GC]   root[%d] %s '%s' post"), Matched, CName, OName );
+			if( GXboxVerboseGCLog )
+				debugf( NAME_Log, TEXT("[GC]   root[%d] %s '%s' post"), Matched, CName, OName );
 		}
 	}
-	debugf( NAME_Log, TEXT("[GC]   SerializeRootSet done: scanned=%d matched=%d"),
-		Scanned, Matched );
+	if( GXboxVerboseGCLog )
+		debugf( NAME_Log, TEXT("[GC]   SerializeRootSet done: scanned=%d matched=%d"), Scanned, Matched );
 	unguard;
 }
 
@@ -3449,25 +3444,29 @@ void UObject::PurgeGarbage()
 void UObject::CollectGarbage( DWORD KeepFlags )
 {
 	guard(UObject::CollectGarbage);
+	static const UBOOL GXboxVerboseGCLog = 0;
 	debugf( NAME_Log, TEXT("Collecting garbage") );
 
 	// Xbox-port beacons: GC is the next place where the engine has historically
 	// stalled silently on hardware.  Print before/after each phase so we can
 	// localize a hang to (a) the mark pass over GObjObjects (SerializeRootSet),
 	// (b) the destroy-dispatch loop inside PurgeGarbage, or (c) past GC entirely.
-	debugf( NAME_Log, TEXT("[GC] objs=%d root=%d KeepFlags=%08X  pre-SerializeRootSet"),
-		GObjObjects.Num(), GObjRoot.Num(), KeepFlags );
+	if( GXboxVerboseGCLog )
+		debugf( NAME_Log, TEXT("[GC] objs=%d root=%d KeepFlags=%08X  pre-SerializeRootSet"),
+			GObjObjects.Num(), GObjRoot.Num(), KeepFlags );
 
 	// Tag and purge garbage.
 	FArchiveTagUsed TagUsedAr;
 	SerializeRootSet( TagUsedAr, KeepFlags, RF_TagGarbage );
 
-	debugf( NAME_Log, TEXT("[GC] post-SerializeRootSet, pre-PurgeGarbage") );
+	if( GXboxVerboseGCLog )
+		debugf( NAME_Log, TEXT("[GC] post-SerializeRootSet, pre-PurgeGarbage") );
 
 	// Purge it.
 	PurgeGarbage();
 
-	debugf( NAME_Log, TEXT("[GC] post-PurgeGarbage  done") );
+	if( GXboxVerboseGCLog )
+		debugf( NAME_Log, TEXT("[GC] post-PurgeGarbage  done") );
 
 	unguard;
 }

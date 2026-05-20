@@ -82,6 +82,53 @@ void UInput::StaticInitInput()
 	// Load defaults.
 	StaticClass()->GetDefaultObject()->LoadConfig( 1 );
 
+#if TARGET_XBOX
+	UInput* DefaultInput = (UInput*)StaticClass()->GetDefaultObject();
+	struct FXboxAliasBind
+	{
+		INT Index;
+		const TCHAR* Alias;
+		const TCHAR* Command;
+	};
+	static const FXboxAliasBind XboxAliases[] =
+	{
+		{ 0,  TEXT("Fire"),              TEXT("Button bFire | Fire") },
+		{ 1,  TEXT("AltFire"),           TEXT("Button bAltFire | AltFire") },
+		{ 8,  TEXT("Jump"),              TEXT("Jump | Axis aUp Speed=+300.0") },
+		{ 9,  TEXT("Duck"),              TEXT("Button bDuck | Axis aUp Speed=-300.0") },
+		{ 12, TEXT("InventoryActivate"), TEXT("ActivateItem") },
+		{ 13, TEXT("InventoryNext"),     TEXT("NextItem") },
+		{ 14, TEXT("InventoryPrevious"), TEXT("PrevItem") },
+		{ 20, TEXT("NextWeapon"),        TEXT("NextWeapon") },
+	};
+	for( INT i=0; i<ARRAY_COUNT(XboxAliases); i++ )
+	{
+		DefaultInput->Aliases[XboxAliases[i].Index].Alias = FName( XboxAliases[i].Alias );
+		DefaultInput->Aliases[XboxAliases[i].Index].Command = XboxAliases[i].Command;
+	}
+
+	DefaultInput->Bindings[IK_LeftMouse]     = TEXT("Fire");
+	DefaultInput->Bindings[IK_RightMouse]    = TEXT("AltFire");
+	DefaultInput->Bindings[IK_Space]         = TEXT("Jump");
+	DefaultInput->Bindings[IK_Enter]         = TEXT("InventoryActivate");
+	DefaultInput->Bindings[IK_Slash]         = TEXT("NextWeapon");
+	DefaultInput->Bindings[IK_LeftBracket]   = TEXT("InventoryPrevious");
+	DefaultInput->Bindings[IK_RightBracket]  = TEXT("InventoryNext");
+	DefaultInput->Bindings[IK_C]             = TEXT("Duck");
+	DefaultInput->Bindings[IK_Tab]           = TEXT("ShowScores");
+	DefaultInput->Bindings[IK_JoyPovRight]   = TEXT("SwitchWeapon 6");
+	DefaultInput->Bindings[IK_JoyPovLeft]    = TEXT("SwitchWeapon 7");
+	DefaultInput->Bindings[IK_JoyPovUp]      = TEXT("SwitchWeapon 8");
+	DefaultInput->Bindings[IK_JoyPovDown]    = TEXT("SwitchWeapon 5");
+	DefaultInput->Bindings[IK_Joy6]          = TEXT("");
+	DefaultInput->Bindings[IK_JoyX]          = TEXT("Axis aStrafe Speed=2.0");
+	DefaultInput->Bindings[IK_JoyY]          = TEXT("Axis aBaseY Speed=2.0");
+	DefaultInput->Bindings[IK_JoyU]          = TEXT("Axis aTurn Speed=5.9");
+	DefaultInput->Bindings[IK_JoyV]          = TEXT("Axis aLookUp Speed=3.0");
+	DefaultInput->SaveConfig();
+	debugf( NAME_Init, TEXT("Xbox input defaults forced and saved") );
+#endif
+
 	unguard;
 }
 

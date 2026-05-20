@@ -812,3 +812,294 @@ Status:
 
 - Built and deployed to `C:\Games\Emulators\CXBX\UT99x\default.xbe`.
 - No GitHub commit made; waiting for Steve's test confirmation.
+
+### 35. Xbox Menu Text First-Glyph Corruption Audit
+
+Change/evidence:
+
+- The `SELECT` first-character corruption moved to `INSTANT ACTION` after a prompt-text texture experiment, proving the defect was not specific to one string, one font glyph, or the A-button image.
+- Removed the generated prompt texture path and restored live Canvas text for button prompts.
+- Audited the Canvas text path against `UXboxRenderDevice::SetBlending()`. `SetBlending()` only changes `D3DRS_ALPHATESTENABLE` when `CurrentPolyFlags` says the `PF_Masked` bit changed.
+- The Xbox menu helper primitives draw custom 2D rectangles/images by manually changing D3D state, including disabling alpha test. If those helpers leave `CurrentPolyFlags` claiming masked text state is still active, the next Canvas text call can skip re-enabling alpha test. That matches the observed "first drawn menu text after a helper primitive loses/corrupts its leading glyph" behavior.
+
+Result:
+
+- Every menu helper path that manually disables alpha/blend/depth state now invalidates `CurrentPolyFlags` before returning to normal Canvas text.
+- Menu rect drawing now explicitly disables alpha test before drawing non-textured quads and explicitly disables blending for fully opaque rects.
+- `XboxRenderDrawMenuTexture()` no longer returns before its `unguard`.
+- Confirmed no `prompt_select.xui` or `prompt_back.xui` assets remain in source or deployed `MenuAssets`.
+
+Status:
+
+- Command-line build succeeded.
+- Deployed `default.xbe` and current `MenuAssets` to `C:\Games\Emulators\CXBX\UT99x`.
+
+Follow-up evidence plan:
+
+- The menu-text fast-path isolation is not yet visually proven.
+- Added bounded `MTEXT begin/tile/end` logging to prove which text string owns the first glyph, how many glyph tiles were emitted, and that menu text is using the non-batched/non-`DrawPrimitiveUP` path (`batch=0 up=0`) while gameplay keeps the optimized path.
+- Rebuilt and redeployed the diagnostic candidate.
+
+### 36. Menu Regression Follow-up: Backdrop and First Glyph
+
+Change/evidence:
+
+- Steve reported two regressions from the previous candidate:
+  - the map was no longer visible behind the main menu;
+  - `SELECT` still had a broken first character.
+- Backdrop cause was confirmed in code: `XboxMenuDrawChrome()` drew a full-screen rect with the helper default alpha of `1.0f`. Once rect render state stopped depending on previous leaked blending, that full-screen rect became honestly opaque.
+- First-glyph cause was re-audited through `UCanvas::WrappedPrintf()` -> `DrawString()` -> `RenDev->DrawTile()`. Each menu text string starts a fresh glyph `DrawTile` sequence, and the first broken character is the first quad in that fresh DT batch. That points at the menu text interaction with the gameplay DT batching/`DrawPrimitiveUP` fast path, not at the A-button image or the string contents.
+
+Result:
+
+- Menu backdrop alpha is now explicit: translucent full-screen darkener and translucent top/bottom bars.
+- Menu text now runs in a scoped `GRD_MenuTextMode` that disables DT batching and `DrawPrimitiveUP` only while Canvas is drawing menu text. Gameplay keeps the optimized batch/UP path.
+
+Status:
+
+- Command-line build succeeded.
+- Deployed `default.xbe` and current `MenuAssets` to `C:\Games\Emulators\CXBX\UT99x`.
+
+### 37. Hardware Dashboard Kick: Stale PC Audio Driver Guard
+
+Change/evidence:
+
+- Held menu-text work after Steve reported a real Xbox dashboard kick.
+- The CXBX folder log did not contain a fatal Unreal shutdown; it ended mid-render, so it was not enough by itself.
+- A newer log in `UT99-Xbox/build_cli/release/ut99.log` did contain the concrete failure path: `InitAudio` tried `Galaxy.GalaxyAudioSubsystem`, failed to find `Galaxy`, asserted on an empty class, then `main()` caught an unknown C++ exception.
+- Repo/CXBX `Default.ini` and `UnrealTournament.ini` already point to `XboxAudio.XboxAudioDevice`, so the likely hardware-specific trigger is a stale generated `System\UnrealTournament.ini` on the Xbox drive.
+
+Result:
+
+- `UEngine::InitAudio()` now forces Xbox builds back to `XboxAudio.XboxAudioDevice` before resolving `ini:Engine.Engine.AudioDevice`, preventing a stale PC Galaxy audio class from reaching `StaticLoadClass`.
+- This is independent of the menu first-glyph investigation, which remains paused.
+
+### 38. Hardware Controls Missing: Stale User.ini Input Bind Guard
+
+Change/evidence:
+
+- Steve reported the hardware build loads but has no controls.
+- The available log shows `XboxClient`, `XboxViewport`, and controller polling are alive: `PollController` opened port 0 and `Input system initialized for XboxViewport0` is present.
+- That points away from `ViewportManager` and toward stale/missing `User.ini` bindings. Xbox input sends essential buttons as keyboard/mouse keys and sticks as `IK_JoyX/Y/U/V`; those only affect gameplay if `User.ini` contains the expected aliases and raw key binds.
+
+Result:
+
+- `UInput::StaticInitInput()` now forces the Xbox gameplay aliases and key/stick bindings immediately after loading `User.ini`, then calls `SaveConfig()` so the generated `User.ini` is repaired on first run.
+- This should make controls resilient to stale PC or older Xbox `User.ini` files on real hardware.
+
+### 39. Hardware Controls Missing: Direct Gameplay Input Fallback
+
+Change/evidence:
+
+- Steve reported controls were still absent on hardware.
+- The available log proves controller hardware and polling are not dead: port 0 opens successfully and Start reaches `XMENU opened`.
+- That leaves the binding translation layer as the weak point: `UXboxViewport::ProcessControllerInput()` was still depending on `UInput::InputEvent()` plus `User.ini` bindings for movement, look, fire, alt-fire, crouch, and jump.
+- `UInput::Exec()` was traced: axis binds write to `APlayerPawn::aStrafe/aBaseY/aTurn/aLookUp`, and button binds write to `bFire/bAltFire/bDuck`; `PlayerPawn.uc` consumes those fields directly in `PlayerInput()`.
+
+Result:
+
+- Core gameplay input now writes those same `APlayerPawn` fields directly after menu handling:
+  - left stick -> `aStrafe` / `aBaseY`;
+  - right stick -> `aTurn` / `aLookUp`;
+  - right trigger -> `bFire`;
+  - left trigger/B -> `bAltFire`;
+  - left stick click -> `bDuck`;
+  - A press -> toggles `bJumpStatus`.
+- Fire/alt-fire also set `bReadyToPlay`, covering match-start waiting states without relying on the `Fire` exec binding.
+- Utility actions still use `InputEvent()` for D-pad weapon/inventory-style bindings, Back scoreboard, X use, Y next weapon, and Black/White inventory/weapon cycling.
+- Added bounded `XINPUT direct` logging so the next hardware log can prove whether non-menu gameplay input reaches a live player actor without flooding the log.
+
+### 40. OGX360 Adapter Input: Port Scan and XDK Polling Parameters
+
+Change/evidence:
+
+- Steve confirmed the A/SELECT first-glyph issue does not occur on real hardware, so that is now classified as a CXBX-R rendering artifact rather than a UT gameplay blocker.
+- Steve also reported an OGX360 adapter works in other Xbox games but not in UT.
+- UT's Xbox input path only opened one hard-coded controller port (`ControllerPort = 0`) and passed `NULL` polling parameters to `XInputOpen`.
+- XDK sample code (`XBInput_CreateGamepads`) opens every connected gamepad port and uses `XINPUT_POLLING_PARAMETERS` with auto-poll/interrupt-out enabled. Other Xbox codebases audited earlier also handle insertion/removal across all four ports.
+
+Result:
+
+- `UXboxViewport::OpenWindow()` and `PollController()` now scan all four gamepad ports and select the first openable gamepad instead of assuming port 0.
+- XInput handles are opened with sample-style polling parameters.
+- `PollController()` now calls `XGetDeviceChanges()` and closes/reopens handles on insertion/removal.
+- Added bounded `XINPUT state` logging for selected port, packet number, buttons, analog buttons, triggers, and sticks.
+- Disabled the obsolete `MTEXT` menu glyph diagnostics now that the glyph corruption is confirmed CXBX-R-only.
+
+### 41. OGX360 Adapter Input: Align Open Path with OpenJKDF2
+
+Change/evidence:
+
+- Steve reported OGX360 still has no controls, while OpenJKDF2 recognizes it.
+- The provided UT log did not include the new `XINPUT open` or `XINPUT state` markers, so it was produced by an older XBE or a different install path. The deployed CXBX XBE does contain those strings.
+- OpenJKDF2's known-good path opens controllers with `XInputOpen(XDEVICE_TYPE_GAMEPAD, XDEVICE_PORT0 + port, XDEVICE_NO_SLOT, NULL)` and does not call `XInputPoll()`.
+- UT's previous candidate diverged by passing sample polling parameters and explicitly calling `XInputPoll()` before `XInputGetState()`.
+
+Result:
+
+- Changed UT's controller open helper to match OpenJKDF2: `XDEVICE_PORT0 + Port`, slot `XDEVICE_NO_SLOT`, `NULL` polling parameters.
+- Removed the explicit `XInputPoll()` call while keeping the `poll=0` field in diagnostics so logs remain easy to compare.
+- Initialized viewport controller fields immediately in `UXboxClient::NewViewport()` because the first `PollController()` can occur before `OpenWindow()`.
+- `OpenWindow()` now preserves an already-open controller handle instead of blindly resetting it.
+
+### 42. Retail Xbox Controller Audit: Enumeration Wait and Port Count
+
+Change/evidence:
+
+- Steve asked to prioritize retail controller setups over our own source ports.
+- Audited three retail/shipped-style references:
+  - Mercenaries `xboxPblJoystick.cpp`: calls `XInitDevices()`, waits while `XGetDeviceEnumerationStatus() == XDEVICE_ENUMERATION_BUSY`, opens gamepads with `XInputOpen(XDEVICE_TYPE_GAMEPAD, iPadNum, XDEVICE_NO_SLOT, NULL)`, and handles insert/remove with `XGetDeviceChanges()`.
+  - Raven `XBInput.cpp` / `gamepad.cpp`: uses `XInitDevices(0,NULL)` or pre-init elsewhere, loops `XGetPortCount()`, opens with `XInputOpen(..., i, XDEVICE_NO_SLOT, NULL)`, uses `XGetDeviceChanges()`, then `XInputGetState()`.
+  - UC2004 `Launch.cpp` / `XboxClient.cpp`: preallocates gamepads, opens all four with `XInputOpen(..., Index, XDEVICE_NO_SLOT, NULL)`, and refreshes insertion/removal in the client.
+- UT had two differences from this retail pattern:
+  - it logged the initial mask immediately after `XInitDevices()` without waiting for enumeration to settle;
+  - its scan helper used a hardcoded `4` instead of `XGetPortCount()`.
+
+Result:
+
+- `main()` now waits for Xbox device enumeration to complete after `XInitDevices()`, with bounded logging if it stays busy.
+- Controller scans now use `XGetPortCount()` and pass the port index directly to `XInputOpen()`, matching Mercenaries/Raven/UC2004.
+
+### 43. Instant Action Menu: First Functional Option Pass
+
+Change/evidence:
+
+- Steve is away from hardware and asked for emulator-testable Instant Action functionality.
+- The previous Instant Action screen displayed fixed labels and only started one hardcoded match (`DM-Turbine`, deathmatch, 4 minimum players, 15 frags, 10 minutes).
+
+Result:
+
+- Added persistent Instant Action menu state for game type, arena, bot count, skill, frag limit, time limit, and mutator.
+- D-pad/left-stick left and right now adjust the selected Instant Action option.
+- Game type changes constrain the arena list to that mode: Deathmatch, CTF, Domination, or Assault.
+- `BEGIN MATCH` now builds the travel URL from the selected options and logs it before calling `SetClientTravel()`.
+- Command-line build succeeded and the candidate was deployed to the CXBX test folder.
+
+### 44. Instant Action Menu: Map Previews and Multi-Select Mutators
+
+Change/evidence:
+
+- Steve noted mutators need multi-select behavior, so simple left/right value selection was not enough.
+- UT's existing PC menu code loads screenshots via `DynamicLoadObject(MapName$".Screenshot", class'Texture')`, so the Xbox menu can use the same embedded map-package texture path instead of baking separate preview files.
+
+Result:
+
+- Instant Action now loads the selected map's embedded `Screenshot` texture at runtime and draws it in the preview panel.
+- Preview textures are cached and rooted while active so Unreal's GC will not collect them out from under the menu.
+- Mutators are now multi-select:
+  - left/right on the Mutators row chooses which mutator is being targeted;
+  - A toggles that mutator on/off;
+  - the display shows `NONE`, a single selected mutator name, or `N SELECTED`;
+  - match launch emits a comma-separated `?Mutator=` URL list.
+- Command-line build succeeded and the candidate was deployed to the CXBX test folder.
+
+### 45. Instant Action Menu: Mutator Overlay
+
+Change/evidence:
+
+- Steve tested the first mutator pass and found the row interaction was wrong: after toggling a mutator, the row still looked like a single left/right option and gave no clear selected-state feedback.
+- The intended console-style interaction is a modal list: open mutators, move vertically, toggle entries, then back out.
+
+Result:
+
+- Pressing A on the Instant Action `MUTATORS` row now opens a mutator overlay instead of toggling immediately.
+- The overlay lists mutators vertically with `[ ]` / `[X]` indicators.
+- D-pad up/down moves through the list, A toggles the focused mutator, and B exits the overlay back to Instant Action.
+- The Instant Action row now shows a summary (`NONE`, one mutator name, or `N SELECTED`) and no longer shows misleading left/right arrows for mutators.
+- Command-line build succeeded and the candidate was deployed to the CXBX test folder.
+
+### 46. Menu Font/Prompt Standard and Scalable Mutator Overlay
+
+Change/evidence:
+
+- Steve set a blanket UI rule: the main menu font is the gold standard, and contextual footer prompts should use the green A / red B button images.
+- Steve also noted the mutator overlay must be scrollable because modded installs can contain 100+ mutators.
+
+Result:
+
+- Menu prompt rendering now goes through one shared helper using the main menu font and the loose `button_a.xui` / `button_b.xui` images.
+- Instant Action, Coming Soon, and the mutator overlay now use the same menu font family instead of mixing large/small fonts.
+- The mutator overlay now draws a fixed visible row window around the focused mutator and shows `MORE ^` / `MORE v` indicators when entries exist above or below.
+- Mutator selection storage was widened from one 32-bit mask to four 32-bit words, enough for 128 mutator toggles when the dynamic mod-mutator list is wired in.
+- Command-line build succeeded and the candidate was deployed to the CXBX test folder.
+
+### 47. Gameplay Menu Pause: Match-Only Freeze With Music Pause
+
+Change/evidence:
+
+- Steve wants Start to open the Xbox menu during gameplay, but single-player matches should freeze while the menu is up.
+- The engine already has a first-class pause path: `LevelInfo.Pauser`. `ULevel::Tick` skips normal actor ticking while `Pauser` is non-empty but still permits input/menu drawing, matching the needed behavior.
+- `Botpack.UTIntro` explicitly rejects pause and is the intro level class, so the Xbox menu must not apply the match pause there.
+
+Result:
+
+- Opening the Xbox menu now sets `LevelInfo.Pauser` only for standalone, non-`UTIntro` games.
+- Closing the menu clears only the pause state that the Xbox menu itself applied.
+- Added `XAUDIOPAUSEMUSIC` to the Xbox audio device; menu-applied match pause now stops the current music buffer and resumes it when the menu closes.
+- Intro `.unr` menu behavior remains unpaused so the attract/menu background can keep running.
+
+### 48. Dedicated In-Match Pause Menu
+
+Change/evidence:
+
+- Steve confirmed pause works, but pressing Start again was activating the main menu selection instead of unpausing.
+- The root cause is interaction design, not the pause primitive: the main menu is an action menu, while an in-match pause layer needs Start/B to mean resume.
+
+Result:
+
+- Start now opens a dedicated `PAUSED` screen when the Xbox menu pause path applies to a standalone match.
+- The pause screen defaults to `RESUME` and offers `MAIN MENU`, `INSTANT ACTION`, and `SETTINGS`.
+- While a match pause is active, pressing Start from the menu stack resumes instead of activating the focused item.
+- B also resumes from the pause screen.
+- Intro `.unr` still opens the normal main menu and does not pause.
+
+Follow-up:
+
+- Trimmed the pause menu to the intended focused set: `RESUME`, `MAIN MENU`, and `SETTINGS`.
+- `RESUME` remains the default selection.
+- Selecting `MAIN MENU` now releases the match pause, travels to `CityIntro.unr`, and leaves the Xbox main menu active over the intro city world.
+### 62. Xbox Settings Menu: Controls, Audio, HUD, and Gameplay Toggles
+- Added a real `SETTINGS` screen reachable from the main menu and pause menu.
+- Exposed live Xbox control tuning for look sensitivity, movement sensitivity, invert-Y, dead zone, and button layout. Button layout now supports default, southpaw sticks, and a face-button-fire variant.
+- Added native Xbox audio volume config to `XboxAudio.XboxAudioDevice` and menu commands for music and sound volumes, applied immediately through the audio device.
+- Added user-config persistence for announcer volume, crosshair index, HUD color, crosshair color, HUD opacity, weapon hand, auto weapon switching, and mature-language filtering.
+- Avoided relying on UnrealScript-only `ConsoleCommand` menu calls for the settings implementation. Native player/HUD fields are updated directly where exposed; Botpack script-only globals are written through `User.ini`.
+- Built successfully via `UT99-Xbox\Tools\build_xbox_cli.py`.
+
+### 63. Settings Menu Presentation Pass
+- Converted look sensitivity, move sensitivity, stick deadzone, music volume, and sound volume rows from plain numeric values to slider controls with the numeric value retained at the right.
+- Added a right-side preview pane for crosshair shape/color and a compact HUD element preview using the selected HUD color and opacity.
+- Renamed `AUTO-SWITCH` to `WEAPON AUTO-SWITCH` for clearer context.
+- Moved the DPAD left/right helper text lower so it has spacing from the final option row.
+
+### 64. Announcer Volume Slider
+- Converted the `ANNOUNCER` setting to the same slider presentation as the other volume-style settings while preserving UT99's native `0-4` announcer volume range.
+- Renamed the row to `ANNOUNCER VOLUME` for clarity.
+
+### 65. Rocket Arena and ChaosUT Menu Exposure Attempt Rejected
+- Initial pass hardcoded the installed Rocket Arena and ChaosUT classes/maps into the Xbox menu.
+- Steve rejected this correctly: mod visibility must come from Unreal's registry/config mechanism, not project-specific special cases.
+- The hardcoded approach was removed before test.
+
+### 66. Proper Mod Discovery Through Unreal `.int` Registry
+- Audited the PC path instead of guessing:
+  - `UObject::CacheDrivers()` scans `GSys->Paths`, converts package globs to `*.int`, and parses `[Public] Object=(Name=...,Class=...,MetaClass=...,Description=...)`.
+  - `AActor::GetNextInt` / `GetNextIntDesc` call `UObject::GetRegistryObjects()`.
+  - The PC start-match UI discovers game types with `GetNextInt("TournamentGameInfo", ...)`.
+  - The PC mutator UI discovers mutators with `GetNextIntDesc("Engine.Mutator", ...)`.
+  - Map discovery uses the selected game class default `MapPrefix` through the same `GetMapName` search pattern.
+- Reworked the Xbox Instant Action data source to follow that path:
+  - Game types are discovered from `.int` registry entries whose metaclass is `Botpack.TournamentGameInfo`, then loaded for `GameName` and `MapPrefix`.
+  - Mutators are discovered from `.int` registry entries whose metaclass is `Engine.Mutator`, with display names parsed from `Description`.
+  - Arena/map choices are discovered by scanning `GSys->Paths` for maps matching the selected game type's `MapPrefix`.
+- Result: Rocket Arena, ChaosUT, and future installed mods should appear because their `.int` files advertise them, not because the Xbox menu knows their names.
+
+### 67. Player Setup Menu Via UT Registry Defaults
+- Added a `PLAYER SETUP` entry to the Xbox main menu.
+- Mirrored the PC player setup data path instead of hardcoding:
+  - Player classes are discovered from `.int` registry entries with metaclass `Botpack.TournamentPlayer`.
+  - Skins and faces are discovered from registered texture entries using the selected class mesh name and the same multiskin naming rules used by `UMenuPlayerSetupClient`.
+  - Voice packs are discovered from the selected player class default `VoicePackMetaClass`.
+- Saves `Class`, `Skin`, `Face`, `Voice`, and `Team` to `[DefaultPlayer]` in `User.ini`.
+- Instant Action now appends the selected player options to the travel URL so new matches use the current player setup immediately.
+- Built successfully via `UT99-Xbox\Tools\build_xbox_cli.py` and deployed `default.xbe` to the CXBX test install.

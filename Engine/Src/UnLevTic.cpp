@@ -52,6 +52,7 @@ static UBOOL XboxShouldSuppressSmokeTimer( AActor* Actor )
 		return 0;
 
 	static INT SuppressCount = 0;
+	static const UBOOL GXboxVerboseSmokeSuppressLog = 0;
 	INT LiveSmoke = XboxTickCountSmokePuffs( Actor->GetLevel() );
 	Actor->TimerCounter = 0.0f;
 	Actor->TimerRate    = 0.0f;
@@ -59,7 +60,7 @@ static UBOOL XboxShouldSuppressSmokeTimer( AActor* Actor )
 	Actor->DrawType     = DT_None;
 	Actor->RemoteRole   = ROLE_None;
 	SuppressCount++;
-	if( SuppressCount <= 8 )
+	if( GXboxVerboseSmokeSuppressLog && SuppressCount <= 8 )
 		debugf( NAME_Log, TEXT("XSMOKEGEN suppress=%d live=%d actor=%s class=%s rate=%.3f"),
 			SuppressCount, LiveSmoke, Actor->GetName(), Actor->GetClass()->GetName(), Actor->TimerRate );
 	return 1;

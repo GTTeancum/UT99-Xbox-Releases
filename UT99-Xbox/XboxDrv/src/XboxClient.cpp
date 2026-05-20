@@ -8,6 +8,7 @@ void UXboxClient::StaticConstructor()
     new(GetClass(),TEXT("DeadZone"),               RF_Public) UFloatProperty(CPP_PROPERTY(DeadZone),              TEXT("Display"), CPF_Config);
     new(GetClass(),TEXT("ScaleXYZ"),               RF_Public) UFloatProperty(CPP_PROPERTY(ScaleXYZ),              TEXT("Display"), CPF_Config);
     new(GetClass(),TEXT("ScaleRUV"),               RF_Public) UFloatProperty(CPP_PROPERTY(ScaleRUV),              TEXT("Display"), CPF_Config);
+    new(GetClass(),TEXT("ButtonLayout"),           RF_Public) UIntProperty  (CPP_PROPERTY(ButtonLayout),          TEXT("Display"), CPF_Config);
 }
 
 void UXboxClient::Init( UEngine* InEngine )
@@ -23,6 +24,7 @@ void UXboxClient::Init( UEngine* InEngine )
     DeadZone              = 0.2f;
     ScaleXYZ              = 100.0f;
     ScaleRUV              = 100.0f;
+    ButtonLayout          = 0;
 
     LoadConfig();
 
@@ -40,8 +42,8 @@ void UXboxClient::Init( UEngine* InEngine )
     TextureLODSet[LODSET_World] = 2;
     TextureLODSet[LODSET_Skin]  = 2;
 
-    GXboxLog.Write( "XboxClient::Init: settings flashes=%d decals=%d dynLights=%d minFPS=%.1f scaleXYZ=%.1f scaleRUV=%.1f",
-        ScreenFlashes, Decals, NoDynamicLights, MinDesiredFrameRate, ScaleXYZ, ScaleRUV );
+    GXboxLog.Write( "XboxClient::Init: settings flashes=%d decals=%d dynLights=%d minFPS=%.1f scaleXYZ=%.1f scaleRUV=%.1f layout=%d",
+        ScreenFlashes, Decals, NoDynamicLights, MinDesiredFrameRate, ScaleXYZ, ScaleRUV, ButtonLayout );
 
     PostEditChange();
     unguard;
@@ -108,6 +110,11 @@ UViewport* UXboxClient::NewViewport( const FName Name )
     guard(UXboxClient::NewViewport);
     GXboxLog.Write( "XboxClient::NewViewport: name=%s", TCHAR_TO_ANSI(*Name) );
     UXboxViewport* VP = new( this, Name ) UXboxViewport();
+    VP->ControllerPort      = -1;
+    VP->ControllerHandle    = NULL;
+    VP->ControllerConnected = 0;
+    appMemzero( &VP->ControllerState,     sizeof(VP->ControllerState)     );
+    appMemzero( &VP->PrevControllerState, sizeof(VP->PrevControllerState) );
     GXboxLog.Write( "XboxClient::NewViewport: VP=0x%08X", (DWORD)VP );
     return VP;
     unguard;

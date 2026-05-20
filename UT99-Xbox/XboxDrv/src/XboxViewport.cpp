@@ -259,7 +259,7 @@ static INT GXboxPlayerPreviewClass = -1;
 static INT GXboxPlayerPreviewSkin = -1;
 static INT GXboxPlayerPreviewFace = -1;
 static INT GXboxPlayerPreviewTeam = -1;
-static FLOAT GXboxPlayerPreviewYaw = 32768.0f;
+static const INT GXboxPlayerPreviewYaw = 32768;
 
 static void XboxMenuResetPlayerPreviewCache()
 {
@@ -673,7 +673,9 @@ static void XboxMenuLoadPlayerClasses()
     GXboxPlayerListsLoaded = 1;
     GXboxPlayerClasses.Empty();
 
-    UClass* TournamentPlayerClass = FindObject<UClass>( ANY_PACKAGE, TEXT("TournamentPlayer") );
+    UClass* TournamentPlayerClass = UObject::StaticLoadClass( APawn::StaticClass(), NULL, TEXT("Botpack.TournamentPlayer"), NULL, LOAD_NoWarn | LOAD_Quiet, NULL );
+    if( !TournamentPlayerClass )
+        TournamentPlayerClass = FindObject<UClass>( ANY_PACKAGE, TEXT("TournamentPlayer") );
     if( TournamentPlayerClass )
     {
         TArray<FRegistryObjectInfo> Players;
@@ -740,13 +742,13 @@ static void XboxMenuLoadPlayerSkins( INT ClassIndex )
 
         for( INT i=0; i<Textures.Num(); i++ )
         {
-            if( appStrnicmp( *Textures(i).Object, *Player.MeshName, PrefixLen ) != 0 )
-                continue;
             if( Textures(i).Description.Len() == 0 )
                 continue;
 
             FString Item;
             FString Prefix;
+            if( appStrnicmp( *Textures(i).Object, *Player.MeshName, PrefixLen ) != 0 )
+                continue;
             XboxMenuItemName( Textures(i).Object, Item );
             XboxMenuPackagePrefix( Textures(i).Object, Prefix );
 
@@ -814,13 +816,13 @@ static void XboxMenuLoadPlayerFaces( INT ClassIndex, INT SkinIndex )
 
         for( INT i=0; i<Textures.Num(); i++ )
         {
-            if( appStrnicmp( *Textures(i).Object, *Player.MeshName, PrefixLen ) != 0 )
-                continue;
             if( Textures(i).Description.Len() == 0 )
                 continue;
 
             FString Item;
             FString Prefix;
+            if( appStrnicmp( *Textures(i).Object, *Player.MeshName, PrefixLen ) != 0 )
+                continue;
             XboxMenuItemName( Textures(i).Object, Item );
             XboxMenuPackagePrefix( Textures(i).Object, Prefix );
             if( Item.Len() <= 5 || appStrnicmp( *Item, *SkinItem, 4 ) != 0 )
@@ -1191,15 +1193,11 @@ static void XboxMenuDrawPlayerPreviewActor( UXboxViewport* Viewport, UCanvas* Ca
     if( !Actor || !Actor->Mesh )
         return;
 
-    GXboxPlayerPreviewYaw += 96.0f;
-    if( GXboxPlayerPreviewYaw >= 65536.0f )
-        GXboxPlayerPreviewYaw -= 65536.0f;
-
     FLOAT OldFov = Viewport->Actor->FovAngle;
     Viewport->Actor->FovAngle = 30.0f;
     FLOAT FovRadians = Viewport->Actor->FovAngle * PI / 180.0f;
-    Actor->Location = FVector( 4.0f / appTan(FovRadians * 0.5f), 0.0f, -1.5f );
-    Actor->Rotation = FRotator( 0, (INT)GXboxPlayerPreviewYaw, 0 );
+    Actor->Location = FVector( 4.0f / appTan(FovRadians * 0.5f), 0.0f, 0.0f );
+    Actor->Rotation = FRotator( 0, GXboxPlayerPreviewYaw, 0 );
 
     INT OldX = Canvas->Frame->X;
     INT OldY = Canvas->Frame->Y;
@@ -2442,9 +2440,9 @@ static void XboxMenuDrawPlayerSetup( UXboxViewport* Viewport, UCanvas* Canvas )
     UFont* MenuFont = Canvas->MedFont;
     XboxMenuText( Canvas, MenuFont, 46, 70, 255, 255, 255, TEXT("PLAYER SETUP") );
 
-    XboxMenuDrawRect( Canvas, 378, 112, 590, 288, 25, 34, 48, 0.72f );
-    XboxMenuDrawRect( Canvas, 388, 122, 580, 278, 0, 0, 0, 0.52f );
-    XboxMenuDrawPlayerPreviewActor( Viewport, Canvas, 388.0f, 122.0f, 192.0f, 156.0f );
+    XboxMenuDrawRect( Canvas, 368, 84, 612, 352, 25, 34, 48, 0.72f );
+    XboxMenuDrawRect( Canvas, 378, 94, 602, 342, 0, 0, 0, 0.52f );
+    XboxMenuDrawPlayerPreviewActor( Viewport, Canvas, 378.0f, 94.0f, 224.0f, 248.0f );
     if( !GXboxPlayerPreviewActor || !GXboxPlayerPreviewActor->Mesh )
         XboxMenuText( Canvas, MenuFont, 430, 198, 135, 170, 205, TEXT("NO PREVIEW") );
 

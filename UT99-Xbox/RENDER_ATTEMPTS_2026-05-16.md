@@ -1115,3 +1115,15 @@ Follow-up:
   - The Xbox menu now loads the selected voice class, reads `NumAcks`/`AckSound`, and plays a random acknowledgement through `SLOT_Interface`.
 - Preview actors are destroyed/cleared when the menu closes or travels so they do not survive map changes.
 - Built successfully via `UT99-Xbox\Tools\build_xbox_cli.py` and deployed `default.xbe` to the CXBX test install.
+
+### 69. Player Preview Framing and Registry Class Fix
+- Steve reported the preview should show the full character, be larger, face the screen, and not spin.
+- Matched the PC player preview behavior more closely:
+  - Kept the view yaw fixed at `32768`, the same front-facing value initialized by `UMenuPlayerMeshClient`.
+  - Removed the per-frame yaw increment.
+  - Increased the right-side preview panel height so the full body has room instead of feeling cropped.
+- Fixed player class discovery binding:
+  - `UObject::GetRegistryObjects()` compares metaclass against the exact loaded class path.
+  - The Xbox menu now loads `Botpack.TournamentPlayer` explicitly before querying `.int` registry entries, instead of relying on ambiguous `FindObject("TournamentPlayer")`.
+  - This is intended to restore multiple player class options; skin, face, and voice rows depend on the selected class having the correct registry base.
+- Built successfully via `UT99-Xbox\Tools\build_xbox_cli.py` and deployed `default.xbe` to the CXBX test install.

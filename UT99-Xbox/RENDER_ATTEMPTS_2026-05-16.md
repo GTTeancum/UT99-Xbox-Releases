@@ -1356,3 +1356,24 @@ Follow-up:
   - if four split viewports remain in `Client->Viewports`, a later CityIntro or single-player travel will spawn actors for all of them.
 - Added `XboxSplitResetRuntime()` and call it before non-split travels (`InstantAction`, `ReturnToFrontend`) and before starting a new split session. It destroys dummy split viewports, restores the primary viewport to full screen, clears split flags, and logs the reset reason.
 - No smoke test run yet for this section per Steve's request to audit first.
+
+### 82. Deterministic Split Controller Ownership
+- Steve clarified the hard rule: controller port number must equal viewport number. No first-available controller assignment.
+- Changed Xbox controller opening from "first available controller" to deterministic viewport-index ownership:
+  - viewport 0 -> physical port 0 / controller 1;
+  - viewport 1 -> physical port 1 / controller 2;
+  - viewport 2 -> physical port 2 / controller 3;
+  - viewport 3 -> physical port 3 / controller 4.
+- Split activation now samples the gamepad device mask and marks each viewport as dummy only when its matching controller port is not present.
+- `XboxSplitTickDummies()` now re-checks the device mask and only zeroes/respawns players that are actually dummy viewports. Controller-backed viewports 2-4 are left alone so their `UpdateInput()` path can poll their matching ports.
+- If a split controller is unplugged, its viewport returns to dummy mode and its handle/state are cleared.
+- Single-player also stays deterministic: viewport 1/controller 1 only, instead of silently binding to the first plugged-in controller.
+- Built successfully with `UT99-Xbox\Tools\build_xbox_cli.py` and deployed `default.xbe` to `C:\Games\Emulators\CXBX\UT99x\default.xbe`.
+
+### 83. Split Pause/Main Menu Exception Audit
+- Latest split-screen return-to-main-menu run failed in `FMallocXbox` while loading `CityIntro.unr`, immediately after split teardown. Cxbx's kernel debug did not add a more useful UT CPU exception; Unreal's own log showed the allocator failure first.
+- The log showed available memory falling steadily while the split pause menu was open, then `FMallocXbox: Out of memory reallocating 877440 bytes` during `LoadMap: CityIntro.unr`.
+- Code audit found a render-frame pairing bug: `UXboxRenderDevice::Lock()` called `Device->BeginScene()` but did not set `SceneOpen`, while `Unlock()` only calls `EndScene()` when `SceneOpen` is true. This can leave unmatched scene state, multiplied by split-screen's four viewport draws.
+- Patched `Lock()` to set `SceneOpen = SUCCEEDED(hrBegin)` so the scene opened for the frame is always eligible to be closed by `Unlock()`.
+- Split return-to-frontend teardown now destroys dummy player actors before destroying dummy viewports and flushes the engine render cache before queuing `CityIntro.unr`.
+- Added a compact split pause renderer so the full main-menu chrome/footer is not drawn separately into every viewport.

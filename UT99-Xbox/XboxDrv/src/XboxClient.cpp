@@ -135,7 +135,7 @@ UViewport* UXboxClient::NewViewport( const FName Name )
     guard(UXboxClient::NewViewport);
     GXboxLog.Write( "XboxClient::NewViewport: name=%s", TCHAR_TO_ANSI(*Name) );
     UXboxViewport* VP = new( this, Name ) UXboxViewport();
-    VP->ControllerPort      = -1;
+    VP->ControllerPort      = Viewports.Num() - 1;
     VP->ControllerHandle    = NULL;
     VP->ControllerConnected = 0;
     VP->bXboxSplitDummy     = 0;

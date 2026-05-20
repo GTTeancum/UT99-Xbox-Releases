@@ -33,22 +33,40 @@ static HANDLE XboxOpenControllerOnPort( INT Port, DWORD DeviceMask )
     return Handle;
 }
 
-static HANDLE XboxOpenFirstController( INT& OutPort, DWORD DeviceMask )
+static INT XboxViewportIndex( UXboxViewport* Viewport )
 {
-    for( INT Port=0; Port<(INT)XGetPortCount(); Port++ )
+    UXboxClient* Client = Viewport ? Cast<UXboxClient>( Viewport->GetOuter() ) : NULL;
+    if( !Client )
+        return 0;
+
+    for( INT i=0; i<Client->Viewports.Num(); i++ )
     {
-        if( DeviceMask & (1 << Port) )
-        {
-            HANDLE Handle = XboxOpenControllerOnPort( Port, DeviceMask );
-            if( Handle )
-            {
-                OutPort = Port;
-                return Handle;
-            }
-        }
+        if( Client->Viewports(i) == Viewport )
+            return i;
     }
-    OutPort = -1;
-    return NULL;
+    return 0;
+}
+
+static INT XboxViewportControllerPort( UXboxViewport* Viewport )
+{
+    INT Port = XboxViewportIndex( Viewport );
+    INT PortCount = (INT)XGetPortCount();
+    if( PortCount <= 0 )
+        return 0;
+    return Clamp<INT>( Port, 0, PortCount - 1 );
+}
+
+static HANDLE XboxOpenViewportController( UXboxViewport* Viewport, DWORD DeviceMask )
+{
+    if( !Viewport )
+        return NULL;
+
+    INT Port = XboxViewportControllerPort( Viewport );
+    Viewport->ControllerPort = Port;
+    if( !(DeviceMask & (1 << Port)) )
+        return NULL;
+
+    return XboxOpenControllerOnPort( Port, DeviceMask );
 }
 
 enum EXboxMenuScreen
@@ -342,6 +360,13 @@ static void XboxSplitResetRuntime( UXboxClient* Client, const char* Reason )
             UXboxViewport* VP = Cast<UXboxViewport>( Client->Viewports(i) );
             if( VP && VP->bXboxSplitDummy )
             {
+                if( VP->Actor && VP->Actor->GetLevel() )
+                {
+                    GXboxLog.Write( "XSPLIT destroying dummy actor index=%d actor=0x%08X reason=%s",
+                        i, (DWORD)VP->Actor, Reason ? Reason : "" );
+                    VP->Actor->GetLevel()->DestroyActor( VP->Actor, 1 );
+                    VP->Actor = NULL;
+                }
                 GXboxLog.Write( "XSPLIT removing dummy viewport index=%d vp=0x%08X reason=%s",
                     i, (DWORD)VP, Reason ? Reason : "" );
                 VP->ConditionalDestroy();
@@ -512,6 +537,7 @@ static void XboxSplitConfigureViewports( UXboxClient* Client )
             Client->Viewports.Num()-1, (DWORD)NewVP, (DWORD)NewVP->RenDev );
     }
 
+    DWORD DeviceMask = XGetDevices( XDEVICE_TYPE_GAMEPAD );
     const INT HalfW = XBOX_SCREEN_WIDTH / 2;
     const INT HalfH = XBOX_SCREEN_HEIGHT / 2;
     for( INT i=0; i<Client->Viewports.Num() && i<4; i++ )
@@ -519,13 +545,24 @@ static void XboxSplitConfigureViewports( UXboxClient* Client )
         UXboxViewport* VP = Cast<UXboxViewport>( Client->Viewports(i) );
         if( !VP )
             continue;
+        if( VP->ControllerHandle )
+        {
+            XInputClose( VP->ControllerHandle );
+            VP->ControllerHandle = NULL;
+        }
+        VP->ControllerPort = i;
+        VP->ControllerConnected = 0;
+        appMemzero( &VP->ControllerState,     sizeof(VP->ControllerState)     );
+        appMemzero( &VP->PrevControllerState, sizeof(VP->PrevControllerState) );
         VP->RenDev = Primary->RenDev;
         VP->SizeX = VP->ViewWidth = HalfW;
         VP->SizeY = VP->ViewHeight = HalfH;
         VP->ViewX = (i & 1) ? HalfW : 0;
         VP->ViewY = (i & 2) ? HalfH : 0;
         VP->ColorBytes = Primary->ColorBytes ? Primary->ColorBytes : 4;
-        VP->bXboxSplitDummy = i > 0;
+        VP->bXboxSplitDummy = (i > 0) && !(DeviceMask & (1 << i));
+        GXboxLog.Write( "XSPLIT viewport=%d controllerPort=%d devicePresent=%d dummy=%d",
+            i, VP->ControllerPort, (DeviceMask & (1 << i)) ? 1 : 0, VP->bXboxSplitDummy ? 1 : 0 );
     }
 
     for( INT i=0; i<4; i++ )
@@ -624,7 +661,7 @@ extern "C" void XboxSplitTryActivate( UClient* InClient )
             GXboxLog.Write( "XSPLIT dummy spawn failed viewport=%d error=%s", i, TCHAR_TO_ANSI(*Error) );
         else if( VP->Actor )
         {
-            XboxSplitPreparePlayer( VP->Actor, 1 );
+            XboxSplitPreparePlayer( VP->Actor, VP->bXboxSplitDummy );
             GXboxLog.Write( "XSPLIT dummy spawned viewport=%d actor=0x%08X class=%s", i, (DWORD)VP->Actor, TCHAR_TO_ANSI(VP->Actor->GetClass()->GetName()) );
         }
     }
@@ -636,7 +673,10 @@ extern "C" void XboxSplitTryActivate( UClient* InClient )
         XboxSplitPreparePlayer( Primary->Actor, 0 );
     for( INT i=1; i<Client->Viewports.Num() && i<4; i++ )
         if( Client->Viewports(i) && Client->Viewports(i)->Actor )
-            XboxSplitPreparePlayer( Client->Viewports(i)->Actor, 1 );
+        {
+            UXboxViewport* VP = Cast<UXboxViewport>( Client->Viewports(i) );
+            XboxSplitPreparePlayer( Client->Viewports(i)->Actor, VP ? VP->bXboxSplitDummy : 1 );
+        }
 
     UObject* Game = Level->GetLevelInfo() ? Level->GetLevelInfo()->Game : NULL;
     UFunction* StartMatch = Game ? Game->FindFunction( FName(TEXT("StartMatch"), FNAME_Find) ) : NULL;
@@ -655,7 +695,8 @@ extern "C" void XboxSplitTryActivate( UClient* InClient )
         if( !Player )
             continue;
 
-        XboxSplitPreparePlayer( Player, i > 0 );
+        UXboxViewport* XVP = Cast<UXboxViewport>( VP );
+        XboxSplitPreparePlayer( Player, XVP ? XVP->bXboxSplitDummy : (i > 0) );
         const TCHAR* StateName = (Player->GetStateFrame() && Player->GetStateFrame()->StateNode)
             ? *Player->GetStateFrame()->StateNode->GetFName()
             : TEXT("None");
@@ -729,9 +770,38 @@ extern "C" void XboxSplitTickDummies( UClient* InClient )
         return;
     }
 
+    DWORD DeviceMask = XGetDevices( XDEVICE_TYPE_GAMEPAD );
     for( INT i=1; i<InClient->Viewports.Num() && i<4; i++ )
     {
         UViewport* VP = InClient->Viewports(i);
+        UXboxViewport* XVP = Cast<UXboxViewport>( VP );
+        if( !XVP )
+            continue;
+
+        UBOOL bShouldBeDummy = !(DeviceMask & (1 << i));
+        if( XVP->bXboxSplitDummy != bShouldBeDummy )
+        {
+            XVP->bXboxSplitDummy = bShouldBeDummy;
+            if( bShouldBeDummy )
+            {
+                if( XVP->ControllerHandle )
+                {
+                    XInputClose( XVP->ControllerHandle );
+                    XVP->ControllerHandle = NULL;
+                }
+                XVP->ControllerConnected = 0;
+                appMemzero( &XVP->ControllerState,     sizeof(XVP->ControllerState)     );
+                appMemzero( &XVP->PrevControllerState, sizeof(XVP->PrevControllerState) );
+            }
+            if( XVP->Actor )
+                XboxSplitPreparePlayer( XVP->Actor, XVP->bXboxSplitDummy );
+            GXboxLog.Write( "XSPLIT viewport=%d port=%d dummy=%d deviceMask=0x%08X",
+                i, XVP->ControllerPort, XVP->bXboxSplitDummy ? 1 : 0, DeviceMask );
+        }
+
+        if( !XVP->bXboxSplitDummy )
+            continue;
+
         APlayerPawn* Player = VP ? VP->Actor : NULL;
         if( !Player )
             continue;
@@ -2576,6 +2646,7 @@ static void XboxMenuReturnToFrontend( UXboxViewport* Viewport )
     XboxMenuDestroyPlayerPreview();
     XboxMenuReleaseMatchPause( Viewport );
     XboxSplitResetRuntime( Client, "ReturnToFrontend" );
+    Client->Engine->Flush( 0 );
     GXboxMenu.Active = 1;
     GXboxMenu.Screen = XMS_Main;
     GXboxMenu.MainFocus = 0;
@@ -3310,6 +3381,52 @@ static void XboxMenuDrawPause( UCanvas* Canvas )
     XboxMenuText( Canvas, MenuFont, 58, 372, 135, 170, 205, TEXT("START OR B RESUMES") );
 }
 
+static void XboxMenuDrawSplitPause( UViewport* Viewport, UCanvas* Canvas )
+{
+    if( !Canvas )
+        return;
+
+    INT ViewportIndex = XboxViewportIndex( Cast<UXboxViewport>(Viewport) );
+    UFont* MenuFont = Canvas->MedFont;
+
+    XboxMenuDrawRect( Canvas, 0, 0, Canvas->ClipX, Canvas->ClipY, 2, 6, 14, 0.42f );
+    XboxMenuText( Canvas, MenuFont, 58, 72, 135, 255, 120, TEXT("PAUSED") );
+
+    if( ViewportIndex != 0 )
+        return;
+
+    static const TCHAR* Items[] =
+    {
+        TEXT("RESUME"),
+        TEXT("MAIN MENU"),
+        TEXT("SETTINGS")
+    };
+
+    for( INT i=0; i<ARRAY_COUNT(Items); i++ )
+    {
+        FLOAT Y = 118.0f + i * 30.0f;
+        if( i == GXboxMenu.PauseFocus )
+        {
+            INT XL = 0;
+            INT YL = 0;
+            XboxMenuTextSize( Canvas, MenuFont, Items[i], XL, YL );
+            FLOAT BarX1 = 44.0f;
+            FLOAT BarX2 = Min<FLOAT>( Canvas->ClipX - 14.0f, 62.0f + XL * 1.05f + 16.0f );
+            XboxMenuDrawRect( Canvas, BarX1, Y-6, BarX2, Y+21, 12, 82, 166, 0.35f );
+            XboxMenuDrawRect( Canvas, BarX1, Y+21, BarX2, Y+24, 28, 108, 205, 0.35f );
+            XboxMenuText( Canvas, MenuFont, 62, Y, 255, 255, 255, Items[i] );
+        }
+        else
+        {
+            XboxMenuText( Canvas, MenuFont, 62, Y, 135, 170, 205, Items[i] );
+        }
+    }
+
+    FLOAT ButtonY = Canvas->ClipY - 28.0f;
+    XboxMenuDrawButtonPrompt( Canvas, 38, ButtonY, "button_a.xui", TEXT("SELECT") );
+    XboxMenuDrawButtonPrompt( Canvas, 150, ButtonY, "button_b.xui", TEXT("RESUME") );
+}
+
 static void XboxMenuDrawInstantAction( UCanvas* Canvas )
 {
     static const TCHAR* Labels[] =
@@ -3734,7 +3851,12 @@ void XboxMenuPostRender( UViewport* Viewport, UCanvas* Canvas )
     XboxSystemLinkTick();
 
     if( GXboxMenu.Screen == XMS_Pause )
-        XboxMenuDrawPause( Canvas );
+    {
+        if( GXboxSplitActive )
+            XboxMenuDrawSplitPause( Viewport, Canvas );
+        else
+            XboxMenuDrawPause( Canvas );
+    }
     else if( GXboxMenu.Screen == XMS_Main )
         XboxMenuDrawMain( Canvas );
     else if( GXboxMenu.Screen == XMS_InstantAction )
@@ -3808,8 +3930,8 @@ void UXboxViewport::OpenWindow( DWORD ParentWindow, UBOOL Temporary,
     ViewHeight = SizeY = NewY > 0 ? NewY : XBOX_SCREEN_HEIGHT;
     ColorBytes = 4;
 
-    // Initialize controller — auto-bind port 0.
-    ControllerPort      = -1;
+    // Viewport index maps directly to physical controller port index.
+    ControllerPort      = XboxViewportControllerPort( this );
     ControllerHandle    = NULL;
     ControllerConnected = 0;
     appMemzero( &ControllerState,     sizeof(ControllerState)     );
@@ -3818,7 +3940,7 @@ void UXboxViewport::OpenWindow( DWORD ParentWindow, UBOOL Temporary,
     DWORD DeviceMask = XGetDevices( XDEVICE_TYPE_GAMEPAD );
     if( !ControllerHandle )
     {
-        ControllerHandle = XboxOpenFirstController( ControllerPort, DeviceMask );
+        ControllerHandle = XboxOpenViewportController( this, DeviceMask );
         ControllerConnected = ControllerHandle ? 1 : 0;
     }
     if( ControllerHandle )
@@ -3913,7 +4035,7 @@ void UXboxViewport::PollController()
 {
     guard(UXboxViewport::PollController);
 
-    if( bXboxSplitDummy )
+    if( GXboxSplitActive && bXboxSplitDummy )
         return;
 
     XboxAutoFireSmokeTick( this );
@@ -3931,7 +4053,7 @@ void UXboxViewport::PollController()
         XInputClose( ControllerHandle );
         ControllerHandle = NULL;
         ControllerConnected = 0;
-        ControllerPort = -1;
+        ControllerPort = XboxViewportControllerPort( this );
         appMemzero( &ControllerState,     sizeof(ControllerState)     );
         appMemzero( &PrevControllerState, sizeof(PrevControllerState) );
     }
@@ -3949,7 +4071,7 @@ void UXboxViewport::PollController()
         }
         if( DeviceMask )
         {
-            ControllerHandle = XboxOpenFirstController( ControllerPort, DeviceMask );
+            ControllerHandle = XboxOpenViewportController( this, DeviceMask );
             ControllerConnected = ControllerHandle ? 1 : 0;
         }
         if( !ControllerHandle )
@@ -3994,7 +4116,7 @@ void UXboxViewport::PollController()
         ControllerConnected = 0;
         XInputClose( ControllerHandle );
         ControllerHandle = NULL;
-        ControllerPort = -1;
+        ControllerPort = XboxViewportControllerPort( this );
     }
 
     unguard;
@@ -4244,7 +4366,7 @@ void  UXboxViewport::SetMouseCapture( UBOOL Capture, UBOOL Clip, UBOOL FocusOnly
 void UXboxViewport::UpdateInput( UBOOL Reset )
 {
     guard(UXboxViewport::UpdateInput);
-    if( bXboxSplitDummy )
+    if( GXboxSplitActive && bXboxSplitDummy )
         return;
     XboxSplitSmokeFeedInput( this );
     PollController();

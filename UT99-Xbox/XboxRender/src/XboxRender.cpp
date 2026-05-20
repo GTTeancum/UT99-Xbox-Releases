@@ -1032,6 +1032,7 @@ void UXboxRenderDevice::Lock( FPlane InFlashScale, FPlane InFlashFog, FPlane Scr
     }
 
     HRESULT hrBegin = Device->BeginScene();
+    SceneOpen = SUCCEEDED(hrBegin);
 
     if( RenderFrameSummaryLog( FrameCounter ) || FAILED(hrClear) || FAILED(hrBegin) )
         GXboxLog.Write( "RLOCK f=%d clear=0x%08X begin=0x%08X",

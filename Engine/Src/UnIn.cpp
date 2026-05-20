@@ -99,6 +99,7 @@ void UInput::StaticInitInput()
 		{ 12, TEXT("InventoryActivate"), TEXT("ActivateItem") },
 		{ 13, TEXT("InventoryNext"),     TEXT("NextItem") },
 		{ 14, TEXT("InventoryPrevious"), TEXT("PrevItem") },
+		{ 17, TEXT("CenterView"),        TEXT("Button bSnapLevel") },
 		{ 20, TEXT("NextWeapon"),        TEXT("NextWeapon") },
 	};
 	for( INT i=0; i<ARRAY_COUNT(XboxAliases); i++ )
@@ -116,11 +117,15 @@ void UInput::StaticInitInput()
 	DefaultInput->Bindings[IK_RightBracket]  = TEXT("InventoryNext");
 	DefaultInput->Bindings[IK_C]             = TEXT("Duck");
 	DefaultInput->Bindings[IK_Tab]           = TEXT("ShowScores");
+	DefaultInput->Bindings[IK_Joy1]          = TEXT("Fire");
+	DefaultInput->Bindings[IK_Joy2]          = TEXT("Jump");
+	DefaultInput->Bindings[IK_Joy3]          = TEXT("AltFire");
+	DefaultInput->Bindings[IK_Joy4]          = TEXT("Duck");
 	DefaultInput->Bindings[IK_JoyPovRight]   = TEXT("SwitchWeapon 6");
 	DefaultInput->Bindings[IK_JoyPovLeft]    = TEXT("SwitchWeapon 7");
 	DefaultInput->Bindings[IK_JoyPovUp]      = TEXT("SwitchWeapon 8");
 	DefaultInput->Bindings[IK_JoyPovDown]    = TEXT("SwitchWeapon 5");
-	DefaultInput->Bindings[IK_Joy6]          = TEXT("");
+	DefaultInput->Bindings[IK_Joy6]          = TEXT("CenterView");
 	DefaultInput->Bindings[IK_JoyX]          = TEXT("Axis aStrafe Speed=2.0");
 	DefaultInput->Bindings[IK_JoyY]          = TEXT("Axis aBaseY Speed=2.0");
 	DefaultInput->Bindings[IK_JoyU]          = TEXT("Axis aTurn Speed=5.9");

@@ -51,6 +51,7 @@ public:
     XINPUT_STATE    ControllerState;
     XINPUT_STATE    PrevControllerState;
     UBOOL           ControllerConnected;
+    UBOOL           bXboxSplitDummy;
 
     void            Destroy();
     void            ShutdownAfterError();

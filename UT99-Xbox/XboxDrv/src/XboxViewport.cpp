@@ -57,6 +57,7 @@ enum EXboxMenuScreen
     XMS_Main,
     XMS_InstantAction,
     XMS_Mutators,
+    XMS_SystemLink,
     XMS_PlayerSetup,
     XMS_Settings,
     XMS_ComingSoon
@@ -181,8 +182,13 @@ enum EXboxSettingsRow
 static const TCHAR* GXboxButtonLayouts[] =
 {
     TEXT("DEFAULT"),
-    TEXT("SOUTHPAW STICKS"),
     TEXT("FACE FIRE")
+};
+
+static const INT GXboxButtonLayoutValues[] =
+{
+    0,
+    2
 };
 
 static const TCHAR* GXboxColorNames[] =
@@ -240,6 +246,7 @@ static UBOOL GXboxSettingsLoaded = 0;
 static TArray<FXboxDiscoveredOption> GXboxDiscoveredGameTypes;
 static TArray<FXboxDiscoveredOption> GXboxDiscoveredMutators;
 static TArray<FXboxDiscoveredOption> GXboxDiscoveredMaps;
+static UBOOL GXboxMenuRegistryCacheRefreshed = 0;
 static UBOOL GXboxDiscoveredListsLoaded = 0;
 static INT GXboxDiscoveredMapsGameType = -1;
 
@@ -260,6 +267,733 @@ static INT GXboxPlayerPreviewSkin = -1;
 static INT GXboxPlayerPreviewFace = -1;
 static INT GXboxPlayerPreviewTeam = -1;
 static const INT GXboxPlayerPreviewYaw = 32768;
+
+static const INT GXboxSystemLinkBasePort = 9777;
+static const INT GXboxSystemLinkPortCount = 4;
+static const INT GXboxSystemLinkMaxPeers = 8;
+static const FLOAT GXboxSplitDummyRespawnSeconds = 3.0f;
+
+static UBOOL GXboxSplitPending = 0;
+static UBOOL GXboxSplitActive = 0;
+static INT   GXboxSplitRenderViewport = 0;
+static INT   GXboxSplitRenderViewportCount = 1;
+static FLOAT GXboxSplitDummyDeathTime[4] = { -1.0f, -1.0f, -1.0f, -1.0f };
+static UBOOL GXboxSplitSmokeTravelStarted = 0;
+static UBOOL GXboxSplitSmokeActive = 0;
+static UBOOL GXboxSplitSmokeFinished = 0;
+static DOUBLE GXboxSplitSmokeStartTime = 0.0;
+static FVector GXboxSplitSmokeStartLocation(0,0,0);
+
+static UBOOL XboxSetObjectPropertyText( UObject* Object, const TCHAR* PropertyName, const TCHAR* Value );
+static UBOOL XboxSetClassDefaultPropertyText( const TCHAR* ClassName, const TCHAR* PropertyName, const TCHAR* Value );
+
+struct FXboxSystemLinkPeer
+{
+    DWORD Id;
+    DWORD Address;
+    INT Port;
+    FLOAT LastSeen;
+    INT Packets;
+};
+
+struct FXboxSystemLinkProbe
+{
+    UBOOL Started;
+    UBOOL SocketsReady;
+    SOCKET Socket;
+    INT LocalPort;
+    DWORD LocalId;
+    DWORD SendCounter;
+    FLOAT LastSendTime;
+    FLOAT LastLogTime;
+    INT LastError;
+    TArray<FXboxSystemLinkPeer> Peers;
+};
+
+static FXboxSystemLinkProbe GXboxSystemLink;
+static UBOOL GXboxSystemLinkStateInitialized = 0;
+
+static void XboxSystemLinkEnsureState()
+{
+    if( GXboxSystemLinkStateInitialized )
+        return;
+    GXboxSystemLink.Socket = INVALID_SOCKET;
+    GXboxSystemLinkStateInitialized = 1;
+}
+
+static void XboxSystemLinkFormatAddress( DWORD Address, TCHAR* Out, INT OutCount )
+{
+    BYTE* B = (BYTE*)&Address;
+    appSprintf( Out, TEXT("%u.%u.%u.%u"), B[0], B[1], B[2], B[3] );
+    Out[OutCount-1] = 0;
+}
+
+extern "C" UBOOL XboxSplitIsActive()
+{
+    return GXboxSplitActive;
+}
+
+static void XboxSplitResetRuntime( UXboxClient* Client, const char* Reason )
+{
+    if( Client )
+    {
+        for( INT i=Client->Viewports.Num()-1; i>=1; i-- )
+        {
+            UXboxViewport* VP = Cast<UXboxViewport>( Client->Viewports(i) );
+            if( VP && VP->bXboxSplitDummy )
+            {
+                GXboxLog.Write( "XSPLIT removing dummy viewport index=%d vp=0x%08X reason=%s",
+                    i, (DWORD)VP, Reason ? Reason : "" );
+                VP->ConditionalDestroy();
+            }
+        }
+
+        if( Client->Viewports.Num() > 0 )
+        {
+            UXboxViewport* Primary = Cast<UXboxViewport>( Client->Viewports(0) );
+            if( Primary )
+            {
+                Primary->bXboxSplitDummy = 0;
+                Primary->ViewX = 0;
+                Primary->ViewY = 0;
+                Primary->SizeX = Primary->ViewWidth  = XBOX_SCREEN_WIDTH;
+                Primary->SizeY = Primary->ViewHeight = XBOX_SCREEN_HEIGHT;
+            }
+        }
+    }
+
+    GXboxSplitPending = 0;
+    GXboxSplitActive = 0;
+    GXboxSplitRenderViewport = 0;
+    GXboxSplitRenderViewportCount = 1;
+    for( INT i=0; i<4; i++ )
+        GXboxSplitDummyDeathTime[i] = -1.0f;
+
+    GXboxLog.Write( "XSPLIT reset reason=%s remainingViewports=%d",
+        Reason ? Reason : "",
+        Client ? Client->Viewports.Num() : -1 );
+}
+
+static UBOOL XboxSplitSmokeEnabled()
+{
+    return GetFileAttributesA( "D:\\XboxSplitSmoke.ini" ) != 0xFFFFFFFF;
+}
+
+static void XboxSplitSmokeMaybeQueue( UXboxClient* Client )
+{
+    if( !XboxSplitSmokeEnabled() || GXboxSplitSmokeTravelStarted || GXboxSplitPending || GXboxSplitActive )
+        return;
+    if( !Client || !Client->Engine || Client->Viewports.Num() <= 0 || !Client->Viewports(0) )
+        return;
+
+    XboxSetClassDefaultPropertyText( TEXT("Botpack.DeathMatchPlus"), TEXT("InitialBots"), TEXT("0") );
+    XboxSetClassDefaultPropertyText( TEXT("Botpack.DeathMatchPlus"), TEXT("MinPlayers"), TEXT("0") );
+
+    GXboxSplitSmokeTravelStarted = 1;
+    GXboxSplitPending = 1;
+    GXboxSplitActive = 0;
+
+    const TCHAR* URL = TEXT("DM-Deck16][.unr?Game=Botpack.DeathMatchPlus?FragLimit=0?TimeLimit=0?MinPlayers=0?MaxPlayers=4?Difficulty=1?Name=SmokeP1?Class=Botpack.TMale2?team=0?skin=SoldierSkins.blkt?Face=SoldierSkins.Othello?Voice=BotPack.VoiceMaleTwo");
+    GXboxLog.Write( "XSPLIT SELFTEST queued travel: %s", TCHAR_TO_ANSI(URL) );
+    Client->Engine->SetClientTravel( Client->Viewports(0), const_cast<TCHAR*>(URL), 0, TRAVEL_Absolute );
+}
+
+extern "C" void XboxSplitBeginRenderFrame( INT ViewportCount )
+{
+    GXboxSplitRenderViewport = 0;
+    GXboxSplitRenderViewportCount = Max<INT>( ViewportCount, 1 );
+}
+
+extern "C" void XboxSplitSetRenderViewport( INT ViewportIndex )
+{
+    GXboxSplitRenderViewport = ViewportIndex;
+}
+
+extern "C" UBOOL XboxSplitShouldClearRenderLock()
+{
+    return !GXboxSplitActive || GXboxSplitRenderViewport == 0;
+}
+
+extern "C" void XboxViewportApplyViewRegion( UViewport* Viewport, FSceneNode* Frame )
+{
+    UXboxViewport* XboxViewport = Cast<UXboxViewport>( Viewport );
+    if( !XboxViewport || !Frame )
+        return;
+
+    Frame->XB = XboxViewport->ViewX;
+    Frame->YB = XboxViewport->ViewY;
+    Frame->X  = Max<INT>( XboxViewport->ViewWidth,  1 );
+    Frame->Y  = Max<INT>( XboxViewport->ViewHeight, 1 );
+    Frame->ComputeRenderSize();
+}
+
+extern "C" UBOOL XboxViewportShouldPostRenderPlayer( UViewport* Viewport )
+{
+    UXboxViewport* XboxViewport = Cast<UXboxViewport>( Viewport );
+    return !GXboxSplitActive || !XboxViewport || !XboxViewport->bXboxSplitDummy;
+}
+
+static void XboxViewportInputAxis( UXboxViewport* Viewport, const TCHAR* AxisName, FLOAT Delta, FLOAT Speed )
+{
+    if( !Viewport || !Viewport->Input || !Viewport->Actor )
+        return;
+
+    TCHAR Cmd[128];
+    appSprintf( Cmd, TEXT("AXIS %s SPEED=%f"), AxisName, Speed );
+    Viewport->Input->SetInputAction( IST_Axis, Delta );
+    Viewport->Input->Exec( Cmd, *GLog );
+    Viewport->Input->SetInputAction( IST_None );
+}
+
+static void XboxSplitSmokeFeedInput( UXboxViewport* Viewport )
+{
+    if( !GXboxSplitActive || !XboxSplitSmokeEnabled() || !Viewport || Viewport->bXboxSplitDummy || !Viewport->Actor )
+        return;
+
+    APlayerPawn* Player = Viewport->Actor;
+    Player->bShowMenu = 0;
+    Player->bSpecialMenu = 0;
+    if( Player->Level && Player->Level->Pauser != TEXT("") )
+        Player->Level->Pauser = TEXT("");
+
+    // Feed through UInput so we hit the reflected UnrealScript property offsets.
+    XboxViewportInputAxis( Viewport, TEXT("aBaseY"), 100.0f, 2.0f );
+    Player->bReadyToPlay = 1;
+
+    static INT FeedLogCount = 0;
+    if( FeedLogCount < 12 )
+    {
+        FeedLogCount++;
+        GXboxLog.Write( "XSPLIT SELFTEST feed #%d vp=0x%08X actor=0x%08X player=0x%08X playerActor=0x%08X loc=%.1f,%.1f,%.1f axes=%.2f/%.2f/%.2f",
+            FeedLogCount,
+            (DWORD)Viewport,
+            (DWORD)Player,
+            (DWORD)Player->Player,
+            Player->Player ? (DWORD)Player->Player->Actor : 0,
+            Player->Location.X, Player->Location.Y, Player->Location.Z,
+            Player->aForward, Player->aBaseY, Player->aStrafe );
+    }
+}
+
+static void XboxSplitPreparePlayer( APlayerPawn* Player, UBOOL bDummy )
+{
+    if( !Player )
+        return;
+
+    Player->bShowMenu = 0;
+    Player->bSpecialMenu = 0;
+    Player->bReadyToPlay = 1;
+    Player->PlayerReStartState = FName(TEXT("PlayerWalking"));
+    Player->GotoState( FName(TEXT("PlayerWalking")) );
+    if( bDummy )
+        Player->myHUD = NULL;
+}
+
+static void XboxSplitConfigureViewports( UXboxClient* Client )
+{
+    if( !Client || Client->Viewports.Num() <= 0 )
+        return;
+
+    UViewport* Primary = Client->Viewports(0);
+    if( !Primary || !Primary->RenDev )
+        return;
+
+    while( Client->Viewports.Num() < 4 )
+    {
+        TCHAR Name[32];
+        appSprintf( Name, TEXT("XboxSplit%i"), Client->Viewports.Num()+1 );
+        UXboxViewport* NewVP = Cast<UXboxViewport>( Client->NewViewport( FName(Name, FNAME_Add) ) );
+        if( !NewVP )
+            break;
+        NewVP->RenDev = Primary->RenDev;
+        NewVP->ColorBytes = Primary->ColorBytes;
+        NewVP->bXboxSplitDummy = 1;
+        GXboxLog.Write( "XSPLIT created dummy viewport index=%d vp=0x%08X sharedRenDev=0x%08X",
+            Client->Viewports.Num()-1, (DWORD)NewVP, (DWORD)NewVP->RenDev );
+    }
+
+    const INT HalfW = XBOX_SCREEN_WIDTH / 2;
+    const INT HalfH = XBOX_SCREEN_HEIGHT / 2;
+    for( INT i=0; i<Client->Viewports.Num() && i<4; i++ )
+    {
+        UXboxViewport* VP = Cast<UXboxViewport>( Client->Viewports(i) );
+        if( !VP )
+            continue;
+        VP->RenDev = Primary->RenDev;
+        VP->SizeX = VP->ViewWidth = HalfW;
+        VP->SizeY = VP->ViewHeight = HalfH;
+        VP->ViewX = (i & 1) ? HalfW : 0;
+        VP->ViewY = (i & 2) ? HalfH : 0;
+        VP->ColorBytes = Primary->ColorBytes ? Primary->ColorBytes : 4;
+        VP->bXboxSplitDummy = i > 0;
+    }
+
+    for( INT i=0; i<4; i++ )
+        GXboxSplitDummyDeathTime[i] = -1.0f;
+    GXboxLog.Write( "XSPLIT configured viewports=%d layout=2x2", Client->Viewports.Num() );
+}
+
+static void XboxSplitSuppressBots( ULevel* Level )
+{
+    if( !Level || !Level->GetLevelInfo() || !Level->GetLevelInfo()->Game )
+        return;
+
+    UObject* Game = Level->GetLevelInfo()->Game;
+    XboxSetObjectPropertyText( Game, TEXT("InitialBots"), TEXT("0") );
+    XboxSetObjectPropertyText( Game, TEXT("RemainingBots"), TEXT("0") );
+    XboxSetObjectPropertyText( Game, TEXT("MinPlayers"), TEXT("0") );
+    XboxSetObjectPropertyText( Game, TEXT("bRequireReady"), TEXT("False") );
+    XboxSetObjectPropertyText( Game, TEXT("CountDown"), TEXT("0") );
+    if( Level->GetLevelInfo()->Pauser != TEXT("") )
+        Level->GetLevelInfo()->Pauser = TEXT("");
+
+    UClass* BotClass = UObject::StaticLoadClass( APawn::StaticClass(), NULL, TEXT("Botpack.Bot"), NULL, LOAD_NoWarn, NULL );
+    INT Removed = 0;
+    if( BotClass )
+    {
+        for( APawn* Pawn = Level->GetLevelInfo()->PawnList; Pawn; )
+        {
+            APawn* Next = Pawn->nextPawn;
+            if( Pawn->IsA(BotClass) )
+            {
+                Level->DestroyActor( Pawn );
+                Removed++;
+            }
+            Pawn = Next;
+        }
+    }
+
+    if( Removed )
+        GXboxLog.Write( "XSPLIT removed %d stock bot pawn(s)", Removed );
+}
+
+static UBOOL XboxSplitCurrentMapReady( UClient* InClient )
+{
+    if( !InClient || InClient->Viewports.Num() != 1 )
+        return 0;
+
+    UViewport* Primary = InClient->Viewports(0);
+    ULevel* Level = (Primary && Primary->Actor) ? Primary->Actor->GetLevel() : NULL;
+    if( !Level || !Level->GetLevelInfo() )
+        return 0;
+
+    if( !Level->GetLevelInfo()->Game )
+        return 0;
+
+    return appStrnicmp( *Level->URL.Map, TEXT("DM-"), 3 ) == 0;
+}
+
+extern "C" void XboxSplitTryActivate( UClient* InClient )
+{
+    XboxSplitSmokeMaybeQueue( Cast<UXboxClient>(InClient) );
+
+    if( !GXboxSplitPending || GXboxSplitActive )
+        return;
+
+    UXboxClient* Client = Cast<UXboxClient>( InClient );
+    if( !Client || !XboxSplitCurrentMapReady(Client) )
+        return;
+
+    UViewport* Primary = Client->Viewports(0);
+    ULevel* Level = (Primary && Primary->Actor) ? Primary->Actor->GetLevel() : NULL;
+    if( !Level )
+        return;
+
+    GXboxLog.Write( "XSPLIT activating after map load url=%s", TCHAR_TO_ANSI(*Level->URL.String()) );
+
+    XboxSplitSuppressBots( Level );
+    XboxSplitConfigureViewports( Client );
+
+    for( INT i=1; i<Client->Viewports.Num() && i<4; i++ )
+    {
+        UXboxViewport* VP = Cast<UXboxViewport>( Client->Viewports(i) );
+        if( !VP )
+            continue;
+
+        FString Error;
+        FString DummyURLText = FString::Printf
+        (
+            TEXT("%s?Name=Dummy%i?Team=%i"),
+            *Level->URL.String(),
+            i + 1,
+            i & 3
+        );
+        FURL DummyURL( NULL, *DummyURLText, TRAVEL_Absolute );
+        GXboxLog.Write( "XSPLIT spawning dummy viewport=%d url=%s", i, TCHAR_TO_ANSI(*DummyURL.String()) );
+        if( !Level->SpawnPlayActor( VP, ROLE_SimulatedProxy, DummyURL, Error ) )
+            GXboxLog.Write( "XSPLIT dummy spawn failed viewport=%d error=%s", i, TCHAR_TO_ANSI(*Error) );
+        else if( VP->Actor )
+        {
+            XboxSplitPreparePlayer( VP->Actor, 1 );
+            GXboxLog.Write( "XSPLIT dummy spawned viewport=%d actor=0x%08X class=%s", i, (DWORD)VP->Actor, TCHAR_TO_ANSI(VP->Actor->GetClass()->GetName()) );
+        }
+    }
+
+    GXboxSplitPending = 0;
+    GXboxSplitActive = 1;
+    XboxSplitSuppressBots( Level );
+    if( Primary && Primary->Actor )
+        XboxSplitPreparePlayer( Primary->Actor, 0 );
+    for( INT i=1; i<Client->Viewports.Num() && i<4; i++ )
+        if( Client->Viewports(i) && Client->Viewports(i)->Actor )
+            XboxSplitPreparePlayer( Client->Viewports(i)->Actor, 1 );
+
+    UObject* Game = Level->GetLevelInfo() ? Level->GetLevelInfo()->Game : NULL;
+    UFunction* StartMatch = Game ? Game->FindFunction( FName(TEXT("StartMatch"), FNAME_Find) ) : NULL;
+    if( StartMatch )
+    {
+        Game->ProcessEvent( StartMatch, NULL );
+        GXboxLog.Write( "XSPLIT StartMatch requested for local dummy match" );
+    }
+
+    if( Level->GetLevelInfo() && Level->GetLevelInfo()->Pauser != TEXT("") )
+        Level->GetLevelInfo()->Pauser = TEXT("");
+    for( INT i=0; i<Client->Viewports.Num() && i<4; i++ )
+    {
+        UViewport* VP = Client->Viewports(i);
+        APlayerPawn* Player = VP ? VP->Actor : NULL;
+        if( !Player )
+            continue;
+
+        XboxSplitPreparePlayer( Player, i > 0 );
+        const TCHAR* StateName = (Player->GetStateFrame() && Player->GetStateFrame()->StateNode)
+            ? *Player->GetStateFrame()->StateNode->GetFName()
+            : TEXT("None");
+        GXboxLog.Write( "XSPLIT player ready viewport=%d actor=0x%08X state=%s physics=%d hud=0x%08X showMenu=%d pauser=%s",
+            i, (DWORD)Player, TCHAR_TO_ANSI(StateName), (INT)Player->Physics, (DWORD)Player->myHUD,
+            Player->bShowMenu ? 1 : 0,
+            Player->Level ? TCHAR_TO_ANSI(*Player->Level->Pauser) : "" );
+    }
+
+    GXboxLog.Write( "XSPLIT active viewports=%d", Client->Viewports.Num() );
+}
+
+static void XboxSplitSmokeCheck( UClient* InClient )
+{
+    if( !GXboxSplitActive || !XboxSplitSmokeEnabled() || GXboxSplitSmokeFinished || !InClient || InClient->Viewports.Num() <= 0 )
+        return;
+
+    UViewport* VP = InClient->Viewports(0);
+    APlayerPawn* Player = VP ? VP->Actor : NULL;
+    if( !Player )
+        return;
+
+    DOUBLE Now = appSeconds();
+    if( !GXboxSplitSmokeActive )
+    {
+        GXboxSplitSmokeActive = 1;
+        GXboxSplitSmokeStartTime = Now;
+        GXboxSplitSmokeStartLocation = Player->Location;
+        const TCHAR* StateName = (Player->GetStateFrame() && Player->GetStateFrame()->StateNode)
+            ? *Player->GetStateFrame()->StateNode->GetFName()
+            : TEXT("None");
+        GXboxLog.Write( "XSPLIT SELFTEST begin actor=0x%08X state=%s loc=%.1f,%.1f,%.1f",
+            (DWORD)Player,
+            TCHAR_TO_ANSI(StateName),
+            Player->Location.X, Player->Location.Y, Player->Location.Z );
+        return;
+    }
+
+    FLOAT DistSq = (Player->Location - GXboxSplitSmokeStartLocation).SizeSquared();
+    DOUBLE Elapsed = Now - GXboxSplitSmokeStartTime;
+    if( Elapsed >= 0.75 && DistSq > 25.0f )
+    {
+        GXboxSplitSmokeFinished = 1;
+        GXboxLog.Write( "XSPLIT SELFTEST PASS movement elapsed=%.2f distSq=%.1f loc=%.1f,%.1f,%.1f vel=%.1f,%.1f,%.1f acc=%.1f,%.1f,%.1f",
+            Elapsed,
+            DistSq,
+            Player->Location.X, Player->Location.Y, Player->Location.Z,
+            Player->Velocity.X, Player->Velocity.Y, Player->Velocity.Z,
+            Player->Acceleration.X, Player->Acceleration.Y, Player->Acceleration.Z );
+    }
+    else if( Elapsed >= 3.0 )
+    {
+        GXboxSplitSmokeFinished = 1;
+        GXboxLog.Write( "XSPLIT SELFTEST FAIL movement elapsed=%.2f distSq=%.1f loc=%.1f,%.1f,%.1f vel=%.1f,%.1f,%.1f acc=%.1f,%.1f,%.1f axes=%.1f/%.1f/%.1f/%.1f/%.1f menu=%d pauser=%s",
+            Elapsed,
+            DistSq,
+            Player->Location.X, Player->Location.Y, Player->Location.Z,
+            Player->Velocity.X, Player->Velocity.Y, Player->Velocity.Z,
+            Player->Acceleration.X, Player->Acceleration.Y, Player->Acceleration.Z,
+            Player->aForward, Player->aBaseY, Player->aStrafe, Player->aTurn, Player->aLookUp,
+            Player->bShowMenu ? 1 : 0,
+            Player->Level ? TCHAR_TO_ANSI(*Player->Level->Pauser) : "" );
+    }
+}
+
+extern "C" void XboxSplitTickDummies( UClient* InClient )
+{
+    if( !GXboxSplitActive || !InClient || InClient->Viewports.Num() < 2 )
+    {
+        XboxSplitSmokeCheck( InClient );
+        return;
+    }
+
+    for( INT i=1; i<InClient->Viewports.Num() && i<4; i++ )
+    {
+        UViewport* VP = InClient->Viewports(i);
+        APlayerPawn* Player = VP ? VP->Actor : NULL;
+        if( !Player )
+            continue;
+        FLOAT Now = Player->Level ? Player->Level->TimeSeconds : 0.0f;
+
+        Player->bShowMenu = 0;
+        Player->bSpecialMenu = 0;
+        Player->myHUD = NULL;
+        Player->aStrafe = 0.0f;
+        Player->aBaseY  = 0.0f;
+        Player->aForward = 0.0f;
+        Player->aTurn   = 0.0f;
+        Player->aLookUp = 0.0f;
+        Player->bFire   = 0;
+        Player->bAltFire = 0;
+        Player->bDuck   = 0;
+        Player->bReadyToPlay = 1;
+
+        UBOOL bDead = Player->Health <= 0 || Player->bHidden;
+        if( bDead )
+        {
+            if( GXboxSplitDummyDeathTime[i] < 0.0f )
+            {
+                GXboxSplitDummyDeathTime[i] = Now;
+                GXboxLog.Write( "XSPLIT dummy dead index=%d player=0x%08X health=%d hidden=%d",
+                    i, (DWORD)Player, Player->Health, Player->bHidden );
+            }
+            if( Now - GXboxSplitDummyDeathTime[i] >= GXboxSplitDummyRespawnSeconds )
+            {
+                UFunction* Restart = Player->FindFunction( FName(TEXT("ServerReStartPlayer"), FNAME_Find) );
+                if( Restart )
+                {
+                    Player->ProcessEvent( Restart, NULL );
+                    GXboxLog.Write( "XSPLIT dummy restart requested index=%d player=0x%08X", i, (DWORD)Player );
+                }
+                GXboxSplitDummyDeathTime[i] = Now;
+            }
+        }
+        else
+        {
+            GXboxSplitDummyDeathTime[i] = -1.0f;
+    }
+
+    XboxSplitSmokeCheck( InClient );
+}
+}
+
+static UBOOL XboxSystemLinkInitSockets()
+{
+    XboxSystemLinkEnsureState();
+    if( GXboxSystemLink.SocketsReady )
+        return 1;
+
+    XNetStartupParams Params;
+    appMemzero( &Params, sizeof(Params) );
+    Params.cfgSizeOfStruct = sizeof(Params);
+    Params.cfgFlags = XNET_STARTUP_BYPASS_SECURITY;
+    Params.cfgPrivatePoolSizeInPages = 12;
+    Params.cfgSockMaxSockets = 16;
+    Params.cfgSockDefaultRecvBufsizeInK = 16;
+    Params.cfgSockDefaultSendBufsizeInK = 16;
+    INT XNetResult = XNetStartup( &Params );
+
+    WSADATA WsaData;
+    appMemzero( &WsaData, sizeof(WsaData) );
+    INT WsaResult = WSAStartup( MAKEWORD(2,2), &WsaData );
+    GXboxSystemLink.SocketsReady = (XNetResult == 0 && WsaResult == 0);
+    GXboxSystemLink.LastError = GXboxSystemLink.SocketsReady ? 0 : (WsaResult ? WsaResult : XNetResult);
+    GXboxLog.Write( "XSL probe net init xnet=%d wsa=%d ready=%d", XNetResult, WsaResult, GXboxSystemLink.SocketsReady );
+    return GXboxSystemLink.SocketsReady;
+}
+
+static void XboxSystemLinkStop()
+{
+    XboxSystemLinkEnsureState();
+    if( GXboxSystemLink.Socket != INVALID_SOCKET )
+    {
+        closesocket( GXboxSystemLink.Socket );
+        GXboxSystemLink.Socket = INVALID_SOCKET;
+    }
+    GXboxSystemLink.Started = 0;
+    GXboxSystemLink.LocalPort = 0;
+    GXboxLog.Write( "XSL probe stopped" );
+}
+
+static UBOOL XboxSystemLinkStart()
+{
+    XboxSystemLinkEnsureState();
+    if( GXboxSystemLink.Started )
+        return 1;
+
+    if( !XboxSystemLinkInitSockets() )
+        return 0;
+
+    GXboxSystemLink.Socket = socket( AF_INET, SOCK_DGRAM, IPPROTO_UDP );
+    if( GXboxSystemLink.Socket == INVALID_SOCKET )
+    {
+        GXboxSystemLink.LastError = WSAGetLastError();
+        GXboxLog.Write( "XSL probe socket failed err=%d", GXboxSystemLink.LastError );
+        return 0;
+    }
+
+    BOOL Yes = TRUE;
+    setsockopt( GXboxSystemLink.Socket, SOL_SOCKET, SO_BROADCAST, (char*)&Yes, sizeof(Yes) );
+    setsockopt( GXboxSystemLink.Socket, SOL_SOCKET, SO_REUSEADDR, (char*)&Yes, sizeof(Yes) );
+
+    DWORD NoBlock = 1;
+    ioctlsocket( GXboxSystemLink.Socket, FIONBIO, &NoBlock );
+
+    UBOOL Bound = 0;
+    for( INT i=0; i<GXboxSystemLinkPortCount; i++ )
+    {
+        sockaddr_in Addr;
+        appMemzero( &Addr, sizeof(Addr) );
+        Addr.sin_family = AF_INET;
+        Addr.sin_addr.s_addr = INADDR_ANY;
+        Addr.sin_port = htons( (u_short)(GXboxSystemLinkBasePort + i) );
+        if( bind( GXboxSystemLink.Socket, (sockaddr*)&Addr, sizeof(Addr) ) == 0 )
+        {
+            GXboxSystemLink.LocalPort = GXboxSystemLinkBasePort + i;
+            Bound = 1;
+            break;
+        }
+    }
+
+    if( !Bound )
+    {
+        GXboxSystemLink.LastError = WSAGetLastError();
+        GXboxLog.Write( "XSL probe bind failed err=%d", GXboxSystemLink.LastError );
+        XboxSystemLinkStop();
+        return 0;
+    }
+
+    if( !GXboxSystemLink.LocalId )
+        GXboxSystemLink.LocalId = GetTickCount() ^ (DWORD)&GXboxSystemLink;
+    GXboxSystemLink.Started = 1;
+    GXboxSystemLink.LastSendTime = 0.0f;
+    GXboxSystemLink.LastLogTime = 0.0f;
+    GXboxSystemLink.Peers.Empty();
+    GXboxLog.Write( "XSL probe started id=0x%08X port=%d", GXboxSystemLink.LocalId, GXboxSystemLink.LocalPort );
+    return 1;
+}
+
+static void XboxSystemLinkSendProbe()
+{
+    if( !GXboxSystemLink.Started || GXboxSystemLink.Socket == INVALID_SOCKET )
+        return;
+
+    char Packet[96];
+    sprintf( Packet, "UTXSL1|%08X|%d|%lu", GXboxSystemLink.LocalId, GXboxSystemLink.LocalPort, GXboxSystemLink.SendCounter++ );
+    INT PacketLen = 0;
+    while( Packet[PacketLen] )
+        PacketLen++;
+
+    for( INT i=0; i<GXboxSystemLinkPortCount; i++ )
+    {
+        sockaddr_in To;
+        appMemzero( &To, sizeof(To) );
+        To.sin_family = AF_INET;
+        To.sin_addr.s_addr = INADDR_BROADCAST;
+        To.sin_port = htons( (u_short)(GXboxSystemLinkBasePort + i) );
+        INT Sent = sendto( GXboxSystemLink.Socket, Packet, PacketLen, 0, (sockaddr*)&To, sizeof(To) );
+        if( Sent == SOCKET_ERROR )
+            GXboxSystemLink.LastError = WSAGetLastError();
+    }
+}
+
+static void XboxSystemLinkRecordPeer( DWORD Id, DWORD Address, INT Port, FLOAT Now )
+{
+    if( Id == GXboxSystemLink.LocalId )
+        return;
+
+    for( INT i=0; i<GXboxSystemLink.Peers.Num(); i++ )
+    {
+        FXboxSystemLinkPeer& Peer = GXboxSystemLink.Peers(i);
+        if( Peer.Id == Id )
+        {
+            Peer.Address = Address;
+            Peer.Port = Port;
+            Peer.LastSeen = Now;
+            Peer.Packets++;
+            return;
+        }
+    }
+
+    if( GXboxSystemLink.Peers.Num() >= GXboxSystemLinkMaxPeers )
+        GXboxSystemLink.Peers.Remove( 0 );
+
+    FXboxSystemLinkPeer& Peer = *new(GXboxSystemLink.Peers)FXboxSystemLinkPeer;
+    Peer.Id = Id;
+    Peer.Address = Address;
+    Peer.Port = Port;
+    Peer.LastSeen = Now;
+    Peer.Packets = 1;
+
+    TCHAR AddrText[32];
+    XboxSystemLinkFormatAddress( Address, AddrText, ARRAY_COUNT(AddrText) );
+    GXboxLog.Write( "XSL peer discovered id=0x%08X addr=%s port=%d", Id, TCHAR_TO_ANSI(AddrText), Port );
+}
+
+static void XboxSystemLinkTick()
+{
+    XboxSystemLinkEnsureState();
+    if( GXboxMenu.Screen != XMS_SystemLink )
+        return;
+
+    if( !GXboxSystemLink.Started )
+        XboxSystemLinkStart();
+    if( !GXboxSystemLink.Started )
+        return;
+
+    FLOAT Now = appSeconds();
+    if( Now - GXboxSystemLink.LastSendTime >= 1.0f )
+    {
+        XboxSystemLinkSendProbe();
+        GXboxSystemLink.LastSendTime = Now;
+    }
+
+    for( ;; )
+    {
+        char Buffer[128];
+        sockaddr_in From;
+        INT FromSize = sizeof(From);
+        INT Count = recvfrom( GXboxSystemLink.Socket, Buffer, sizeof(Buffer)-1, 0, (sockaddr*)&From, &FromSize );
+        if( Count == SOCKET_ERROR )
+        {
+            INT Err = WSAGetLastError();
+            if( Err != WSAEWOULDBLOCK )
+                GXboxSystemLink.LastError = Err;
+            break;
+        }
+
+        Buffer[Count] = 0;
+        DWORD Id = 0;
+        INT Port = 0;
+        DWORD Counter = 0;
+        if( sscanf( Buffer, "UTXSL1|%08X|%d|%lu", &Id, &Port, &Counter ) == 3 )
+            XboxSystemLinkRecordPeer( Id, From.sin_addr.s_addr, Port, Now );
+    }
+
+    if( Now - GXboxSystemLink.LastLogTime >= 5.0f )
+    {
+        GXboxSystemLink.LastLogTime = Now;
+        GXboxLog.Write( "XSL probe status id=0x%08X port=%d peers=%d sent=%lu lastErr=%d",
+            GXboxSystemLink.LocalId,
+            GXboxSystemLink.LocalPort,
+            GXboxSystemLink.Peers.Num(),
+            GXboxSystemLink.SendCounter,
+            GXboxSystemLink.LastError );
+    }
+}
+
+static void XboxMenuEnsureRegistryCache()
+{
+    if( GXboxMenuRegistryCacheRefreshed )
+        return;
+
+    TArray<FRegistryObjectInfo> Dummy;
+    UObject::GetRegistryObjects( Dummy, UClass::StaticClass(), UObject::StaticClass(), 1 );
+    GXboxMenuRegistryCacheRefreshed = 1;
+    GXboxLog.Write( "XMENU refreshed .int registry cache for menu discovery" );
+}
 
 static void XboxMenuResetPlayerPreviewCache()
 {
@@ -295,6 +1029,120 @@ static void XboxMenuStripDescriptionLabel( const FString& Description, FString& 
     OutLabel = OutLabel.Caps();
 }
 
+static void XboxMenuObjectItemName( const FString& FullName, FString& OutItem )
+{
+    OutItem = FullName;
+    const TCHAR* Dot = NULL;
+    for( const TCHAR* Scan=*FullName; *Scan; Scan++ )
+        if( *Scan == '.' )
+            Dot = Scan;
+    if( Dot )
+        OutItem = Dot + 1;
+}
+
+static UBOOL XboxMenuNameMatches( const FString& Candidate, const TCHAR* Wanted )
+{
+    if( !Wanted || !Wanted[0] )
+        return 1;
+    if( appStricmp( *Candidate, Wanted ) == 0 )
+        return 1;
+
+    FString Item;
+    XboxMenuObjectItemName( Candidate, Item );
+    return appStricmp( *Item, Wanted ) == 0;
+}
+
+static void XboxMenuCollectIntObjects( TArray<FRegistryObjectInfo>& Out, const TCHAR* WantedClass, const TCHAR* WantedMetaClass )
+{
+    Out.Empty();
+    if( !GSys || !GConfig )
+        return;
+
+    TCHAR Buffer[32767];
+    INT LoggedSearches = 0;
+    INT LoggedFiles = 0;
+    INT ParsedObjects = 0;
+    INT ClassFiltered = 0;
+    INT MetaFiltered = 0;
+    for( INT i=0; i<GSys->Paths.Num(); i++ )
+    {
+        TCHAR Filename[256];
+        appSprintf( Filename, TEXT("%s%s"), appBaseDir(), *GSys->Paths(i) );
+        TCHAR* Wild = appStrstr( Filename, TEXT("*.") );
+        if( !Wild )
+            continue;
+
+        appSprintf( Wild, TEXT("*.int") );
+        TArray<FString> Files = GFileManager->FindFiles( Filename, 1, 0 );
+        if( LoggedSearches++ < 4 )
+            GXboxLog.Write( "XMENU int scan search path=%s files=%d", TCHAR_TO_ANSI(Filename), Files.Num() );
+        for( INT j=0; j<Files.Num(); j++ )
+        {
+            TCHAR IntPath[256];
+            if( appStrchr( *Files(j), ':' ) )
+                appStrncpy( IntPath, *Files(j), ARRAY_COUNT(IntPath) );
+            else
+                appSprintf( IntPath, TEXT("%s%s"), appBaseDir(), *Files(j) );
+            IntPath[ARRAY_COUNT(IntPath)-1] = 0;
+
+            UBOOL bPublic = GConfig->GetSection( TEXT("Public"), Buffer, ARRAY_COUNT(Buffer), IntPath );
+            if( LoggedFiles++ < 8 )
+                GXboxLog.Write( "XMENU int scan file=%s public=%d", TCHAR_TO_ANSI(IntPath), bPublic );
+            if( !bPublic )
+                continue;
+
+            TCHAR* Next;
+            for( TCHAR* Key=Buffer; *Key; Key=Next )
+            {
+                Next = Key + appStrlen(Key) + 1;
+                TCHAR* Value = appStrchr(Key,'=');
+                if( !Value )
+                    continue;
+                *Value++ = 0;
+                if( appStricmp(Key,TEXT("Object")) != 0 )
+                    continue;
+                if( *Value == '(' )
+                    *Value++ = 0;
+                INT Len = appStrlen(Value);
+                if( Len > 0 && Value[Len-1] == ')' )
+                    Value[Len-1] = 0;
+
+                FRegistryObjectInfo Info;
+                Parse( Value, TEXT("Name="), Info.Object );
+                Parse( Value, TEXT("Class="), Info.Class );
+                Parse( Value, TEXT("MetaClass="), Info.MetaClass );
+                Parse( Value, TEXT("Description="), Info.Description );
+                ParsedObjects++;
+                if( !XboxMenuNameMatches( Info.Class, WantedClass ) )
+                {
+                    ClassFiltered++;
+                    continue;
+                }
+                if( WantedMetaClass && WantedMetaClass[0] && !XboxMenuNameMatches( Info.MetaClass, WantedMetaClass ) )
+                {
+                    MetaFiltered++;
+                    continue;
+                }
+
+                UBOOL bDuplicate = 0;
+                for( INT Existing=0; Existing<Out.Num(); Existing++ )
+                    if( appStricmp( *Out(Existing).Object, *Info.Object ) == 0 )
+                        bDuplicate = 1;
+                if( !bDuplicate )
+                    new(Out)FRegistryObjectInfo(Info);
+            }
+        }
+    }
+
+    GXboxLog.Write( "XMENU direct .int scan class=%s meta=%s parsed=%d classFiltered=%d metaFiltered=%d count=%d",
+        WantedClass ? TCHAR_TO_ANSI(WantedClass) : "",
+        WantedMetaClass ? TCHAR_TO_ANSI(WantedMetaClass) : "",
+        ParsedObjects,
+        ClassFiltered,
+        MetaFiltered,
+        Out.Num() );
+}
+
 static void XboxMenuAddFallbackGameType( const TCHAR* Label, const TCHAR* ClassName, const TCHAR* Prefix )
 {
     FXboxDiscoveredOption& Option = *new(GXboxDiscoveredGameTypes)FXboxDiscoveredOption;
@@ -315,6 +1163,7 @@ static void XboxMenuLoadDiscoveredLists()
     if( GXboxDiscoveredListsLoaded )
         return;
 
+    XboxMenuEnsureRegistryCache();
     GXboxDiscoveredListsLoaded = 1;
     GXboxDiscoveredGameTypes.Empty();
     GXboxDiscoveredMutators.Empty();
@@ -326,6 +1175,8 @@ static void XboxMenuLoadDiscoveredLists()
     {
         TArray<FRegistryObjectInfo> GameInfos;
         UObject::GetRegistryObjects( GameInfos, UClass::StaticClass(), TournamentGameInfoClass, 0 );
+        if( GameInfos.Num() <= 1 )
+            XboxMenuCollectIntObjects( GameInfos, TEXT("Class"), TEXT("TournamentGameInfo") );
         for( INT i=0; i<GameInfos.Num(); i++ )
         {
             UClass* GameClass = UObject::StaticLoadClass( AGameInfo::StaticClass(), NULL, *GameInfos(i).Object, NULL, LOAD_NoWarn | LOAD_Quiet, NULL );
@@ -344,6 +1195,8 @@ static void XboxMenuLoadDiscoveredLists()
     {
         TArray<FRegistryObjectInfo> Mutators;
         UObject::GetRegistryObjects( Mutators, UClass::StaticClass(), MutatorClass, 0 );
+        if( Mutators.Num() <= 1 )
+            XboxMenuCollectIntObjects( Mutators, TEXT("Class"), TEXT("Mutator") );
         for( INT i=0; i<Mutators.Num(); i++ )
         {
             FXboxDiscoveredOption& Option = *new(GXboxDiscoveredMutators)FXboxDiscoveredOption;
@@ -580,6 +1433,21 @@ static INT XboxMenuWrapInt( INT Value, INT Delta, INT Count )
     return (Value + Delta + Count) % Count;
 }
 
+static INT XboxMenuButtonLayoutIndex( INT Layout )
+{
+    for( INT i=0; i<ARRAY_COUNT(GXboxButtonLayoutValues); i++ )
+    {
+        if( GXboxButtonLayoutValues[i] == Layout )
+            return i;
+    }
+    return 0;
+}
+
+static INT XboxMenuButtonLayoutValue( INT Index )
+{
+    return GXboxButtonLayoutValues[XboxMenuWrapInt(Index, 0, ARRAY_COUNT(GXboxButtonLayoutValues))];
+}
+
 static void XboxMenuCleanExportedText( FString& Value )
 {
     const TCHAR* Text = *Value;
@@ -612,6 +1480,33 @@ static INT XboxMenuClassDefaultInt( UClass* Class, const TCHAR* PropertyName, IN
     if( XboxMenuClassDefaultString( Class, PropertyName, Value ) )
         return appAtoi( *Value );
     return DefaultValue;
+}
+
+static UBOOL XboxSetObjectPropertyText( UObject* Object, const TCHAR* PropertyName, const TCHAR* Value )
+{
+    if( !Object || !PropertyName || !Value )
+        return 0;
+
+    UProperty* Property = FindField<UProperty>( Object->GetClass(), PropertyName );
+    if( !Property )
+        return 0;
+
+    Property->ImportText( Value, (BYTE*)Object + Property->Offset, 0 );
+    return 1;
+}
+
+static UBOOL XboxSetClassDefaultPropertyText( const TCHAR* ClassName, const TCHAR* PropertyName, const TCHAR* Value )
+{
+    UClass* Class = UObject::StaticLoadClass( UObject::StaticClass(), NULL, ClassName, NULL, LOAD_NoWarn, NULL );
+    if( !Class || !Class->Defaults.Num() )
+        return 0;
+
+    UProperty* Property = FindField<UProperty>( Class, PropertyName );
+    if( !Property )
+        return 0;
+
+    Property->ImportText( Value, &Class->Defaults(0) + Property->Offset, 0 );
+    return 1;
 }
 
 static void XboxMenuItemName( const FString& FullName, FString& OutItem )
@@ -670,16 +1565,19 @@ static void XboxMenuLoadPlayerClasses()
     if( GXboxPlayerListsLoaded )
         return;
 
+    XboxMenuEnsureRegistryCache();
     GXboxPlayerListsLoaded = 1;
     GXboxPlayerClasses.Empty();
 
-    UClass* TournamentPlayerClass = UObject::StaticLoadClass( APawn::StaticClass(), NULL, TEXT("Botpack.TournamentPlayer"), NULL, LOAD_NoWarn | LOAD_Quiet, NULL );
+    UClass* TournamentPlayerClass = FindObject<UClass>( ANY_PACKAGE, TEXT("TournamentPlayer") );
     if( !TournamentPlayerClass )
-        TournamentPlayerClass = FindObject<UClass>( ANY_PACKAGE, TEXT("TournamentPlayer") );
+        TournamentPlayerClass = UObject::StaticLoadClass( APawn::StaticClass(), NULL, TEXT("Botpack.TournamentPlayer"), NULL, LOAD_NoWarn | LOAD_Quiet, NULL );
     if( TournamentPlayerClass )
     {
         TArray<FRegistryObjectInfo> Players;
         UObject::GetRegistryObjects( Players, UClass::StaticClass(), TournamentPlayerClass, 0 );
+        if( Players.Num() <= 1 )
+            XboxMenuCollectIntObjects( Players, TEXT("Class"), TEXT("TournamentPlayer") );
         for( INT i=0; i<Players.Num(); i++ )
         {
             UClass* PlayerClass = UObject::StaticLoadClass( TournamentPlayerClass, NULL, *Players(i).Object, NULL, LOAD_NoWarn | LOAD_Quiet, NULL );
@@ -738,6 +1636,8 @@ static void XboxMenuLoadPlayerSkins( INT ClassIndex )
     {
         TArray<FRegistryObjectInfo> Textures;
         UObject::GetRegistryObjects( Textures, UTexture::StaticClass(), NULL, 0 );
+        if( Textures.Num() <= 1 )
+            XboxMenuCollectIntObjects( Textures, TEXT("Texture"), NULL );
         INT PrefixLen = Player.MeshName.Len();
 
         for( INT i=0; i<Textures.Num(); i++ )
@@ -812,6 +1712,8 @@ static void XboxMenuLoadPlayerFaces( INT ClassIndex, INT SkinIndex )
 
         TArray<FRegistryObjectInfo> Textures;
         UObject::GetRegistryObjects( Textures, UTexture::StaticClass(), NULL, 0 );
+        if( Textures.Num() <= 1 )
+            XboxMenuCollectIntObjects( Textures, TEXT("Texture"), NULL );
         INT PrefixLen = Player.MeshName.Len();
 
         for( INT i=0; i<Textures.Num(); i++ )
@@ -864,6 +1766,8 @@ static void XboxMenuLoadPlayerVoices( INT ClassIndex )
     {
         TArray<FRegistryObjectInfo> Voices;
         UObject::GetRegistryObjects( Voices, UClass::StaticClass(), VoiceMetaClass, 0 );
+        if( Voices.Num() <= 1 )
+            XboxMenuCollectIntObjects( Voices, TEXT("Class"), *Player.VoiceMetaClass );
         for( INT i=0; i<Voices.Num(); i++ )
         {
             FXboxDiscoveredOption& Option = *new(GXboxPlayerVoices)FXboxDiscoveredOption;
@@ -999,11 +1903,90 @@ static void XboxMenuAppendInt( FString& Value, INT Number )
     Value += Tmp;
 }
 
+static UBOOL XboxMenuIsBossPlayerClass( UClass* PlayerClass )
+{
+    if( !PlayerClass )
+        return 0;
+
+    for( UClass* Test=PlayerClass; Test; Test=Test->GetSuperClass() )
+    {
+        const TCHAR* Name = Test->GetName();
+        if( appStricmp( Name, TEXT("TBoss") ) == 0 || appStricmp( Name, TEXT("TBossBot") ) == 0 )
+            return 1;
+    }
+    return 0;
+}
+
+static void XboxMenuApplyBossPreviewSkin( AActor* Actor, const FString& InSkinName )
+{
+    FString SkinName = InSkinName;
+    FString SkinItem;
+    FString SkinPackage;
+    XboxMenuItemName( SkinName, SkinItem );
+    XboxMenuPackagePrefix( SkinName, SkinPackage );
+    if( SkinPackage.Len() == 0 )
+    {
+        SkinPackage = TEXT("BossSkins.");
+        SkinName = SkinPackage + SkinName;
+    }
+
+    GXboxLog.Write( "XMENU preview boss skin begin skin=%s team=%d",
+        TCHAR_TO_ANSI(*SkinName),
+        GXboxMenu.PlayerTeam );
+
+    if( GXboxMenu.PlayerTeam != 255 )
+    {
+        FString Team0 = SkinName;
+        Team0 += TEXT("1T_");
+        XboxMenuAppendInt( Team0, GXboxMenu.PlayerTeam );
+        if( !XboxMenuSetSkinElement( Actor, 0, Team0, TEXT("") ) )
+        {
+            FString Base0 = SkinName;
+            Base0 += TEXT("1");
+            if( !XboxMenuSetSkinElement( Actor, 0, Base0, TEXT("") ) )
+            {
+                FString FallbackTeam0 = TEXT("BossSkins.boss1T_");
+                XboxMenuAppendInt( FallbackTeam0, GXboxMenu.PlayerTeam );
+                XboxMenuSetSkinElement( Actor, 0, FallbackTeam0, TEXT("BossSkins.boss1") );
+                SkinName = TEXT("BossSkins.boss");
+            }
+        }
+
+        for( INT i=1; i<4; i++ )
+        {
+            FString TeamSkin = SkinName;
+            XboxMenuAppendInt( TeamSkin, i + 1 );
+            TeamSkin += TEXT("T_");
+            XboxMenuAppendInt( TeamSkin, GXboxMenu.PlayerTeam );
+            FString Fallback = SkinName;
+            XboxMenuAppendInt( Fallback, i + 1 );
+            XboxMenuSetSkinElement( Actor, i, TeamSkin, Fallback );
+        }
+    }
+    else
+    {
+        FString Base0 = SkinName;
+        Base0 += TEXT("1");
+        if( !XboxMenuSetSkinElement( Actor, 0, Base0, TEXT("BossSkins.boss1") ) )
+            SkinName = TEXT("BossSkins.boss");
+
+        for( INT i=1; i<4; i++ )
+        {
+            FString BaseSkin = SkinName;
+            XboxMenuAppendInt( BaseSkin, i + 1 );
+            XboxMenuSetSkinElement( Actor, i, BaseSkin, TEXT("") );
+        }
+    }
+
+    GXboxLog.Write( "XMENU preview boss skin end" );
+}
+
 static void XboxMenuApplyPreviewSkin( AActor* Actor )
 {
     if( !Actor )
         return;
 
+    GXboxLog.Write( "XMENU preview skin begin" );
     XboxMenuLoadPlayerState();
     XboxMenuLoadPlayerSkins( GXboxMenu.PlayerClass );
     XboxMenuLoadPlayerFaces( GXboxMenu.PlayerClass, GXboxMenu.PlayerSkin );
@@ -1020,9 +2003,25 @@ static void XboxMenuApplyPreviewSkin( AActor* Actor )
     if( !PlayerClass )
         PlayerClass = UObject::StaticLoadClass( APawn::StaticClass(), NULL, *Player.URLValue, NULL, LOAD_NoWarn | LOAD_Quiet, NULL );
 
+    GXboxLog.Write( "XMENU preview skin class=%s loaded=%s multi=%d skin=%s face=%s team=%d",
+        TCHAR_TO_ANSI(*Player.URLValue),
+        PlayerClass ? "yes" : "no",
+        Player.bMultiSkinned,
+        TCHAR_TO_ANSI(*SkinName),
+        TCHAR_TO_ANSI(*FaceName),
+        GXboxMenu.PlayerTeam );
+
     if( !Player.bMultiSkinned || !PlayerClass )
     {
         Actor->Skin = XboxMenuLoadTexture( SkinName );
+        GXboxLog.Write( "XMENU preview skin simple end" );
+        return;
+    }
+
+    if( XboxMenuIsBossPlayerClass( PlayerClass ) )
+    {
+        XboxMenuApplyBossPreviewSkin( Actor, SkinName );
+        GXboxLog.Write( "XMENU preview skin boss end" );
         return;
     }
 
@@ -1103,6 +2102,8 @@ static void XboxMenuApplyPreviewSkin( AActor* Actor )
         XboxMenuSetSkinElement( Actor, TeamSkin1, Team1, TEXT("") );
         XboxMenuSetSkinElement( Actor, TeamSkin2, Team2, TEXT("") );
     }
+
+    GXboxLog.Write( "XMENU preview skin generic end" );
 }
 
 static AActor* XboxMenuGetPlayerPreviewActor( UXboxViewport* Viewport )
@@ -1162,14 +2163,20 @@ static void XboxMenuUpdatePlayerPreviewActor( UXboxViewport* Viewport )
 
     const FXboxPlayerClassOption& Player = XboxMenuPlayerClass( GXboxMenu.PlayerClass );
     FString MeshName = Player.SelectionMesh.Len() ? Player.SelectionMesh : Player.MeshPath;
+    GXboxLog.Write( "XMENU player preview mesh load begin %s",
+        TCHAR_TO_ANSI(*MeshName) );
     UMesh* Mesh = MeshName.Len()
         ? Cast<UMesh>( UObject::StaticLoadObject( UMesh::StaticClass(), NULL, *MeshName, NULL, LOAD_NoWarn | LOAD_Quiet, NULL ) )
         : NULL;
+    GXboxLog.Write( "XMENU player preview mesh load end %s",
+        Mesh ? "OK" : "missing" );
     Actor->Mesh = Mesh;
     Actor->DrawScale = 0.10f;
     Actor->AmbientGlow = 255;
     Actor->bMeshEnviroMap = 0;
+    GXboxLog.Write( "XMENU player preview skin apply begin" );
     XboxMenuApplyPreviewSkin( Actor );
+    GXboxLog.Write( "XMENU player preview skin apply end" );
 
     GXboxPlayerPreviewClass = GXboxMenu.PlayerClass;
     GXboxPlayerPreviewSkin = GXboxMenu.PlayerSkin;
@@ -1196,7 +2203,7 @@ static void XboxMenuDrawPlayerPreviewActor( UXboxViewport* Viewport, UCanvas* Ca
     FLOAT OldFov = Viewport->Actor->FovAngle;
     Viewport->Actor->FovAngle = 30.0f;
     FLOAT FovRadians = Viewport->Actor->FovAngle * PI / 180.0f;
-    Actor->Location = FVector( 4.0f / appTan(FovRadians * 0.5f), 0.0f, 0.0f );
+    Actor->Location = FVector( 3.1f / appTan(FovRadians * 0.5f), 0.0f, 0.0f );
     Actor->Rotation = FRotator( 0, GXboxPlayerPreviewYaw, 0 );
 
     INT OldX = Canvas->Frame->X;
@@ -1462,6 +2469,12 @@ static void XboxMenuBack( UXboxViewport* Viewport )
         GXboxMenu.Screen = XMS_InstantAction;
         GXboxLog.Write( "XMENU close mutator overlay" );
     }
+    else if( GXboxMenu.Screen == XMS_SystemLink )
+    {
+        XboxSystemLinkStop();
+        GXboxMenu.Screen = XMS_Main;
+        GXboxLog.Write( "XMENU back from System Link probe" );
+    }
     else
     {
         GXboxMenu.Screen = XMS_Main;
@@ -1522,7 +2535,35 @@ static void XboxMenuStartInstantAction( UXboxViewport* Viewport )
     );
 
     XboxMenuClose( Viewport );
+    XboxSplitResetRuntime( Client, "InstantAction" );
     GXboxLog.Write( "XMENU Begin Match travel: %s", TCHAR_TO_ANSI(URL) );
+    Client->Engine->SetClientTravel( Viewport, URL, 0, TRAVEL_Absolute );
+}
+
+static void XboxMenuStartSplitScreen( UXboxViewport* Viewport )
+{
+    UXboxClient* Client = Viewport ? (UXboxClient*)Viewport->GetOuter() : NULL;
+    if( !Client || !Client->Engine )
+        return;
+
+    XboxSetClassDefaultPropertyText( TEXT("Botpack.DeathMatchPlus"), TEXT("InitialBots"), TEXT("0") );
+    XboxSetClassDefaultPropertyText( TEXT("Botpack.DeathMatchPlus"), TEXT("MinPlayers"), TEXT("0") );
+
+    XboxSplitResetRuntime( Client, "StartSplitScreen" );
+    GXboxSplitPending = 1;
+
+    TCHAR PlayerURL[512];
+    TCHAR URL[1024];
+    XboxMenuBuildPlayerURL( PlayerURL, ARRAY_COUNT(PlayerURL) );
+    appSprintf
+    (
+        URL,
+        TEXT("DM-Deck16][.unr?Game=Botpack.DeathMatchPlus?FragLimit=0?TimeLimit=0?MinPlayers=0?MaxPlayers=4?Difficulty=1%s"),
+        PlayerURL
+    );
+
+    XboxMenuClose( Viewport );
+    GXboxLog.Write( "XSPLIT queued travel: %s", TCHAR_TO_ANSI(URL) );
     Client->Engine->SetClientTravel( Viewport, URL, 0, TRAVEL_Absolute );
 }
 
@@ -1534,6 +2575,7 @@ static void XboxMenuReturnToFrontend( UXboxViewport* Viewport )
 
     XboxMenuDestroyPlayerPreview();
     XboxMenuReleaseMatchPause( Viewport );
+    XboxSplitResetRuntime( Client, "ReturnToFrontend" );
     GXboxMenu.Active = 1;
     GXboxMenu.Screen = XMS_Main;
     GXboxMenu.MainFocus = 0;
@@ -1584,16 +2626,18 @@ static void XboxMenuActivate( UXboxViewport* Viewport )
                 GXboxLog.Write( "XMENU screen: Instant Action" );
                 break;
             case 1:
+                GXboxMenu.Screen = XMS_SystemLink;
+                XboxSystemLinkStart();
+                GXboxLog.Write( "XMENU screen: System Link probe" );
+                break;
+            case 2:
+                XboxMenuStartSplitScreen( Viewport );
+                break;
+            case 3:
                 GXboxMenu.Screen = XMS_PlayerSetup;
                 GXboxMenu.PlayerFocus = 0;
                 XboxMenuLoadPlayerState();
                 GXboxLog.Write( "XMENU screen: Player Setup" );
-                break;
-            case 2:
-                XboxMenuComingSoon( TEXT("SYSTEM LINK") );
-                break;
-            case 3:
-                XboxMenuComingSoon( TEXT("SPLITSCREEN") );
                 break;
             case 4:
                 GXboxMenu.Screen = XMS_Settings;
@@ -1768,7 +2812,8 @@ static void XboxMenuAdjustSettings( UXboxViewport* Viewport, INT Delta )
         case XSR_ButtonLayout:
             if( Client )
             {
-                Client->ButtonLayout = XboxMenuWrapInt( Client->ButtonLayout, Delta, ARRAY_COUNT(GXboxButtonLayouts) );
+                INT LayoutIndex = XboxMenuButtonLayoutIndex( Client->ButtonLayout );
+                Client->ButtonLayout = XboxMenuButtonLayoutValue( LayoutIndex + Delta );
                 Client->SaveConfig();
             }
             break;
@@ -1882,6 +2927,18 @@ static UBOOL XboxThumbPressed( SHORT Cur, SHORT Prev, SHORT Threshold )
     return Cur < Threshold && Prev >= Threshold;
 }
 
+static void XboxSendGameplayButton( UXboxViewport* Viewport, EInputKey Key, UBOOL bDown, UBOOL bWasDown )
+{
+    if( !Viewport || bDown == bWasDown )
+        return;
+
+    UXboxClient* Client = (UXboxClient*)Viewport->GetOuter();
+    if( !Client || !Client->Engine )
+        return;
+
+    Client->Engine->InputEvent( Viewport, Key, bDown ? IST_Press : IST_Release, 0.0f );
+}
+
 static UBOOL XboxMenuHandleInput( UXboxViewport* Viewport, const XINPUT_GAMEPAD& Pad, const XINPUT_GAMEPAD& PrevPad )
 {
     WORD CurDigital  = Pad.wButtons;
@@ -1897,9 +2954,11 @@ static UBOOL XboxMenuHandleInput( UXboxViewport* Viewport, const XINPUT_GAMEPAD&
         return 0;
     }
 
-    if( XboxButtonPressed( CurDigital, PrevDigital, XINPUT_GAMEPAD_DPAD_UP ) )
+    if( XboxButtonPressed( CurDigital, PrevDigital, XINPUT_GAMEPAD_DPAD_UP )
+    ||  XboxThumbPressed( Pad.sThumbLY, PrevPad.sThumbLY, 18000 ) )
         XboxMenuMove( -1 );
-    if( XboxButtonPressed( CurDigital, PrevDigital, XINPUT_GAMEPAD_DPAD_DOWN ) )
+    if( XboxButtonPressed( CurDigital, PrevDigital, XINPUT_GAMEPAD_DPAD_DOWN )
+    ||  XboxThumbPressed( Pad.sThumbLY, PrevPad.sThumbLY, -18000 ) )
         XboxMenuMove( 1 );
     if( XboxButtonPressed( CurDigital, PrevDigital, XINPUT_GAMEPAD_DPAD_LEFT )
     ||  XboxThumbPressed( Pad.sThumbLX, PrevPad.sThumbLX, -18000 ) )
@@ -2179,9 +3238,9 @@ static void XboxMenuDrawMain( UCanvas* Canvas )
     static const TCHAR* Items[] =
     {
         TEXT("INSTANT ACTION"),
-        TEXT("PLAYER SETUP"),
         TEXT("SYSTEM LINK"),
         TEXT("SPLITSCREEN"),
+        TEXT("PLAYER SETUP"),
         TEXT("SETTINGS")
     };
 
@@ -2440,27 +3499,27 @@ static void XboxMenuDrawPlayerSetup( UXboxViewport* Viewport, UCanvas* Canvas )
     UFont* MenuFont = Canvas->MedFont;
     XboxMenuText( Canvas, MenuFont, 46, 70, 255, 255, 255, TEXT("PLAYER SETUP") );
 
-    XboxMenuDrawRect( Canvas, 368, 84, 612, 352, 25, 34, 48, 0.72f );
-    XboxMenuDrawRect( Canvas, 378, 94, 602, 342, 0, 0, 0, 0.52f );
-    XboxMenuDrawPlayerPreviewActor( Viewport, Canvas, 378.0f, 94.0f, 224.0f, 248.0f );
+    XboxMenuDrawRect( Canvas, 350, 58, 626, 422, 25, 34, 48, 0.72f );
+    XboxMenuDrawRect( Canvas, 360, 68, 616, 412, 0, 0, 0, 0.52f );
+    XboxMenuDrawPlayerPreviewActor( Viewport, Canvas, 360.0f, 68.0f, 256.0f, 344.0f );
     if( !GXboxPlayerPreviewActor || !GXboxPlayerPreviewActor->Mesh )
-        XboxMenuText( Canvas, MenuFont, 430, 198, 135, 170, 205, TEXT("NO PREVIEW") );
+        XboxMenuText( Canvas, MenuFont, 430, 210, 135, 170, 205, TEXT("NO PREVIEW") );
 
     for( INT i=0; i<ARRAY_COUNT(Labels); i++ )
     {
         FLOAT Y = 150.0f + i * 34.0f;
         if( i == GXboxMenu.PlayerFocus )
         {
-            XboxMenuDrawRect( Canvas, 42, Y-6, 360, Y+20, 12, 82, 166, 0.55f );
-            XboxMenuText( Canvas, MenuFont, 192, Y, 180, 215, 245, TEXT("<") );
-            XboxMenuText( Canvas, MenuFont, 344, Y, 180, 215, 245, TEXT(">") );
+            XboxMenuDrawRect( Canvas, 42, Y-6, 342, Y+20, 12, 82, 166, 0.55f );
+            XboxMenuText( Canvas, MenuFont, 178, Y, 180, 215, 245, TEXT("<") );
+            XboxMenuText( Canvas, MenuFont, 326, Y, 180, 215, 245, TEXT(">") );
             XboxMenuText( Canvas, MenuFont, 58, Y, 255, 255, 255, Labels[i] );
-            XboxMenuText( Canvas, MenuFont, 214, Y, 255, 255, 255, Values[i] );
+            XboxMenuText( Canvas, MenuFont, 202, Y, 255, 255, 255, Values[i] );
         }
         else
         {
             XboxMenuText( Canvas, MenuFont, 58, Y, 140, 178, 212, Labels[i] );
-            XboxMenuText( Canvas, MenuFont, 214, Y, 180, 205, 230, Values[i] );
+            XboxMenuText( Canvas, MenuFont, 202, Y, 180, 205, 230, Values[i] );
         }
     }
 
@@ -2502,7 +3561,7 @@ static void XboxMenuDrawSettings( UXboxViewport* Viewport, UCanvas* Canvas )
     TCHAR CrosshairValue[32];
     TCHAR OpacityValue[32];
     TCHAR MatureValue[32];
-    INT Layout = Client ? XboxMenuWrapInt( Client->ButtonLayout, 0, ARRAY_COUNT(GXboxButtonLayouts) ) : 0;
+    INT Layout = Client ? XboxMenuButtonLayoutIndex( Client->ButtonLayout ) : 0;
     INT Hand = XboxMenuWeaponHandIndex( Player );
     INT Crosshair = (Player && Player->myHUD) ? Player->myHUD->Crosshair : 0;
     UBOOL AutoSwitch = Player ? !Player->bNeverAutoSwitch : 1;
@@ -2622,6 +3681,42 @@ static void XboxMenuDrawSettings( UXboxViewport* Viewport, UCanvas* Canvas )
     }
 }
 
+static void XboxMenuDrawSystemLink( UCanvas* Canvas )
+{
+    XboxMenuDrawChrome( Canvas, TEXT("SYSTEM LINK"), 1 );
+    UFont* MenuFont = Canvas->MedFont;
+
+    XboxMenuText( Canvas, MenuFont, 58, 74, 255, 255, 255, TEXT("SYSTEM LINK TEST") );
+    XboxMenuText( Canvas, MenuFont, 58, 114, 135, 170, 205, TEXT("DISCOVERY PROBE") );
+
+    TCHAR Status[128];
+    if( GXboxSystemLink.Started )
+        appSprintf( Status, TEXT("LOCAL ID  %08X    PORT %i"), GXboxSystemLink.LocalId, GXboxSystemLink.LocalPort );
+    else
+        appSprintf( Status, TEXT("NOT STARTED    ERROR %i"), GXboxSystemLink.LastError );
+    XboxMenuText( Canvas, MenuFont, 58, 146, 180, 215, 245, Status );
+
+    appSprintf( Status, TEXT("PEERS FOUND  %i"), GXboxSystemLink.Peers.Num() );
+    XboxMenuText( Canvas, MenuFont, 58, 186, 255, 255, 255, Status );
+
+    FLOAT Y = 222.0f;
+    for( INT i=0; i<GXboxSystemLink.Peers.Num() && i<GXboxSystemLinkMaxPeers; i++ )
+    {
+        const FXboxSystemLinkPeer& Peer = GXboxSystemLink.Peers(i);
+        TCHAR AddrText[32];
+        XboxSystemLinkFormatAddress( Peer.Address, AddrText, ARRAY_COUNT(AddrText) );
+        appSprintf( Status, TEXT("%08X    %s:%i    PACKETS %i"), Peer.Id, AddrText, Peer.Port, Peer.Packets );
+        XboxMenuDrawRect( Canvas, 48, Y-5, 578, Y+20, 12, 82, 166, 0.22f );
+        XboxMenuText( Canvas, MenuFont, 62, Y, 180, 215, 245, Status );
+        Y += 32.0f;
+    }
+
+    if( GXboxSystemLink.Peers.Num() == 0 )
+        XboxMenuText( Canvas, MenuFont, 62, Y, 135, 170, 205, TEXT("WAITING FOR ANOTHER INSTANCE...") );
+
+    XboxMenuText( Canvas, MenuFont, 58, 402, 135, 170, 205, TEXT("OPEN THIS SCREEN ON BOTH INSTANCES") );
+}
+
 static void XboxMenuDrawComingSoon( UCanvas* Canvas )
 {
     XboxMenuDrawChrome( Canvas, GXboxMenu.ComingSoonTitle, 1 );
@@ -2636,6 +3731,7 @@ void XboxMenuPostRender( UViewport* Viewport, UCanvas* Canvas )
         return;
 
     GXboxMenu.Pulse += 0.04f;
+    XboxSystemLinkTick();
 
     if( GXboxMenu.Screen == XMS_Pause )
         XboxMenuDrawPause( Canvas );
@@ -2649,6 +3745,8 @@ void XboxMenuPostRender( UViewport* Viewport, UCanvas* Canvas )
         XboxMenuDrawPlayerSetup( Cast<UXboxViewport>(Viewport), Canvas );
     else if( GXboxMenu.Screen == XMS_Settings )
         XboxMenuDrawSettings( Cast<UXboxViewport>(Viewport), Canvas );
+    else if( GXboxMenu.Screen == XMS_SystemLink )
+        XboxMenuDrawSystemLink( Canvas );
     else
         XboxMenuDrawComingSoon( Canvas );
 
@@ -2788,6 +3886,8 @@ void UXboxViewport::CloseWindow()
 void UXboxViewport::Destroy()
 {
     guard(UXboxViewport::Destroy);
+    if( bXboxSplitDummy )
+        RenDev = NULL;
     if( ControllerHandle )
     {
         XInputClose( ControllerHandle );
@@ -2812,6 +3912,9 @@ void UXboxViewport::SetViewRegion( INT X, INT Y, INT W, INT H )
 void UXboxViewport::PollController()
 {
     guard(UXboxViewport::PollController);
+
+    if( bXboxSplitDummy )
+        return;
 
     XboxAutoFireSmokeTick( this );
 
@@ -2905,15 +4008,39 @@ void UXboxViewport::ProcessControllerInput( const XINPUT_GAMEPAD& Pad )
     if( !Client || !Client->Engine )
         return;
 
-    if( XboxMenuHandleInput( this, Pad, PrevControllerState.Gamepad ) )
+    if( GXboxSplitActive && GXboxMenu.Active )
+    {
+        if( XboxMenuHandleInput( this, Pad, PrevControllerState.Gamepad ) )
+            return;
+    }
+
+    if( !GXboxSplitActive && XboxMenuHandleInput( this, Pad, PrevControllerState.Gamepad ) )
         return;
+    if( GXboxSplitActive
+    &&  !bXboxSplitDummy
+    &&  !GXboxMenu.Active
+    &&  (Pad.wButtons & XINPUT_GAMEPAD_START)
+    && !(PrevControllerState.Gamepad.wButtons & XINPUT_GAMEPAD_START) )
+    {
+        XboxMenuOpen( this );
+        return;
+    }
 
     APlayerPawn* Player = Actor;
+    if( GXboxSplitActive && Player )
+    {
+        Player->bShowMenu = 0;
+        Player->bSpecialMenu = 0;
+        if( Player->Level && Player->Level->Pauser != TEXT("") )
+        {
+            GXboxLog.Write( "XSPLIT cleared unexpected pauser='%s' before input", TCHAR_TO_ANSI(*Player->Level->Pauser) );
+            Player->Level->Pauser = TEXT("");
+        }
+    }
 
     // ---- Digital buttons (bitmask in wButtons) ----
-    // Route utility buttons through Unreal's normal binding layer. Core
-    // gameplay controls are written directly below so a stale User.ini cannot
-    // leave the player without movement/fire/look on hardware.
+    // Route edge-triggered digital controls through Unreal's normal binding
+    // layer for this viewport.
     struct FDigitalMap { WORD Mask; EInputKey Key; };
     static const FDigitalMap DigitalMap[] =
     {
@@ -2922,7 +4049,7 @@ void UXboxViewport::ProcessControllerInput( const XINPUT_GAMEPAD& Pad )
         { XINPUT_GAMEPAD_DPAD_LEFT,   IK_JoyPovLeft },
         { XINPUT_GAMEPAD_DPAD_RIGHT,  IK_JoyPovRight },
         { XINPUT_GAMEPAD_BACK,        IK_Tab },        // Scoreboard
-        { XINPUT_GAMEPAD_RIGHT_THUMB, IK_Joy6 },       // Reserved / zoom bind
+        { XINPUT_GAMEPAD_RIGHT_THUMB, IK_Joy6 },       // Center view
     };
 
     WORD CurDigital  = Pad.wButtons;
@@ -2992,46 +4119,81 @@ void UXboxViewport::ProcessControllerInput( const XINPUT_GAMEPAD& Pad )
     // Right stick: look (IK_JoyU = yaw, IK_JoyV = pitch).
     FLOAT RX = XboxStickAxis( Pad.sThumbRX, DeadZone ) * Client->ScaleRUV * Sensitivity;
     FLOAT RY = XboxStickAxis( Pad.sThumbRY, DeadZone ) * Client->ScaleRUV * Sensitivity;
-    if( Client->ButtonLayout == 1 )
-    {
-        FLOAT MoveX = XboxStickAxis( Pad.sThumbRX, DeadZone ) * Client->ScaleXYZ * Sensitivity;
-        FLOAT MoveY = XboxStickAxis( Pad.sThumbRY, DeadZone ) * Client->ScaleXYZ * Sensitivity;
-        FLOAT LookX = XboxStickAxis( Pad.sThumbLX, DeadZone ) * Client->ScaleRUV * Sensitivity;
-        FLOAT LookY = XboxStickAxis( Pad.sThumbLY, DeadZone ) * Client->ScaleRUV * Sensitivity;
-        LX = MoveX;
-        LY = MoveY;
-        RX = LookX;
-        RY = LookY;
-    }
     if( Client->InvertVertical )
         RY = -RY;
 
     if( Player )
     {
+        FLOAT OldForward = Player->aForward;
+        FLOAT OldBaseY   = Player->aBaseY;
+        FLOAT OldStrafe  = Player->aStrafe;
+        FLOAT OldTurn    = Player->aTurn;
+        FLOAT OldLookUp  = Player->aLookUp;
+
         UBOOL FaceFireLayout = Client->ButtonLayout == 2;
         UBOOL FireNow =
             Pad.bAnalogButtons[XINPUT_GAMEPAD_RIGHT_TRIGGER] > AnalogThreshold
         ||  (FaceFireLayout && Pad.bAnalogButtons[XINPUT_GAMEPAD_A] > AnalogThreshold);
+        UBOOL FirePrev =
+            PrevControllerState.Gamepad.bAnalogButtons[XINPUT_GAMEPAD_RIGHT_TRIGGER] > AnalogThreshold
+        ||  (FaceFireLayout && PrevControllerState.Gamepad.bAnalogButtons[XINPUT_GAMEPAD_A] > AnalogThreshold);
         UBOOL AltFireNow =
             Pad.bAnalogButtons[XINPUT_GAMEPAD_LEFT_TRIGGER] > AnalogThreshold
         ||  Pad.bAnalogButtons[XINPUT_GAMEPAD_B] > AnalogThreshold;
+        UBOOL AltFirePrev =
+            PrevControllerState.Gamepad.bAnalogButtons[XINPUT_GAMEPAD_LEFT_TRIGGER] > AnalogThreshold
+        ||  PrevControllerState.Gamepad.bAnalogButtons[XINPUT_GAMEPAD_B] > AnalogThreshold;
         UBOOL DuckNow = (Pad.wButtons & XINPUT_GAMEPAD_LEFT_THUMB) != 0;
+        UBOOL DuckPrev = (PrevControllerState.Gamepad.wButtons & XINPUT_GAMEPAD_LEFT_THUMB) != 0;
         UBOOL JumpNow = FaceFireLayout
-            ? XboxAnalogPressed( Pad, PrevControllerState.Gamepad, XINPUT_GAMEPAD_RIGHT_TRIGGER )
-            : XboxAnalogPressed( Pad, PrevControllerState.Gamepad, XINPUT_GAMEPAD_A );
+            ? Pad.bAnalogButtons[XINPUT_GAMEPAD_RIGHT_TRIGGER] > AnalogThreshold
+            : Pad.bAnalogButtons[XINPUT_GAMEPAD_A] > AnalogThreshold;
+        UBOOL JumpPrev = FaceFireLayout
+            ? PrevControllerState.Gamepad.bAnalogButtons[XINPUT_GAMEPAD_RIGHT_TRIGGER] > AnalogThreshold
+            : PrevControllerState.Gamepad.bAnalogButtons[XINPUT_GAMEPAD_A] > AnalogThreshold;
 
-        Player->bFire    = FireNow ? 1 : 0;
-        Player->bAltFire = AltFireNow ? 1 : 0;
-        Player->bDuck    = DuckNow ? 1 : 0;
+        XboxSendGameplayButton( this, IK_Joy1, FireNow, FirePrev );
+        XboxSendGameplayButton( this, IK_Joy2, JumpNow, JumpPrev );
+        XboxSendGameplayButton( this, IK_Joy3, AltFireNow, AltFirePrev );
+        XboxSendGameplayButton( this, IK_Joy4, DuckNow, DuckPrev );
         if( FireNow || AltFireNow )
             Player->bReadyToPlay = 1;
-        if( JumpNow )
-            Player->bJumpStatus = !Player->bJumpStatus;
 
-        Player->aStrafe += 0.01f * LX * 2.0f;
-        Player->aBaseY  += 0.01f * LY * 2.0f;
-        Player->aTurn   += 0.01f * RX * 5.9f;
-        Player->aLookUp += 0.01f * RY * 3.0f;
+        XboxViewportInputAxis( this, TEXT("aStrafe"), LX, 2.0f );
+        XboxViewportInputAxis( this, TEXT("aBaseY"),  LY, 2.0f );
+        XboxViewportInputAxis( this, TEXT("aTurn"),   RX, 5.9f );
+        XboxViewportInputAxis( this, TEXT("aLookUp"), RY, 3.0f );
+
+        if( GXboxSplitActive )
+        {
+            static INT SplitInputLogCount = 0;
+            if( SplitInputLogCount < 80
+            &&  (FireNow || AltFireNow || DuckNow || JumpNow
+            ||   Pad.sThumbLX || Pad.sThumbLY || Pad.sThumbRX || Pad.sThumbRY) )
+            {
+                SplitInputLogCount++;
+                const TCHAR* StateName = (Player->GetStateFrame() && Player->GetStateFrame()->StateNode)
+                    ? *Player->GetStateFrame()->StateNode->GetFName()
+                    : TEXT("None");
+                GXboxLog.Write(
+                    "XSPLIT input #%d actor=0x%08X state=%s phys=%d showMenu=%d hud=0x%08X loc=%.1f,%.1f,%.1f vel=%.1f,%.1f,%.1f acc=%.1f,%.1f,%.1f raw=%d,%d,%d,%d axes=%.2f,%.2f,%.2f,%.2f old=%.2f/%.2f/%.2f/%.2f/%.2f new=%.2f/%.2f/%.2f/%.2f/%.2f fire=%d alt=%d",
+                    SplitInputLogCount,
+                    (DWORD)Player,
+                    TCHAR_TO_ANSI(StateName),
+                    (INT)Player->Physics,
+                    Player->bShowMenu ? 1 : 0,
+                    (DWORD)Player->myHUD,
+                    Player->Location.X, Player->Location.Y, Player->Location.Z,
+                    Player->Velocity.X, Player->Velocity.Y, Player->Velocity.Z,
+                    Player->Acceleration.X, Player->Acceleration.Y, Player->Acceleration.Z,
+                    Pad.sThumbLX, Pad.sThumbLY, Pad.sThumbRX, Pad.sThumbRY,
+                    LX, LY, RX, RY,
+                    OldForward, OldBaseY, OldStrafe, OldTurn, OldLookUp,
+                    Player->aForward, Player->aBaseY, Player->aStrafe, Player->aTurn, Player->aLookUp,
+                    FireNow ? 1 : 0,
+                    AltFireNow ? 1 : 0 );
+            }
+        }
 
         if( InputLogCount < 32
         &&  (FireNow || AltFireNow || DuckNow || JumpNow
@@ -3039,7 +4201,7 @@ void UXboxViewport::ProcessControllerInput( const XINPUT_GAMEPAD& Pad )
         ||   RX > 0.01f || RX < -0.01f || RY > 0.01f || RY < -0.01f) )
         {
             InputLogCount++;
-            GXboxLog.Write( "XINPUT direct #%d player=0x%08X fire=%d alt=%d duck=%d jump=%d axes=%.2f,%.2f,%.2f,%.2f",
+            GXboxLog.Write( "XINPUT gameplay #%d player=0x%08X fire=%d alt=%d duck=%d jump=%d axes=%.2f,%.2f,%.2f,%.2f",
                 InputLogCount, Player, FireNow, AltFireNow, DuckNow, JumpNow, LX, LY, RX, RY );
         }
     }
@@ -3082,6 +4244,9 @@ void  UXboxViewport::SetMouseCapture( UBOOL Capture, UBOOL Clip, UBOOL FocusOnly
 void UXboxViewport::UpdateInput( UBOOL Reset )
 {
     guard(UXboxViewport::UpdateInput);
+    if( bXboxSplitDummy )
+        return;
+    XboxSplitSmokeFeedInput( this );
     PollController();
     unguard;
 }

@@ -1104,6 +1104,25 @@ Follow-up:
 - Instant Action now appends the selected player options to the travel URL so new matches use the current player setup immediately.
 - Built successfully via `UT99-Xbox\Tools\build_xbox_cli.py` and deployed `default.xbe` to the CXBX test install.
 
+### 77. Split Screen Movement Deep Dive
+- Steve reported P1 could only swap weapons and show the scoreboard, then asked for a deeper investigation rather than another blind iteration.
+- Checked `ut99.log` first. The log proved button events were reaching P1 after split activation, but movement/look/fire could not be trusted from the old generic input logs because their counters were exhausted before split gameplay.
+- Source audit findings:
+  - button actions go through `UEngine::InputEvent`, while Xbox movement/look/fire are written directly to `APlayerPawn` input fields;
+  - `Engine\Classes\PlayerPawn.uc::PlayerInput()` clears `aStrafe`, `aTurn`, `aForward`, and `aLookUp` whenever `bShowMenu && myHUD != None`;
+  - split activation happens immediately after an Xbox-menu driven travel, but the split handoff did not explicitly clear legacy `bShowMenu`/`bSpecialMenu` state on the newly spawned match pawns;
+  - `Engine\Src\UnGame.cpp` always called `Viewport->Actor->eventPostRender()`, and `PlayerPawn.PostRender()` respawns `myHUD` when it is `None`, so dummy viewports were recreating `ChallengeHUD` every frame despite the C++ code clearing `myHUD`.
+- Fixed the structural split handoff:
+  - added a split-player preparation helper that clears legacy menu state, marks the pawn ready, forces `PlayerWalking`, and keeps dummy HUDs null;
+  - blocked player HUD/console post-render for dummy split viewports in the C++ draw path, so dummy players do not recreate `ChallengeHUD`;
+  - split gameplay input now clears any unexpected legacy pause/menu state before applying controller fields.
+- Added focused split-only input evidence logging:
+  - raw XInput sticks;
+  - computed movement/look axes;
+  - actor pointer, state, physics, `bShowMenu`, HUD pointer;
+  - input fields before/after controller application.
+- Built successfully via `UT99-Xbox\Tools\build_xbox_cli.py`.
+
 ### 68. Player Setup 3D Preview and Voice Test
 - Added the required live right-side player preview to `PLAYER SETUP`.
 - Followed the PC menu reference instead of a static thumbnail:
@@ -1135,3 +1154,205 @@ Follow-up:
 - Added an Xbox-only sanitizer before `DefaultURL.LoadURLConfig()` to fill any empty `Class`, `Skin`, `Face`, `Voice`, or `Team` entry with known-good UT defaults and flush `User.ini`.
 - Changed the player setup face fallback from an empty default face to `SoldierSkins.Othello` so the menu cannot re-save the same malformed face value when face discovery fails.
 - Built successfully via `UT99-Xbox\Tools\build_xbox_cli.py` and deployed `default.xbe` to the CXBX test install.
+
+### 71. Player Setup Registry Refresh, Left Stick Menu Nav, and Preview Scale
+- Steve confirmed the startup crash was fixed, then reported player setup could only change team color.
+- Checked the latest CXBX log and found every player setup list reported exactly one entry:
+  - `XMENU discovered 1 player classes from .int registry`
+  - `XMENU discovered 1 skins for player=Botpack.TMale2 mesh=Soldier`
+  - `XMENU discovered 1 faces for player=Botpack.TMale2 skin=SoldierSkins.blkt`
+  - `XMENU discovered 1 voices for player=Botpack.TMale2 meta=BotPack.VoiceMale`
+- That matched the menu fallback counts, so the likely root was stale `.int` registry data rather than four separate input bugs.
+- Added a one-time public `GetRegistryObjects(..., ForceRefresh=1)` refresh before Xbox menu registry discovery.
+- Moved player-class base lookup closer to the PC path by trying `FindObject(..., "TournamentPlayer")` before explicit package loading.
+- Added left-stick up/down edge navigation for all active menus, matching the existing left-stick left/right option adjustment path.
+- Expanded the player preview panel and increased the preview actor scale by reducing camera distance from `4.0/tan(fov/2)` to `2.8/tan(fov/2)`.
+- Follow-up: kept the character scale, but extended the preview frame vertically to `Y=58..422`, matching the 16px spacing below the top header and above the footer, then rendered the actor into the taller inner viewport.
+- Follow-up 2: the forced registry refresh still produced fallback-only counts in Steve's log, so added a direct `.int` `[Public] Object=(...)` parser for menu discovery when Unreal's registry query returns suspiciously tiny results.
+- The direct parser still uses the proper UT registry files and supports installed mods/skins/voices, but bypasses the broken runtime cache/filter path observed on Xbox.
+- Shrunk the player preview by about 10% after the taller viewport made the body too large.
+- Shifted the player setup values and arrow toggles left while keeping row labels aligned, and shortened the selected-row highlight so it does not overlap the preview panel.
+- Built successfully via `UT99-Xbox\Tools\build_xbox_cli.py` and deployed `default.xbe` to the CXBX test install.
+
+### 72. Player Setup Registry Failure Evidence
+- Steve reported no change: player setup still could only cycle team color.
+- Checked the updated log first. The one-entry lists were confirmed again, and the direct `.int` scanner returned zero objects for every category:
+  - `XMENU direct .int scan class=Class meta=TournamentPlayer count=0`
+  - `XMENU direct .int scan class=Texture meta= count=0`
+  - `XMENU direct .int scan class=Class meta=BotPack.VoiceMale count=0`
+- Because the test install definitely contains `Botpack.int` and `SoldierSkins.int` with `[Public] Object=` entries, this points below menu selection logic: either wildcard enumeration is not returning `.int` files, config section loading cannot open the constructed `.int` path, or the class/metaclass filters are rejecting all parsed rows.
+- Added narrow scan diagnostics for the next run: search path and file count for the first searches, `[Public]` load result for the first files, and parsed/class-filtered/meta-filtered totals.
+- Follow-up log isolated the root: every scan used PC-style paths like `D:\System\../System/*.int`, and `FindFiles` returned zero files before parsing. The Xbox file manager only normalized `../` for relative paths; absolute `D:\...` paths returned immediately.
+- Fixed `FFileManagerXbox::ResolvePath()` so absolute paths are normalized too. This directly supports the unmodified PC registry path in `UObject::CacheDrivers()`, which constructs `appBaseDir() + ../System/*.int`.
+
+### 73. Player Setup Boss Preview Crash Evidence
+- Steve reported one successful Player Setup entry followed by a crash, then a later crash while entering menus. Checked `ut99.log` first.
+- `System\User.ini` now saves `[DefaultPlayer] Class=BotPack.TBoss`, `skin=BossSkins.Boss`, `Face=BossSkins.Xan`, `Voice=BotPack.VoiceBoss`, `team=255`.
+- The log proves that saved state boots and logs in successfully as `TBoss`; the crash occurs after `XMENU screen: Player Setup` and `XMENU player preview actor created`, before the existing player preview mesh/skin summary.
+- Audited PC/root script behavior: `UMenuPlayerSetupClient.UseSelected()` calls `NewPlayerClass.static.SetMultiSkin(...)`, and `Botpack.TBoss` overrides `SetMultiSkin()` with Boss-specific slots/names rather than the generic `TournamentPlayer.SetMultiSkin()` path.
+- Changed Xbox preview skinning to detect `TBoss`/`TBossBot` and apply the Boss-specific texture slot rules from `Botpack.TBoss.SetMultiSkin()`. Added focused logs around preview mesh load and skin application so the next crash log identifies the exact failing stage instead of only showing actor creation.
+- Steve confirmed Player Setup now looks and functions as intended. Moved the main-menu `PLAYER SETUP` item down to sit directly above `SETTINGS`, and updated the activation switch to match the visual order.
+
+### 74. System Link Connectivity Probe
+- Steve approved CXBX-R caveats and asked for a simple two-instance communication test before wiring full System Link gameplay.
+- Added a menu-local `SYSTEM LINK` probe instead of touching the Unreal net driver yet:
+  - initializes XNet before WSAStartup, following the XDK WinsockPeer/UC2004 pattern;
+  - binds a UDP socket to the first available port in 9777-9780;
+  - broadcasts `UTXSL1` heartbeat packets once per second to all probe ports;
+  - records peer IDs/IPs/ports/packet counts on screen and in `ut99.log`.
+- Added `UT99-Xbox/Docs/SystemLinkProbe_CXBX.md` with two-instance CXBX-R setup and expected log/menu output.
+
+### 75. Basic Four-Viewport Split Screen Harness
+- Added a first-pass `SPLITSCREEN` main-menu path for local test coverage before full System Link gameplay.
+- Starts `DM-Deck16][.unr` as `Botpack.DeathMatchPlus` with `MinPlayers=0`, `MaxPlayers=4`, no frag limit, and no time limit.
+- Creates four active local viewports and lays them out in a 2x2 grid:
+  - player 1 top-left;
+  - dummy player 2 top-right;
+  - dummy player 3 bottom-left;
+  - dummy player 4 bottom-right.
+- Shares the primary Xbox render device across the dummy viewports, clears only the first split viewport, and presents only after the fourth viewport has drawn.
+- Applies each viewport's quadrant to the scene frame before rendering so the 3D view is clipped to its correct screen region.
+- Only viewport 1 polls the controller. Viewports 2-4 spawn as local dummy players with zeroed movement/fire input so Steve can walk around and kill them.
+- Added a simple dummy respawn request: dead/hidden dummy players call the stock `ServerReStartPlayer` path after 3 seconds.
+- Built successfully via `UT99-Xbox\Tools\build_xbox_cli.py`.
+- Follow-up: Steve hit a freeze immediately after the loading screen. The log stopped at `LoadMap: DM-Deck16][...` after the dummy viewports had already been created.
+- Root cause: the first pass created viewports 2-4 before travel, so the normal `LoadMap()` viewport-dissociation path saw extra viewports with no valid player actors during the map transition.
+- Changed split screen to queue the request, travel with only viewport 1, then activate split mode after the DM map is live:
+  - viewport 1 loads the map normally;
+  - `UXboxClient::Tick()` calls the split activation hook after travel;
+  - the hook creates viewports 2-4 and spawns dummy player actors using the live level's normal `SpawnPlayActor()` path.
+- Rebuilt successfully via `UT99-Xbox\Tools\build_xbox_cli.py`.
+
+### 76. Split Screen Input Ownership and Bot Suppression
+- Steve tested the queued split flow and reported bots were active and viewport 1 could not move.
+- Checked `ut99.log` first. The log showed the DM map loaded, viewport 1 possessed `TBoss0`, split activation created dummy viewports 1-3, and `XSPLIT active viewports=4`.
+- The same log also showed three extra `XINPUT open port=0` calls after split activation, followed by direct input being applied to all four pawns. Root cause: dummy viewports were bypassing the client tick guard through `UXboxViewport::UpdateInput()`, which still called `PollController()`.
+- Audited `Botpack.DeathMatchPlus`: its default `InitialBots=4` is copied into `RemainingBots` during startup, and standalone games use ready/countdown state. `MinPlayers=0` alone was not enough to make a dummy-only test arena.
+- Fixed dummy input ownership:
+  - dummy viewports now return immediately from both `PollController()` and `UpdateInput()`;
+  - only viewport 1 can sample the physical controller.
+- Suppressed stock match automation for the split harness:
+  - zeroed `Botpack.DeathMatchPlus` class defaults for `InitialBots` and `MinPlayers` before travel;
+  - after map activation, zeroed the live game object's `InitialBots`, `RemainingBots`, and `MinPlayers`;
+  - destroyed any stock `Botpack.Bot` pawns already spawned by the game;
+  - marked all local split players ready and called the stock `StartMatch()` script function.
+- Built successfully via `UT99-Xbox\Tools\build_xbox_cli.py` and deployed `default.xbe` to the CXBX test install.
+
+### 77. Split Screen No-Movement Evidence
+- Steve reported that split-screen P1 still had no movement. Checked `ut99.log` first.
+- The split harness itself was healthy: the log showed `XSPLIT active viewports=4`, P1 possessed `TBoss0`, all players in `PlayerWalking`, `showMenu=0`, and no `Pauser`.
+- The input trace proved controller data was arriving, but the left stick was being mapped into look axes:
+  - raw left stick values such as `raw=-32768,0,0,0` produced `axes=0.00,0.00,-100.00,0.00`;
+  - raw left stick Y values such as `raw=0,32767,0,0` produced `axes=0.00,0.00,0.00,100.00`.
+- Root cause was a persisted `ButtonLayout=1` value. That layout was labeled as a stick option and swapped movement/look sticks inside `ProcessControllerInput()`, even though it lived in the button-layout setting.
+- Fixed by removing stick swapping from `ButtonLayout`, limiting the menu to actual button presets (`DEFAULT`, `FACE FIRE`), and migrating old `ButtonLayout=1` saves back to default on client init.
+
+### 78. Split Screen Movement Consumption Evidence
+- Steve reported no visible movement after the button-layout fix. Checked `ut99.log` first.
+- The new log proved the layout migration worked and left stick now maps to movement axes:
+  - `XboxClient::Init: migrating obsolete southpaw ButtonLayout=1 to default button layout`
+  - `raw=0,32767,0,0 axes=0.00,100.00,0.00,0.00`
+- The same log showed `aBaseY` and `aStrafe` accumulating after split activation instead of being consumed by the stock `PlayerInput()`/`PlayerMove()` path.
+- Source trace found a split-specific ordering bug: `UXboxClient::Tick()` was still polling P1 during the render/client phase, after `GLevel->Tick()` had already run `ReadInput -> PlayerInput -> PlayerTick -> ReadInput(-1)`. This wrote movement fields too late for the current frame and polluted the next diagnostic sample.
+- Changed split mode so render/client tick no longer polls controllers. Split input now has to flow through `UViewport::ReadInput()` during the level tick, matching the stock UT movement path.
+- Expanded split input diagnostics with pawn location, velocity, and acceleration so the next test can prove whether `PlayerMove()` consumes the input and changes movement state.
+- Follow-up: Steve tested again; P1 still could not move. Checked `ut99.log` first.
+- New evidence:
+  - no extra dummy `XINPUT open port=0` lines appeared after split activation, so the previous dummy input ownership bug was fixed;
+  - after `XSPLIT active viewports=4`, there were no gameplay `XINPUT direct` lines, meaning controller input was not reaching the pawn path;
+  - the log was flooded by `ChallengeHUD` errors from dummy viewport HUDs.
+- Applied a split-specific gameplay handoff:
+  - split input now hard-closes any stale Xbox menu and bypasses menu input handling while the split harness is active;
+  - live `DeathMatchPlus` `bRequireReady` and `CountDown` are cleared along with bot counts;
+  - `LevelInfo.Pauser` is cleared during activation;
+  - each split player is marked ready and forced into `PlayerWalking` after `StartMatch()`;
+  - dummy viewport HUD pointers are cleared so only P1 owns a HUD and the dummy `ChallengeHUD` spam stops.
+- Built successfully via `UT99-Xbox\Tools\build_xbox_cli.py` and deployed `default.xbe` to the CXBX test install.
+- Follow-up: Steve reported no movement, with scoreboard and weapon swap still working, and pause gone.
+- Checked `ut99.log` first. The log showed P1's controller path receiving the left stick and writing movement-like values, but P1's `Location`, `Velocity`, and `Acceleration` stayed unchanged. The old/new axis trace also showed `aBaseY`/`aStrafe` accumulating instead of being consumed.
+- Source trace:
+  - stock level tick runs `ReadInput -> eventPlayerInput -> eventPlayerTick -> ReadInput(-1)`;
+  - `PlayerPawn.PlayerInput()` remaps `aBaseY` into `aForward`;
+  - `PlayerWalking.PlayerMove()` consumes only `aForward/aStrafe` to produce `NewAccel`;
+  - split input was still not reliably landing at the exact point `PlayerMove()` consumes it.
+- Added a split-only native input cache and handoff:
+  - `UXboxViewport::ProcessControllerInput()` stores P1 stick values in the split cache instead of directly accumulating `aBaseY`/`aStrafe`;
+  - `UnLevTic.cpp` calls `XboxSplitApplyNativePlayerInput()` immediately after `eventPlayerInput()` and before `eventPlayerTick()`, placing movement directly in `aForward/aStrafe` where `PlayerWalking.PlayerMove()` expects it;
+  - added focused `XSPLIT tick` and `XSPLIT apply` logs around `ReadInput`, `PlayerInput`, and `PlayerTick` to prove whether velocity/acceleration change after the handoff.
+- Restored split pause handling: Start now opens the existing pause menu in split mode instead of the split gameplay path closing/bypassing menu handling entirely.
+- Built successfully via `UT99-Xbox\Tools\build_xbox_cli.py`.
+- Follow-up: Steve reported still no movement. Checked `ut99.log` first.
+- New evidence:
+  - controller samples were reaching the split path and the cached handoff was firing;
+  - `aForward/aStrafe/aTurn` accumulated into very large values across frames;
+  - `Location`, `Velocity`, and `Acceleration` remained zero, so the late cached handoff was bypassing the normal `UInput` scale/reset lifecycle instead of behaving like stock gameplay input.
+- Re-audited the stock path:
+  - `UViewport::ReadInput()` calls `UpdateInput()` first;
+  - platform input is expected to write raw `aBaseY/aStrafe/aTurn/aLookUp` there;
+  - `UInput::ReadInput()` then scales those axes;
+  - `PlayerPawn.PlayerInput()` remaps `aBaseY` to `aForward`;
+  - `PlayerWalking.PlayerMove()` produces `Acceleration`;
+  - `ReadInput(-1)` clears the input floats.
+- Removed the split-only late cached input injection from `UnLevTic.cpp`.
+- Changed split gameplay input to feed the same direct axis fields as non-split gameplay during `UXboxViewport::UpdateInput()`. This is now back on the stock UT input pipeline; render-phase polling remains disabled during split so the old late-write problem should not recur.
+- Adjusted split tick diagnostics so idle dummy players do not consume the log budget before real input arrives.
+
+### 79. Split Screen Movement Root Cause Verified By Isolated Smoke Test
+- Steve asked whether we could minimize iterations by smoke-testing with the isolated CXBX-R copy at `C:\Programming\GitHub\UnrealTournament_1.40\CXBXR`.
+- Added a file-gated smoke harness triggered only by `D:\XboxSplitSmoke.ini`. It queues split-screen on `DM-Deck16][.unr`, disables bots, feeds deterministic P1 forward input, and logs `XSPLIT SELFTEST PASS/FAIL`.
+- First smoke iterations proved:
+  - the level, split viewports, P1 ownership, `PlayerWalking`, and script `PlayerInput`/`PlayerTick` functions were all present;
+  - `UInput` reflected properties existed with `CPF_Input`;
+  - direct C++ writes to `APlayerPawn::aBaseY`, `aStrafe`, `bFire`, etc. did not line up with the reflected UnrealScript property offsets that `UInput` and script actually consume.
+- Root cause: Xbox gameplay input was writing compiled C++ `APlayerPawn` members directly. For this port, those offsets are not a trustworthy ABI for reflected script input fields.
+- Correct fix: route gamepad input through the stock `UInput` command path:
+  - axes now use `SetInputAction(IST_Axis)` plus `Input->Exec("AXIS aBaseY SPEED=...")`;
+  - buttons now use `SetInputAction(IST_Press/IST_Release)` plus `Input->Exec("BUTTON bFire")`, etc.
+- Removed the failed split-only native input cache and the heavy `UnLevTic.cpp` / `UnIn.cpp` diagnostics after proving the cause.
+- Build succeeded with `UT99-Xbox\Tools\build_xbox_cli.py`.
+- Isolated CXBX-R smoke result:
+  - `XSPLIT SELFTEST PASS movement elapsed=0.75 distSq=47622.9 loc=706.5,-1441.7,-724.2 vel=-338.4,213.2,0.0 acc=-723.9,456.1,0.0`
+- The isolated emulator settings were restored and the smoke trigger file removed after the test.
+
+### 80. Split Screen Fire / Jump Control Fix
+- Steve reported that movement worked but several gameplay controls, including jump and fire, were still missing.
+- Checked the latest `ut99.log` first. It showed left-stick movement producing real acceleration, but later `XINPUT state` lines showed `a=255` while the gameplay trace still reported `jump=0`.
+- Source audit:
+  - movement was fixed because it fed reflected `UInput` axes;
+  - fire/alt-fire/duck had been routed only to reflected byte fields, skipping the PC-style aliases that also execute `Fire`, `AltFire`, and `Jump` script commands;
+  - `StaticInitInput()` forced Xbox axis binds, but did not force `Joy1`-`Joy4` gameplay button binds, leaving controller button behavior dependent on stale or incomplete user config.
+- Fixed the button path to match UT's normal binding model:
+  - `Joy1=Fire`
+  - `Joy2=Jump`
+  - `Joy3=AltFire`
+  - `Joy4=Duck`
+- Gameplay buttons now emit real `UEngine::InputEvent()` press/release events on those virtual joystick keys instead of directly toggling `APlayerPawn` C++ members.
+- Default layout mapping:
+  - right trigger -> `Joy1` / Fire
+  - A -> `Joy2` / Jump
+  - left trigger or B -> `Joy3` / AltFire
+  - left stick click -> `Joy4` / Duck
+- Face-fire layout mapping remains:
+  - A -> Fire
+  - right trigger -> Jump
+  - left trigger or B -> AltFire
+  - left stick click -> Duck
+- Build succeeded with `UT99-Xbox\Tools\build_xbox_cli.py`.
+- Isolated CXBX-R split smoke still passed after the change:
+  - `XSPLIT SELFTEST PASS movement elapsed=1.00 distSq=1338.8 loc=1738.7,1544.2,-660.2 vel=-47.8,-3.8,0.0 acc=-39.9,-3.2,0.0`
+- Restored the isolated CXBX-R settings and removed the temporary smoke trigger again.
+
+### 81. Split Screen Control Scheme Audit And Silo Check
+- Steve asked for a full control audit before more testing, plus confirmation that split-screen remains siloed from single-player.
+- Static code audit findings:
+  - `UEngine::InputEvent(Viewport, ...)` routes to the `UInput` instance owned by the exact viewport passed in, so button events are per-viewport as long as the Xbox layer passes `this`;
+  - `UXboxViewport::PollController()` already returns immediately for `bXboxSplitDummy`, so current dummy viewports cannot steal P1 input;
+  - gameplay axes use the corrected reflected `UInput` axis path (`AXIS aStrafe/aBaseY/aTurn/aLookUp`) and are therefore not dependent on compiled C++ member offsets;
+  - face buttons/triggers now route through `Joy1`-`Joy4` so Fire, Jump, AltFire, and Duck execute the same aliases as PC/default joystick input;
+  - utility controls route through viewport-local `InputEvent()` as D-pad weapon select, Back scoreboard, X inventory/use, Y next weapon, Black/White inventory previous/next.
+- Found one actual control gap: right-stick click was mapped to `IK_Joy6`, but Xbox forced defaults blanked `Joy6`. Added the missing `CenterView` alias and bound `Joy6=CenterView`.
+- Found one actual split isolation gap from the engine trace:
+  - `UGameEngine::Browse()` calls `MatchViewportsToActors()` for every `Client->Viewports` entry;
+  - if four split viewports remain in `Client->Viewports`, a later CityIntro or single-player travel will spawn actors for all of them.
+- Added `XboxSplitResetRuntime()` and call it before non-split travels (`InstantAction`, `ReturnToFrontend`) and before starting a new split session. It destroys dummy split viewports, restores the primary viewport to full screen, clears split flags, and logs the reset reason.
+- No smoke test run yet for this section per Steve's request to audit first.

@@ -1,5 +1,11 @@
 // XboxClient.cpp
 
+extern "C" UBOOL XboxSplitIsActive();
+extern "C" void XboxSplitBeginRenderFrame( INT ViewportCount );
+extern "C" void XboxSplitSetRenderViewport( INT ViewportIndex );
+extern "C" void XboxSplitTryActivate( UClient* Client );
+extern "C" void XboxSplitTickDummies( UClient* Client );
+
 void UXboxClient::StaticConstructor()
 {
     new(GetClass(),TEXT("NumLocalPlayers"),       RF_Public) UIntProperty  (CPP_PROPERTY(NumLocalPlayers),       TEXT("Display"), CPF_Config);
@@ -27,6 +33,18 @@ void UXboxClient::Init( UEngine* InEngine )
     ButtonLayout          = 0;
 
     LoadConfig();
+    if( ButtonLayout == 1 )
+    {
+        GXboxLog.Write( "XboxClient::Init: migrating obsolete southpaw ButtonLayout=1 to default button layout" );
+        ButtonLayout = 0;
+        SaveConfig();
+    }
+    else if( ButtonLayout < 0 || ButtonLayout > 2 )
+    {
+        GXboxLog.Write( "XboxClient::Init: clamping invalid ButtonLayout=%d to default", ButtonLayout );
+        ButtonLayout = 0;
+        SaveConfig();
+    }
 
     NumLocalPlayers       = 1;
     HasFocus              = 1;
@@ -74,6 +92,11 @@ void UXboxClient::Tick()
         GXboxLog.Write( "XCLIENT tick=%d begin viewports=%d", ClientTickCount, Viewports.Num() );
     if( 0 )
         GXboxLog.Write( "XCLIENT tick=%d begin viewports=%d", ClientTickCount, Viewports.Num() );
+    XboxSplitTryActivate( this );
+    UBOOL bSplit = XboxSplitIsActive();
+    XboxSplitTickDummies( this );
+    XboxSplitBeginRenderFrame( Viewports.Num() );
+
     for( INT i=0; i<Viewports.Num(); i++ )
     {
         UXboxViewport* VP = Cast<UXboxViewport>( Viewports(i) );
@@ -82,7 +105,8 @@ void UXboxClient::Tick()
             if( bBoundaryTick )
                 GXboxLog.Write( "XCLIENT tick=%d vp=%d poll-begin VP=0x%08X actor=0x%08X rendev=0x%08X",
                     ClientTickCount, i, (DWORD)VP, (DWORD)VP->Actor, (DWORD)VP->RenDev );
-            VP->PollController();
+            if( !bSplit )
+                VP->PollController();
             if( bBoundaryTick )
                 GXboxLog.Write( "XCLIENT tick=%d vp=%d draw-begin", ClientTickCount, i );
             // Draw the viewport — this is what triggers rendering each frame.
@@ -95,7 +119,8 @@ void UXboxClient::Tick()
                     (DWORD)VP, (DWORD)VP->RenDev, (DWORD)VP->Actor );
                 bFirstDraw = 0;
             }
-            Engine->Draw( VP, 1 );
+            XboxSplitSetRenderViewport( i );
+            Engine->Draw( VP, (!bSplit || i == Viewports.Num()-1) ? 1 : 0 );
             if( bBoundaryTick )
                 GXboxLog.Write( "XCLIENT tick=%d vp=%d draw-end", ClientTickCount, i );
         }
@@ -113,6 +138,7 @@ UViewport* UXboxClient::NewViewport( const FName Name )
     VP->ControllerPort      = -1;
     VP->ControllerHandle    = NULL;
     VP->ControllerConnected = 0;
+    VP->bXboxSplitDummy     = 0;
     appMemzero( &VP->ControllerState,     sizeof(VP->ControllerState)     );
     appMemzero( &VP->PrevControllerState, sizeof(VP->PrevControllerState) );
     GXboxLog.Write( "XboxClient::NewViewport: VP=0x%08X", (DWORD)VP );

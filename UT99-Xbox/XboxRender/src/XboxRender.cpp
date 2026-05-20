@@ -7,6 +7,8 @@
 IMPLEMENT_CLASS(UXboxRenderDevice);
 IMPLEMENT_PACKAGE(XboxRender);
 
+extern "C" UBOOL XboxSplitShouldClearRenderLock();
+
 #ifndef D3DLOCK_NOOVERWRITE
 #define D3DLOCK_NOOVERWRITE 0x00001000L
 #endif
@@ -1020,10 +1022,14 @@ void UXboxRenderDevice::Lock( FPlane InFlashScale, FPlane InFlashFog, FPlane Scr
 
     // Clear runs before BeginScene ??? MS official PolynomialTextureMaps.cpp:289
     // and xQuake gl_fakegl.cpp:1752-1760 both follow this pattern.
-    HRESULT hrClear = Device->Clear( 0, NULL,
-        D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER | D3DCLEAR_STENCIL,
-        0x00000000,
-        1.0f, 0 );
+    HRESULT hrClear = S_OK;
+    if( XboxSplitShouldClearRenderLock() )
+    {
+        hrClear = Device->Clear( 0, NULL,
+            D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER | D3DCLEAR_STENCIL,
+            0x00000000,
+            1.0f, 0 );
+    }
 
     HRESULT hrBegin = Device->BeginScene();
 
@@ -1164,7 +1170,7 @@ void UXboxRenderDevice::Unlock( UBOOL Blit )
     // and MS XDK samples. The retail Xbox D3D8 lib equates this to swap-chain
     // flip + frame fence; earlier Swap(0) was a lower-level backbuffer rotate
     // that didn't push to the CRTC.
-    HRESULT hrPresent = Device->Present( NULL, NULL, NULL, NULL );
+    HRESULT hrPresent = Blit ? Device->Present( NULL, NULL, NULL, NULL ) : S_OK;
     DOUBLE AfterPresentSeconds = appSeconds();
     GRD_LastPresentMS = (FLOAT)((AfterPresentSeconds - BeforePresentSeconds) * 1000.0);
 

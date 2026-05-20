@@ -137,10 +137,90 @@ public:
         BaseDir[0] = 0;
     }
 
+    FString NormalizePath( const TCHAR* InPath )
+    {
+        TCHAR Src[1024];
+        TCHAR Out[1024];
+        appStrncpy( Src, InPath, ARRAY_COUNT(Src) );
+        Src[ARRAY_COUNT(Src)-1] = 0;
+
+        for( INT i=0; Src[i]; i++ )
+            if( Src[i] == '/' )
+                Src[i] = '\\';
+
+        Out[0] = 0;
+        INT Pos = 0;
+        if( Src[0] && Src[1] == ':' )
+        {
+            Out[0] = Src[0];
+            Out[1] = ':';
+            Out[2] = '\\';
+            Out[3] = 0;
+            Pos = 2;
+            while( Src[Pos] == '\\' )
+                Pos++;
+        }
+        else if( Src[0] == '\\' )
+        {
+            Out[0] = '\\';
+            Out[1] = 0;
+            Pos = 1;
+            while( Src[Pos] == '\\' )
+                Pos++;
+        }
+
+        while( Src[Pos] )
+        {
+            while( Src[Pos] == '\\' )
+                Pos++;
+            if( !Src[Pos] )
+                break;
+
+            TCHAR Segment[256];
+            INT SegLen = 0;
+            while( Src[Pos] && Src[Pos] != '\\' && SegLen < ARRAY_COUNT(Segment)-1 )
+                Segment[SegLen++] = Src[Pos++];
+            Segment[SegLen] = 0;
+
+            if( appStrcmp( Segment, TEXT(".") ) == 0 )
+                continue;
+
+            if( appStrcmp( Segment, TEXT("..") ) == 0 )
+            {
+                INT Len = appStrlen( Out );
+                while( Len > 0 && Out[Len-1] == '\\' )
+                    Out[--Len] = 0;
+
+                INT MinLen = (Out[0] && Out[1] == ':') ? 3 : ((Out[0] == '\\') ? 1 : 0);
+                if( Len > MinLen )
+                {
+                    while( Len > MinLen && Out[Len-1] != '\\' )
+                        Out[--Len] = 0;
+                    while( Len > MinLen && Out[Len-1] == '\\' )
+                        Out[--Len] = 0;
+                }
+                if( MinLen == 3 )
+                {
+                    Out[1] = ':';
+                    Out[2] = '\\';
+                    Out[3] = 0;
+                }
+                continue;
+            }
+
+            INT OutLen = appStrlen( Out );
+            if( OutLen > 0 && Out[OutLen-1] != '\\' )
+                appStrcat( Out, TEXT("\\") );
+            appStrcat( Out, Segment );
+        }
+
+        return FString( Out );
+    }
+
     FString ResolvePath( const TCHAR* Filename )
     {
         if( Filename[0] && Filename[1]==':' )
-            return FString( Filename );
+            return NormalizePath( Filename );
 
         FString Result( BaseDir );
 
@@ -159,12 +239,7 @@ public:
         while( Filename[0]=='.' && (Filename[1]=='\\' || Filename[1]=='/') )
             Filename += 2;
 
-        FString Final = Result + Filename;
-
-        // Normalize forward slashes to backslashes for Xbox/CXBX-R compatibility.
-        for( INT ch = 0; ch < Final.Len(); ch++ )
-            if( (*Final)[ch] == '/' )
-                ((TCHAR*)*Final)[ch] = '\\';
+        FString Final = NormalizePath( *(Result + Filename) );
 
         // Diagnostic: log first 5000 resolutions (bumped from 30 so we can see
         // file ops happening late in boot — e.g. during GetPackageLinker for

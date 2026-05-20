@@ -18,6 +18,8 @@ IMPLEMENT_CLASS(UGameEngine);
 
 #if TARGET_XBOX
 extern void XboxMenuPostRender( UViewport* Viewport, UCanvas* Canvas );
+extern "C" void XboxViewportApplyViewRegion( UViewport* Viewport, FSceneNode* Frame );
+extern "C" UBOOL XboxViewportShouldPostRenderPlayer( UViewport* Viewport );
 
 static UBOOL GetXboxStartURL( TCHAR* OutURL, INT MaxLen )
 {
@@ -1373,6 +1375,9 @@ void UGameEngine::Draw( UViewport* Viewport, UBOOL Blit, BYTE* HitData, INT* Hit
 			debugf( NAME_Log, TEXT("XDRAW draw=%d lock-ok"), DrawDiagCount );
 		// Setup rendering coords.
 		FSceneNode* Frame = Render->CreateMasterFrame( Viewport, ViewLocation, ViewRotation, NULL );
+#if TARGET_XBOX
+		XboxViewportApplyViewRegion( Viewport, Frame );
+#endif
 		if( bDrawDiag )
 			debugf( NAME_Log, TEXT("XDRAW draw=%d master-frame=%08X"), DrawDiagCount, (DWORD)Frame );
 
@@ -1414,8 +1419,15 @@ void UGameEngine::Draw( UViewport* Viewport, UBOOL Blit, BYTE* HitData, INT* Hit
 		Frame->ComputeRenderSize();
 #endif
 		Viewport->RenDev->EndFlash();
+#if TARGET_XBOX
+		if( XboxViewportShouldPostRenderPlayer( Viewport ) )
+#endif
 		Viewport->Actor->eventPostRender( Viewport->Canvas );
-		if( Viewport->Console )
+		if( Viewport->Console
+#if TARGET_XBOX
+		&&	XboxViewportShouldPostRenderPlayer( Viewport )
+#endif
+		)
 		{
 			Viewport->Console->PostRender( Frame );
 			Viewport->Console->eventPostRender( Viewport->Canvas );

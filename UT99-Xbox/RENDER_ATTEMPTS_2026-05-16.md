@@ -1103,3 +1103,15 @@ Follow-up:
 - Saves `Class`, `Skin`, `Face`, `Voice`, and `Team` to `[DefaultPlayer]` in `User.ini`.
 - Instant Action now appends the selected player options to the travel URL so new matches use the current player setup immediately.
 - Built successfully via `UT99-Xbox\Tools\build_xbox_cli.py` and deployed `default.xbe` to the CXBX test install.
+
+### 68. Player Setup 3D Preview and Voice Test
+- Added the required live right-side player preview to `PLAYER SETUP`.
+- Followed the PC menu reference instead of a static thumbnail:
+  - `UMenuPlayerSetupClient` changes the mesh to the class default `SelectionMesh` and applies the selected skin/face/team.
+  - `UMenuPlayerMeshClient` renders a temporary `MeshActor` through `Canvas.DrawClippedActor`.
+  - The Xbox menu now spawns a hidden preview actor, loads the selected class `SelectionMesh`, applies UT's multiskin naming/defaults, and draws it into the right panel with its own clipped scene bounds.
+- Added voice testing on voice selection changes:
+  - `UTPlayerSetupClient.VoiceChanged()` plays a random `ChallengeVoicePack.AckSound`.
+  - The Xbox menu now loads the selected voice class, reads `NumAcks`/`AckSound`, and plays a random acknowledgement through `SLOT_Interface`.
+- Preview actors are destroyed/cleared when the menu closes or travels so they do not survive map changes.
+- Built successfully via `UT99-Xbox\Tools\build_xbox_cli.py` and deployed `default.xbe` to the CXBX test install.

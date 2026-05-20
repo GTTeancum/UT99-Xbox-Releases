@@ -128,6 +128,8 @@ struct FXboxPlayerClassOption
     FString Label;
     FString URLValue;
     FString MeshName;
+    FString MeshPath;
+    FString SelectionMesh;
     FString VoiceMetaClass;
     FString DefaultVoice;
     UBOOL bMultiSkinned;
@@ -251,6 +253,30 @@ static INT GXboxPlayerSkinsClass = -1;
 static INT GXboxPlayerFacesClass = -1;
 static INT GXboxPlayerFacesSkin = -1;
 static INT GXboxPlayerVoicesClass = -1;
+static AActor* GXboxPlayerPreviewActor = NULL;
+static ULevel* GXboxPlayerPreviewLevel = NULL;
+static INT GXboxPlayerPreviewClass = -1;
+static INT GXboxPlayerPreviewSkin = -1;
+static INT GXboxPlayerPreviewFace = -1;
+static INT GXboxPlayerPreviewTeam = -1;
+static FLOAT GXboxPlayerPreviewYaw = 32768.0f;
+
+static void XboxMenuResetPlayerPreviewCache()
+{
+    GXboxPlayerPreviewActor = NULL;
+    GXboxPlayerPreviewLevel = NULL;
+    GXboxPlayerPreviewClass = -1;
+    GXboxPlayerPreviewSkin = -1;
+    GXboxPlayerPreviewFace = -1;
+    GXboxPlayerPreviewTeam = -1;
+}
+
+static void XboxMenuDestroyPlayerPreview()
+{
+    if( GXboxPlayerPreviewActor )
+        GXboxPlayerPreviewActor->Destroy();
+    XboxMenuResetPlayerPreviewCache();
+}
 
 static UTexture* GXboxMenuPreviewTexture = NULL;
 static TCHAR     GXboxMenuPreviewMap[64] = TEXT("");
@@ -580,6 +606,14 @@ static UBOOL XboxMenuClassDefaultString( UClass* Class, const TCHAR* PropertyNam
     return OutValue.Len() > 0;
 }
 
+static INT XboxMenuClassDefaultInt( UClass* Class, const TCHAR* PropertyName, INT DefaultValue )
+{
+    FString Value;
+    if( XboxMenuClassDefaultString( Class, PropertyName, Value ) )
+        return appAtoi( *Value );
+    return DefaultValue;
+}
+
 static void XboxMenuItemName( const FString& FullName, FString& OutItem )
 {
     OutItem = FullName;
@@ -624,6 +658,8 @@ static void XboxMenuAddFallbackPlayerClass()
     Option.Label = TEXT("MALE SOLDIER");
     Option.URLValue = TEXT("Botpack.TMale2");
     Option.MeshName = TEXT("Soldier");
+    Option.MeshPath = TEXT("Botpack.Soldier");
+    Option.SelectionMesh = TEXT("Botpack.SelectionMale2");
     Option.VoiceMetaClass = TEXT("BotPack.VoiceMale");
     Option.DefaultVoice = TEXT("BotPack.VoiceMaleTwo");
     Option.bMultiSkinned = 1;
@@ -655,6 +691,14 @@ static void XboxMenuLoadPlayerClasses()
             if( Option.Label == TEXT("UNKNOWN") )
                 Option.Label = Players(i).Object.Caps();
             Option.MeshName = (Defaults && Defaults->Mesh) ? FString(Defaults->Mesh->GetName()) : FString(TEXT(""));
+            Option.MeshPath = TEXT("");
+            if( Defaults && Defaults->Mesh )
+            {
+                TCHAR MeshPath[256] = TEXT("");
+                Defaults->Mesh->GetPathName( NULL, MeshPath );
+                Option.MeshPath = MeshPath;
+            }
+            Option.SelectionMesh = Defaults ? Defaults->SelectionMesh : FString(TEXT(""));
             XboxMenuClassDefaultString( PlayerClass, TEXT("VoicePackMetaClass"), Option.VoiceMetaClass );
             if( Option.VoiceMetaClass.Len() == 0 )
                 Option.VoiceMetaClass = TEXT("BotPack.ChallengeVoicePack");
@@ -922,6 +966,303 @@ static void XboxMenuBuildPlayerURL( TCHAR* Out, INT OutCount )
     Out[OutCount-1] = 0;
 }
 
+static UTexture* XboxMenuLoadTexture( const FString& Name )
+{
+    if( Name.Len() == 0 )
+        return NULL;
+    return Cast<UTexture>( UObject::StaticLoadObject( UTexture::StaticClass(), NULL, *Name, NULL, LOAD_NoWarn | LOAD_Quiet, NULL ) );
+}
+
+static UBOOL XboxMenuSetSkinElement( AActor* Actor, INT SkinNo, const FString& SkinName, const FString& DefaultSkinName )
+{
+    if( !Actor || SkinNo < 0 || SkinNo >= ARRAY_COUNT(Actor->MultiSkins) )
+        return 0;
+
+    UTexture* NewSkin = XboxMenuLoadTexture( SkinName );
+    if( NewSkin )
+    {
+        Actor->MultiSkins[SkinNo] = NewSkin;
+        return 1;
+    }
+
+    if( DefaultSkinName.Len() )
+        Actor->MultiSkins[SkinNo] = XboxMenuLoadTexture( DefaultSkinName );
+    return 0;
+}
+
+static void XboxMenuAppendInt( FString& Value, INT Number )
+{
+    TCHAR Tmp[16];
+    appSprintf( Tmp, TEXT("%i"), Number );
+    Value += Tmp;
+}
+
+static void XboxMenuApplyPreviewSkin( AActor* Actor )
+{
+    if( !Actor )
+        return;
+
+    XboxMenuLoadPlayerState();
+    XboxMenuLoadPlayerSkins( GXboxMenu.PlayerClass );
+    XboxMenuLoadPlayerFaces( GXboxMenu.PlayerClass, GXboxMenu.PlayerSkin );
+
+    const FXboxPlayerClassOption& Player = XboxMenuPlayerClass( GXboxMenu.PlayerClass );
+    FString SkinName = GXboxPlayerSkins(GXboxMenu.PlayerSkin).URLValue;
+    FString FaceName = GXboxPlayerFaces(GXboxMenu.PlayerFace).URLValue;
+
+    Actor->Skin = NULL;
+    for( INT i=0; i<ARRAY_COUNT(Actor->MultiSkins); i++ )
+        Actor->MultiSkins[i] = NULL;
+
+    UClass* PlayerClass = FindObject<UClass>( ANY_PACKAGE, *Player.URLValue );
+    if( !PlayerClass )
+        PlayerClass = UObject::StaticLoadClass( APawn::StaticClass(), NULL, *Player.URLValue, NULL, LOAD_NoWarn | LOAD_Quiet, NULL );
+
+    if( !Player.bMultiSkinned || !PlayerClass )
+    {
+        Actor->Skin = XboxMenuLoadTexture( SkinName );
+        return;
+    }
+
+    FString SkinItem;
+    FString FaceItem;
+    FString SkinPackage;
+    FString FacePackage;
+    XboxMenuItemName( SkinName, SkinItem );
+    XboxMenuItemName( FaceName, FaceItem );
+    XboxMenuPackagePrefix( SkinName, SkinPackage );
+    XboxMenuPackagePrefix( FaceName, FacePackage );
+
+    FString DefaultPackage;
+    FString DefaultSkinName;
+    XboxMenuClassDefaultString( PlayerClass, TEXT("DefaultPackage"), DefaultPackage );
+    XboxMenuClassDefaultString( PlayerClass, TEXT("DefaultSkinName"), DefaultSkinName );
+    if( DefaultSkinName.Len() == 0 )
+        DefaultSkinName = SkinName;
+    if( SkinPackage.Len() == 0 )
+    {
+        SkinPackage = DefaultPackage;
+        SkinName = SkinPackage + SkinName;
+    }
+    if( FacePackage.Len() == 0 )
+    {
+        FacePackage = DefaultPackage;
+        FaceName = FacePackage + FaceName;
+    }
+
+    INT FixedSkin = XboxMenuClassDefaultInt( PlayerClass, TEXT("FixedSkin"), 2 );
+    INT FaceSkin = XboxMenuClassDefaultInt( PlayerClass, TEXT("FaceSkin"), 3 );
+    INT TeamSkin1 = XboxMenuClassDefaultInt( PlayerClass, TEXT("TeamSkin1"), 0 );
+    INT TeamSkin2 = XboxMenuClassDefaultInt( PlayerClass, TEXT("TeamSkin2"), 1 );
+
+    FString FixedName = SkinName;
+    FString FixedFallback = DefaultSkinName;
+    XboxMenuAppendInt( FixedName, FixedSkin + 1 );
+    XboxMenuAppendInt( FixedFallback, FixedSkin + 1 );
+    if( !XboxMenuSetSkinElement( Actor, FixedSkin, FixedName, FixedFallback ) )
+    {
+        SkinName = DefaultSkinName;
+        FaceName = TEXT("");
+        FaceItem = TEXT("");
+        XboxMenuPackagePrefix( FaceName, FacePackage );
+    }
+
+    FString FaceTex = FacePackage + SkinItem;
+    XboxMenuAppendInt( FaceTex, FaceSkin + 1 );
+    FaceTex += FaceItem;
+    FString FaceFallback = SkinName;
+    XboxMenuAppendInt( FaceFallback, FaceSkin + 1 );
+    XboxMenuSetSkinElement( Actor, FaceSkin, FaceTex, FaceFallback );
+
+    if( GXboxMenu.PlayerTeam != 255 )
+    {
+        FString Team1 = SkinName;
+        FString Team1Fallback = SkinName;
+        XboxMenuAppendInt( Team1, TeamSkin1 + 1 );
+        Team1 += TEXT("T_");
+        XboxMenuAppendInt( Team1, GXboxMenu.PlayerTeam );
+        XboxMenuAppendInt( Team1Fallback, TeamSkin1 + 1 );
+        XboxMenuSetSkinElement( Actor, TeamSkin1, Team1, Team1Fallback );
+
+        FString Team2 = SkinName;
+        FString Team2Fallback = SkinName;
+        XboxMenuAppendInt( Team2, TeamSkin2 + 1 );
+        Team2 += TEXT("T_");
+        XboxMenuAppendInt( Team2, GXboxMenu.PlayerTeam );
+        XboxMenuAppendInt( Team2Fallback, TeamSkin2 + 1 );
+        XboxMenuSetSkinElement( Actor, TeamSkin2, Team2, Team2Fallback );
+    }
+    else
+    {
+        FString Team1 = SkinName;
+        FString Team2 = SkinName;
+        XboxMenuAppendInt( Team1, TeamSkin1 + 1 );
+        XboxMenuAppendInt( Team2, TeamSkin2 + 1 );
+        XboxMenuSetSkinElement( Actor, TeamSkin1, Team1, TEXT("") );
+        XboxMenuSetSkinElement( Actor, TeamSkin2, Team2, TEXT("") );
+    }
+}
+
+static AActor* XboxMenuGetPlayerPreviewActor( UXboxViewport* Viewport )
+{
+    if( !Viewport || !Viewport->Actor || !Viewport->Actor->XLevel )
+        return NULL;
+
+    if( GXboxPlayerPreviewActor && GXboxPlayerPreviewLevel == Viewport->Actor->XLevel )
+        return GXboxPlayerPreviewActor;
+
+    if( GXboxPlayerPreviewActor )
+        XboxMenuResetPlayerPreviewCache();
+
+    UClass* MeshActorClass = FindObject<UClass>( ANY_PACKAGE, TEXT("MeshActor") );
+    if( !MeshActorClass )
+        MeshActorClass = UObject::StaticLoadClass( AActor::StaticClass(), NULL, TEXT("UMenu.MeshActor"), NULL, LOAD_NoWarn | LOAD_Quiet, NULL );
+    if( !MeshActorClass )
+        MeshActorClass = AInfo::StaticClass();
+
+    GXboxPlayerPreviewActor = Viewport->Actor->XLevel->SpawnActor( MeshActorClass, NAME_None, NULL, NULL, FVector(0,0,0), FRotator(0,0,0), NULL, 1 );
+    GXboxPlayerPreviewLevel = Viewport->Actor->XLevel;
+    GXboxPlayerPreviewClass = -1;
+    GXboxPlayerPreviewSkin = -1;
+    GXboxPlayerPreviewFace = -1;
+    GXboxPlayerPreviewTeam = -1;
+
+    if( GXboxPlayerPreviewActor )
+    {
+        GXboxPlayerPreviewActor->DrawType = DT_Mesh;
+        GXboxPlayerPreviewActor->bHidden = 1;
+        GXboxPlayerPreviewActor->bUnlit = 1;
+        GXboxPlayerPreviewActor->bCollideActors = 0;
+        GXboxPlayerPreviewActor->bCollideWorld = 0;
+        GXboxPlayerPreviewActor->bBlockActors = 0;
+        GXboxPlayerPreviewActor->bBlockPlayers = 0;
+        GXboxPlayerPreviewActor->DrawScale = 0.10f;
+        GXboxPlayerPreviewActor->AmbientGlow = 255;
+    }
+
+    GXboxLog.Write( "XMENU player preview actor %s",
+        GXboxPlayerPreviewActor ? "created" : "missing" );
+    return GXboxPlayerPreviewActor;
+}
+
+static void XboxMenuUpdatePlayerPreviewActor( UXboxViewport* Viewport )
+{
+    AActor* Actor = XboxMenuGetPlayerPreviewActor( Viewport );
+    if( !Actor )
+        return;
+
+    XboxMenuLoadPlayerState();
+    if( GXboxPlayerPreviewClass == GXboxMenu.PlayerClass
+    &&  GXboxPlayerPreviewSkin == GXboxMenu.PlayerSkin
+    &&  GXboxPlayerPreviewFace == GXboxMenu.PlayerFace
+    &&  GXboxPlayerPreviewTeam == GXboxMenu.PlayerTeam )
+        return;
+
+    const FXboxPlayerClassOption& Player = XboxMenuPlayerClass( GXboxMenu.PlayerClass );
+    FString MeshName = Player.SelectionMesh.Len() ? Player.SelectionMesh : Player.MeshPath;
+    UMesh* Mesh = MeshName.Len()
+        ? Cast<UMesh>( UObject::StaticLoadObject( UMesh::StaticClass(), NULL, *MeshName, NULL, LOAD_NoWarn | LOAD_Quiet, NULL ) )
+        : NULL;
+    Actor->Mesh = Mesh;
+    Actor->DrawScale = 0.10f;
+    Actor->AmbientGlow = 255;
+    Actor->bMeshEnviroMap = 0;
+    XboxMenuApplyPreviewSkin( Actor );
+
+    GXboxPlayerPreviewClass = GXboxMenu.PlayerClass;
+    GXboxPlayerPreviewSkin = GXboxMenu.PlayerSkin;
+    GXboxPlayerPreviewFace = GXboxMenu.PlayerFace;
+    GXboxPlayerPreviewTeam = GXboxMenu.PlayerTeam;
+    GXboxLog.Write( "XMENU player preview mesh=%s skin=%s face=%s team=%d %s",
+        TCHAR_TO_ANSI(*MeshName),
+        TCHAR_TO_ANSI(*GXboxPlayerSkins(GXboxMenu.PlayerSkin).URLValue),
+        TCHAR_TO_ANSI(*GXboxPlayerFaces(GXboxMenu.PlayerFace).URLValue),
+        GXboxMenu.PlayerTeam,
+        Mesh ? "OK" : "missing" );
+}
+
+static void XboxMenuDrawPlayerPreviewActor( UXboxViewport* Viewport, UCanvas* Canvas, FLOAT X, FLOAT Y, FLOAT W, FLOAT H )
+{
+    if( !Viewport || !Canvas || !Canvas->Frame || !Canvas->Render || !Viewport->Actor || !Viewport->RenDev )
+        return;
+
+    XboxMenuUpdatePlayerPreviewActor( Viewport );
+    AActor* Actor = XboxMenuGetPlayerPreviewActor( Viewport );
+    if( !Actor || !Actor->Mesh )
+        return;
+
+    GXboxPlayerPreviewYaw += 96.0f;
+    if( GXboxPlayerPreviewYaw >= 65536.0f )
+        GXboxPlayerPreviewYaw -= 65536.0f;
+
+    FLOAT OldFov = Viewport->Actor->FovAngle;
+    Viewport->Actor->FovAngle = 30.0f;
+    FLOAT FovRadians = Viewport->Actor->FovAngle * PI / 180.0f;
+    Actor->Location = FVector( 4.0f / appTan(FovRadians * 0.5f), 0.0f, -1.5f );
+    Actor->Rotation = FRotator( 0, (INT)GXboxPlayerPreviewYaw, 0 );
+
+    INT OldX = Canvas->Frame->X;
+    INT OldY = Canvas->Frame->Y;
+    INT OldXB = Canvas->Frame->XB;
+    INT OldYB = Canvas->Frame->YB;
+    INT OldRendMap = Viewport->Actor->RendMap;
+    UBOOL bOldHidden = Actor->bHidden;
+
+    Canvas->Frame->X = (INT)W;
+    Canvas->Frame->Y = (INT)H;
+    Canvas->Frame->XB = (INT)X;
+    Canvas->Frame->YB = (INT)Y;
+    Canvas->Frame->ComputeRenderCoords( FVector(0,0,0), FRotator(0,0,0) );
+    Canvas->Frame->ComputeRenderSize();
+
+    Actor->bHidden = 0;
+    Viewport->RenDev->ClearZ( Canvas->Frame );
+    Canvas->Render->DrawActor( Canvas->Frame, Actor );
+    Actor->bHidden = bOldHidden;
+    Viewport->Actor->RendMap = OldRendMap;
+
+    Canvas->Frame->X = OldX;
+    Canvas->Frame->Y = OldY;
+    Canvas->Frame->XB = OldXB;
+    Canvas->Frame->YB = OldYB;
+    Canvas->Frame->ComputeRenderSize();
+    Viewport->Actor->FovAngle = OldFov;
+}
+
+static void XboxMenuPlayVoiceSample( UXboxViewport* Viewport )
+{
+    if( !Viewport || !Viewport->Actor )
+        return;
+
+    UXboxClient* Client = XboxMenuGetClient( Viewport );
+    if( !Client || !Client->Engine || !Client->Engine->Audio )
+        return;
+
+    XboxMenuLoadPlayerState();
+    XboxMenuLoadPlayerVoices( GXboxMenu.PlayerClass );
+    UClass* VoiceClass = UObject::StaticLoadClass( UObject::StaticClass(), NULL, *GXboxPlayerVoices(GXboxMenu.PlayerVoice).URLValue, NULL, LOAD_NoWarn | LOAD_Quiet, NULL );
+    if( !VoiceClass || !VoiceClass->Defaults.Num() )
+        return;
+
+    INT NumAcks = XboxMenuClassDefaultInt( VoiceClass, TEXT("NumAcks"), 0 );
+    UProperty* AckProp = FindField<UProperty>( VoiceClass, TEXT("AckSound") );
+    UObjectProperty* AckObjectProp = Cast<UObjectProperty>( AckProp );
+    if( !AckObjectProp || NumAcks <= 0 )
+        return;
+
+    INT AckIndex = appRand() % Min<INT>( NumAcks, AckProp->ArrayDim );
+    BYTE* AckData = &VoiceClass->Defaults(0) + AckProp->Offset + AckIndex * AckProp->ElementSize;
+    USound* Sound = *(USound**)AckData;
+    if( !Sound )
+        return;
+
+    Client->Engine->Audio->PlaySound( Viewport->Actor, SLOT_Interface, Sound, Viewport->Actor->Location, 16.0f, 1600.0f, 1.0f );
+    GXboxLog.Write( "XMENU voice sample class=%s ack=%d sound=%s",
+        TCHAR_TO_ANSI(*GXboxPlayerVoices(GXboxMenu.PlayerVoice).URLValue),
+        AckIndex,
+        Sound ? Sound->GetName() : "None" );
+}
+
 static void XboxMenuSaveTripletColor( const TCHAR* Key, INT ColorIndex )
 {
     if( !GConfig )
@@ -1093,6 +1434,7 @@ static void XboxMenuClose( UXboxViewport* Viewport )
     if( GXboxMenu.Active )
         GXboxLog.Write( "XMENU closed" );
     GXboxMenu.Active = 0;
+    XboxMenuDestroyPlayerPreview();
 
     XboxMenuReleaseMatchPause( Viewport );
 
@@ -1192,6 +1534,7 @@ static void XboxMenuReturnToFrontend( UXboxViewport* Viewport )
     if( !Client || !Client->Engine )
         return;
 
+    XboxMenuDestroyPlayerPreview();
     XboxMenuReleaseMatchPause( Viewport );
     GXboxMenu.Active = 1;
     GXboxMenu.Screen = XMS_Main;
@@ -1210,7 +1553,7 @@ static void XboxMenuReturnToFrontend( UXboxViewport* Viewport )
 
 static void XboxMenuMove( INT Delta );
 static void XboxMenuAdjustInstantAction( INT Delta );
-static void XboxMenuAdjustPlayerSetup( INT Delta );
+static void XboxMenuAdjustPlayerSetup( UXboxViewport* Viewport, INT Delta );
 static void XboxMenuAdjustSettings( UXboxViewport* Viewport, INT Delta );
 
 static void XboxMenuActivate( UXboxViewport* Viewport )
@@ -1284,7 +1627,7 @@ static void XboxMenuActivate( UXboxViewport* Viewport )
     }
     else if( GXboxMenu.Screen == XMS_PlayerSetup )
     {
-        XboxMenuAdjustPlayerSetup( 1 );
+        XboxMenuAdjustPlayerSetup( Viewport, 1 );
     }
     else if( GXboxMenu.Screen == XMS_Settings )
     {
@@ -1329,7 +1672,7 @@ static void XboxMenuAdjustInstantAction( INT Delta )
     GXboxLog.Write( "XMENU instant adjust row=%d delta=%d", GXboxMenu.InstantFocus, Delta );
 }
 
-static void XboxMenuAdjustPlayerSetup( INT Delta )
+static void XboxMenuAdjustPlayerSetup( UXboxViewport* Viewport, INT Delta )
 {
     if( GXboxMenu.Screen != XMS_PlayerSetup || Delta == 0 )
         return;
@@ -1365,6 +1708,7 @@ static void XboxMenuAdjustPlayerSetup( INT Delta )
         case 3:
             XboxMenuLoadPlayerVoices( GXboxMenu.PlayerClass );
             GXboxMenu.PlayerVoice = XboxMenuWrapInt( GXboxMenu.PlayerVoice, Delta, GXboxPlayerVoices.Num() );
+            XboxMenuPlayVoiceSample( Viewport );
             break;
         case 4:
             if( GXboxMenu.PlayerTeam == 255 )
@@ -1563,14 +1907,14 @@ static UBOOL XboxMenuHandleInput( UXboxViewport* Viewport, const XINPUT_GAMEPAD&
     ||  XboxThumbPressed( Pad.sThumbLX, PrevPad.sThumbLX, -18000 ) )
     {
         XboxMenuAdjustInstantAction( -1 );
-        XboxMenuAdjustPlayerSetup( -1 );
+        XboxMenuAdjustPlayerSetup( Viewport, -1 );
         XboxMenuAdjustSettings( Viewport, -1 );
     }
     if( XboxButtonPressed( CurDigital, PrevDigital, XINPUT_GAMEPAD_DPAD_RIGHT )
     ||  XboxThumbPressed( Pad.sThumbLX, PrevPad.sThumbLX, 18000 ) )
     {
         XboxMenuAdjustInstantAction( 1 );
-        XboxMenuAdjustPlayerSetup( 1 );
+        XboxMenuAdjustPlayerSetup( Viewport, 1 );
         XboxMenuAdjustSettings( Viewport, 1 );
     }
     if( XboxButtonPressed( CurDigital, PrevDigital, XINPUT_GAMEPAD_START ) )
@@ -2060,7 +2404,7 @@ static void XboxMenuDrawMutators( UCanvas* Canvas )
     XboxMenuDrawButtonPrompt( Canvas, X1+160, Y2-34, "button_b.xui", TEXT("BACK") );
 }
 
-static void XboxMenuDrawPlayerSetup( UCanvas* Canvas )
+static void XboxMenuDrawPlayerSetup( UXboxViewport* Viewport, UCanvas* Canvas )
 {
     static const TCHAR* Labels[] =
     {
@@ -2100,10 +2444,9 @@ static void XboxMenuDrawPlayerSetup( UCanvas* Canvas )
 
     XboxMenuDrawRect( Canvas, 378, 112, 590, 288, 25, 34, 48, 0.72f );
     XboxMenuDrawRect( Canvas, 388, 122, 580, 278, 0, 0, 0, 0.52f );
-    XboxMenuText( Canvas, MenuFont, 410, 146, 135, 170, 205, TEXT("DEFAULT PLAYER") );
-    XboxMenuText( Canvas, MenuFont, 410, 184, 220, 240, 255, *GXboxPlayerClasses(GXboxMenu.PlayerClass).Label );
-    XboxMenuText( Canvas, MenuFont, 410, 214, 180, 205, 230, *GXboxPlayerSkins(GXboxMenu.PlayerSkin).Label );
-    XboxMenuText( Canvas, MenuFont, 410, 244, 180, 205, 230, *GXboxPlayerFaces(GXboxMenu.PlayerFace).Label );
+    XboxMenuDrawPlayerPreviewActor( Viewport, Canvas, 388.0f, 122.0f, 192.0f, 156.0f );
+    if( !GXboxPlayerPreviewActor || !GXboxPlayerPreviewActor->Mesh )
+        XboxMenuText( Canvas, MenuFont, 430, 198, 135, 170, 205, TEXT("NO PREVIEW") );
 
     for( INT i=0; i<ARRAY_COUNT(Labels); i++ )
     {
@@ -2305,7 +2648,7 @@ void XboxMenuPostRender( UViewport* Viewport, UCanvas* Canvas )
     else if( GXboxMenu.Screen == XMS_Mutators )
         XboxMenuDrawMutators( Canvas );
     else if( GXboxMenu.Screen == XMS_PlayerSetup )
-        XboxMenuDrawPlayerSetup( Canvas );
+        XboxMenuDrawPlayerSetup( Cast<UXboxViewport>(Viewport), Canvas );
     else if( GXboxMenu.Screen == XMS_Settings )
         XboxMenuDrawSettings( Cast<UXboxViewport>(Viewport), Canvas );
     else

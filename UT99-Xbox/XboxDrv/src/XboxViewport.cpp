@@ -837,8 +837,8 @@ static void XboxMenuLoadPlayerFaces( INT ClassIndex, INT SkinIndex )
     if( GXboxPlayerFaces.Num() == 0 )
     {
         FXboxDiscoveredOption& Option = *new(GXboxPlayerFaces)FXboxDiscoveredOption;
-        Option.Label = TEXT("DEFAULT");
-        Option.URLValue = TEXT("");
+        Option.Label = TEXT("OTHELLO");
+        Option.URLValue = TEXT("SoldierSkins.Othello");
     }
 
     GXboxLog.Write( "XMENU discovered %d faces for player=%s skin=%s",

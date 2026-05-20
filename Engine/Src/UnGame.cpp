@@ -72,6 +72,53 @@ static UBOOL GetXboxStartURL( TCHAR* OutURL, INT MaxLen )
 
 	unguard;
 }
+
+static void SanitizeXboxDefaultPlayerURLConfig()
+{
+	guard(SanitizeXboxDefaultPlayerURLConfig);
+	if( !GConfig )
+		return;
+
+	const TCHAR* Class = GConfig->GetStr( TEXT("DefaultPlayer"), TEXT("Class"), TEXT("User.ini") );
+	const TCHAR* Skin  = GConfig->GetStr( TEXT("DefaultPlayer"), TEXT("Skin"),  TEXT("User.ini") );
+	const TCHAR* Face  = GConfig->GetStr( TEXT("DefaultPlayer"), TEXT("Face"),  TEXT("User.ini") );
+	const TCHAR* Voice = GConfig->GetStr( TEXT("DefaultPlayer"), TEXT("Voice"), TEXT("User.ini") );
+	const TCHAR* Team  = GConfig->GetStr( TEXT("DefaultPlayer"), TEXT("Team"),  TEXT("User.ini") );
+
+	UBOOL bChanged = 0;
+	if( !Class || !Class[0] )
+	{
+		GConfig->SetString( TEXT("DefaultPlayer"), TEXT("Class"), TEXT("Botpack.TMale2"), TEXT("User.ini") );
+		bChanged = 1;
+	}
+	if( !Skin || !Skin[0] )
+	{
+		GConfig->SetString( TEXT("DefaultPlayer"), TEXT("Skin"), TEXT("SoldierSkins.blkt"), TEXT("User.ini") );
+		bChanged = 1;
+	}
+	if( !Face || !Face[0] )
+	{
+		GConfig->SetString( TEXT("DefaultPlayer"), TEXT("Face"), TEXT("SoldierSkins.Othello"), TEXT("User.ini") );
+		bChanged = 1;
+	}
+	if( !Voice || !Voice[0] )
+	{
+		GConfig->SetString( TEXT("DefaultPlayer"), TEXT("Voice"), TEXT("BotPack.VoiceMaleTwo"), TEXT("User.ini") );
+		bChanged = 1;
+	}
+	if( !Team || !Team[0] )
+	{
+		GConfig->SetString( TEXT("DefaultPlayer"), TEXT("Team"), TEXT("255"), TEXT("User.ini") );
+		bChanged = 1;
+	}
+
+	if( bChanged )
+	{
+		GConfig->Flush( 0, TEXT("User.ini") );
+		debugf( NAME_Init, TEXT("Xbox: sanitized incomplete [DefaultPlayer] URL config") );
+	}
+	unguard;
+}
 #endif
 
 /*-----------------------------------------------------------------------------
@@ -242,6 +289,9 @@ void UGameEngine::Init()
 	}
 
 	// Create default URL.
+#if TARGET_XBOX
+	SanitizeXboxDefaultPlayerURLConfig();
+#endif
 	FURL DefaultURL;
 	DefaultURL.LoadURLConfig( TEXT("DefaultPlayer"), TEXT("User") );
 

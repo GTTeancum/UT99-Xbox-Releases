@@ -1127,3 +1127,11 @@ Follow-up:
   - The Xbox menu now loads `Botpack.TournamentPlayer` explicitly before querying `.int` registry entries, instead of relying on ambiguous `FindObject("TournamentPlayer")`.
   - This is intended to restore multiple player class options; skin, face, and voice rows depend on the selected class having the correct registry base.
 - Built successfully via `UT99-Xbox\Tools\build_xbox_cli.py` and deployed `default.xbe` to the CXBX test install.
+
+### 70. Startup DefaultPlayer Face Sanitizer
+- Steve provided a CXBX-R trace that reached `SpawnPlayActor`, logged `Login: Player`, then hit a breakpoint exception.
+- The same trace showed the startup URL as `CityIntro.unr?Name=Player?Class=Botpack.TMale2?team=1?skin=SoldierSkins.blkt?Face=?Voice=BotPack.VoiceMaleTwo`.
+- Verified the test install had `[DefaultPlayer] Face=` blank in `System\User.ini`, so the default player URL was malformed before the player pawn was spawned.
+- Added an Xbox-only sanitizer before `DefaultURL.LoadURLConfig()` to fill any empty `Class`, `Skin`, `Face`, `Voice`, or `Team` entry with known-good UT defaults and flush `User.ini`.
+- Changed the player setup face fallback from an empty default face to `SoldierSkins.Othello` so the menu cannot re-save the same malformed face value when face discovery fails.
+- Built successfully via `UT99-Xbox\Tools\build_xbox_cli.py` and deployed `default.xbe` to the CXBX test install.

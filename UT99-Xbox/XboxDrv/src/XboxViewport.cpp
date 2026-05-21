@@ -2,6 +2,9 @@
 
 extern "C" UBOOL XboxRenderDrawMenuTexture( FSceneNode* Frame, const char* Name, FLOAT X, FLOAT Y, FLOAT XL, FLOAT YL, FLOAT Alpha );
 extern "C" void  XboxRenderDrawMenuRect( FSceneNode* Frame, FLOAT X1, FLOAT Y1, FLOAT X2, FLOAT Y2, BYTE R, BYTE G, BYTE B, BYTE A );
+extern "C" void  XboxRenderDrawMenuRingSlice( FSceneNode* Frame, FLOAT CX, FLOAT CY, FLOAT InnerR, FLOAT OuterR, FLOAT StartAngle, FLOAT EndAngle, BYTE R, BYTE G, BYTE B, BYTE A );
+extern "C" void  XboxRenderBeginMenuMeshSlot( FSceneNode* Frame, FLOAT X, FLOAT Y, FLOAT W, FLOAT H );
+extern "C" void  XboxRenderEndMenuMeshSlot( FSceneNode* Frame );
 extern "C" void  XboxRenderPrepareMenuText( FSceneNode* Frame, const char* Label );
 extern "C" void  XboxRenderFinishMenuText( FSceneNode* Frame );
 
@@ -107,6 +110,45 @@ struct FXboxMenuState
     UBOOL PausedMatch;
     TCHAR ComingSoonTitle[64];
 };
+
+struct FXboxWeaponWheelSlot
+{
+    const TCHAR* ClassName;
+    const TCHAR* DisplayName;
+    const TCHAR* IconName;
+    const char*  SpriteName;
+    FLOAT SpriteScale;
+    INT SwitchGroup;
+    UTexture* Icon;
+    UMesh* PickupMesh;
+    FLOAT PickupScale;
+    FRotator PickupRotation;
+};
+
+static FXboxWeaponWheelSlot GXboxWeaponWheelSlots[] =
+{
+    { TEXT("Botpack.ImpactHammer"),    TEXT("Impact Hammer"),   TEXT("Botpack.Icons.IconHammer"), "weapon_impact.xui",   1.00f, 1,  NULL, NULL, 1.0f, FRotator(0,0,0) },
+    { TEXT("Botpack.Enforcer"),        TEXT("Enforcer"),        TEXT("Botpack.Icons.IconAutoM"),  "weapon_enforcer.xui", 1.95f, 2,  NULL, NULL, 1.0f, FRotator(0,0,0) },
+    { TEXT("Botpack.UT_BioRifle"),     TEXT("Bio Rifle"),       TEXT("Botpack.Icons.IconBio"),    "weapon_bio.xui",      1.95f, 3,  NULL, NULL, 1.0f, FRotator(0,0,0) },
+    { TEXT("Botpack.ShockRifle"),      TEXT("Shock Rifle"),     TEXT("Botpack.Icons.IconASMD"),   "weapon_shock.xui",    1.95f, 4,  NULL, NULL, 1.0f, FRotator(0,0,0) },
+    { TEXT("Botpack.PulseGun"),        TEXT("Pulse Gun"),       TEXT("Botpack.Icons.IconPulse"),  "weapon_pulse.xui",    1.95f, 5,  NULL, NULL, 1.0f, FRotator(0,0,0) },
+    { TEXT("Botpack.Ripper"),          TEXT("Ripper"),          TEXT("Botpack.Icons.IconRazor"),  "weapon_ripper.xui",   1.95f, 6,  NULL, NULL, 1.0f, FRotator(0,0,0) },
+    { TEXT("Botpack.Minigun2"),        TEXT("Minigun"),         TEXT("Botpack.Icons.IconMini"),   "weapon_mini.xui",     1.95f, 7,  NULL, NULL, 1.0f, FRotator(0,0,0) },
+    { TEXT("Botpack.UT_FlakCannon"),   TEXT("Flak Cannon"),     TEXT("Botpack.Icons.IconFlak"),   "weapon_flak.xui",     1.95f, 8,  NULL, NULL, 1.0f, FRotator(0,0,0) },
+    { TEXT("Botpack.UT_Eightball"),    TEXT("Rocket Launcher"), TEXT("Botpack.Icons.Icon8ball"),  "weapon_rocket.xui",   1.95f, 9,  NULL, NULL, 1.0f, FRotator(0,0,0) },
+    { TEXT("Botpack.SniperRifle"),     TEXT("Sniper Rifle"),    TEXT("Botpack.Icons.IconRifle"),  "weapon_sniper.xui",   1.95f, 10, NULL, NULL, 1.0f, FRotator(0,0,0) },
+    { TEXT("Botpack.WarHeadLauncher"), TEXT("Redeemer"),        TEXT("Botpack.Icons.IconWarH"),   "weapon_redeemer.xui", 1.95f, 10, NULL, NULL, 1.0f, FRotator(0,0,0) },
+    { TEXT("Botpack.Translocator"),    TEXT("Translocator"),    TEXT("Botpack.Icons.IconTrans"),  "weapon_trans.xui",    1.95f, 0,  NULL, NULL, 1.0f, FRotator(0,0,0) },
+    { TEXT("Botpack.ChainSaw"),        TEXT("Chainsaw"),        TEXT("Botpack.Icons.IconSaw"),    "weapon_chainsaw.xui", 1.95f, 1,  NULL, NULL, 1.0f, FRotator(0,0,0) },
+};
+
+static UBOOL GXboxWeaponWheelActive[4] = { 0, 0, 0, 0 };
+static INT   GXboxWeaponWheelFocus[4]  = { 0, 0, 0, 0 };
+static DOUBLE GXboxWeaponWheelPressTime[4][2] = { {0,0}, {0,0}, {0,0}, {0,0} };
+static INT   GXboxWeaponWheelLogCount  = 0;
+static INT   GXboxWeaponWheelSpriteFailLogCount = 0;
+static AActor* GXboxWeaponWheelPreviewActor = NULL;
+static ULevel* GXboxWeaponWheelPreviewLevel = NULL;
 
 static FXboxMenuState GXboxMenu =
 {
@@ -3167,6 +3209,539 @@ static void XboxMenuDrawTexture( UCanvas* Canvas, UTexture* Texture, FLOAT X, FL
     );
 }
 
+static void XboxMenuDrawTextureTint( UCanvas* Canvas, UTexture* Texture, FLOAT X, FLOAT Y, FLOAT XL, FLOAT YL, BYTE R, BYTE G, BYTE B, BYTE A )
+{
+    if( !Canvas || !Texture )
+        return;
+
+    DWORD Flags = PF_TwoSided | PF_Masked;
+    if( A < 255 )
+        Flags |= PF_Translucent;
+
+    Canvas->DrawTile
+    (
+        Texture,
+        X,
+        Y,
+        XL,
+        YL,
+        0.0f,
+        0.0f,
+        Texture->USize,
+        Texture->VSize,
+        NULL,
+        Canvas->Z,
+        FPlane(R / 255.0f, G / 255.0f, B / 255.0f, A / 255.0f),
+        FPlane(0,0,0,0),
+        Flags
+    );
+}
+
+static FLOAT XboxWeaponWheelNormalizeAngle( FLOAT Angle )
+{
+    const FLOAT TwoPi = 6.28318530718f;
+    while( Angle < 0.0f )
+        Angle += TwoPi;
+    while( Angle >= TwoPi )
+        Angle -= TwoPi;
+    return Angle;
+}
+
+static FLOAT XboxWeaponWheelAngleFromTopCCW( FLOAT DX, FLOAT DY )
+{
+    // Screen Y grows downward; this returns 0 at 12 o'clock, increasing toward 9 o'clock.
+    return XboxWeaponWheelNormalizeAngle( appAtan2( -DX, -DY ) );
+}
+
+static void XboxWeaponWheelSliceBounds( INT Slot, FLOAT& StartAngle, FLOAT& EndAngle )
+{
+    const FLOAT Slice = 6.28318530718f / 16.0f;
+    const FLOAT GapHalf = Slice * 1.5f;
+    Slot = Clamp<INT>( Slot, 0, ARRAY_COUNT(GXboxWeaponWheelSlots)-1 );
+    StartAngle = GapHalf + Slot * Slice;
+    EndAngle   = StartAngle + Slice;
+}
+
+static void XboxWeaponWheelDrawSlice( UCanvas* Canvas, FLOAT CX, FLOAT CY, FLOAT InnerR, FLOAT OuterR, INT Slot, BYTE R, BYTE G, BYTE B, BYTE A )
+{
+    if( !Canvas || !Canvas->Frame )
+        return;
+
+    FLOAT StartAngle, EndAngle;
+    XboxWeaponWheelSliceBounds( Slot, StartAngle, EndAngle );
+    const FLOAT AngularInset = 0.020f;
+    StartAngle += AngularInset;
+    EndAngle   -= AngularInset;
+
+    XboxRenderDrawMenuRingSlice( Canvas->Frame, CX, CY, InnerR, OuterR, StartAngle, EndAngle, R, G, B, A );
+}
+
+static UTexture* XboxWeaponWheelLoadTexture( const TCHAR* IconName )
+{
+    if( !IconName )
+        return NULL;
+
+    UTexture* Texture = Cast<UTexture>( UObject::StaticLoadObject( UTexture::StaticClass(), NULL, IconName, NULL, LOAD_NoWarn | LOAD_Quiet, NULL ) );
+    if( Texture )
+        return Texture;
+
+    TCHAR* IconsGroup = appStrstr( IconName, TEXT(".Icons.") );
+    if( IconsGroup )
+    {
+        TCHAR Fallback[128];
+        INT PrefixLen = Min<INT>( IconsGroup - IconName, ARRAY_COUNT(Fallback) - 2 );
+        appStrncpy( Fallback, IconName, PrefixLen + 1 );
+        Fallback[PrefixLen] = 0;
+        appStrcat( Fallback, TEXT(".") );
+        appStrcat( Fallback, IconsGroup + 7 );
+        Texture = Cast<UTexture>( UObject::StaticLoadObject( UTexture::StaticClass(), NULL, Fallback, NULL, LOAD_NoWarn | LOAD_Quiet, NULL ) );
+    }
+
+    return Texture;
+}
+
+static void XboxWeaponWheelLoadIcons()
+{
+    for( INT i=0; i<ARRAY_COUNT(GXboxWeaponWheelSlots); i++ )
+    {
+        if( !GXboxWeaponWheelSlots[i].Icon )
+        {
+            GXboxWeaponWheelSlots[i].Icon = XboxWeaponWheelLoadTexture( GXboxWeaponWheelSlots[i].IconName );
+            if( !GXboxWeaponWheelSlots[i].Icon && GXboxWeaponWheelLogCount < 32 )
+            {
+                GXboxWeaponWheelLogCount++;
+                GXboxLog.Write( "XWHEEL missing icon %s", TCHAR_TO_ANSI(GXboxWeaponWheelSlots[i].IconName) );
+            }
+        }
+    }
+}
+
+static UClass* XboxWeaponWheelLoadClass( const TCHAR* ClassName )
+{
+    return ClassName ? UObject::StaticLoadClass( AWeapon::StaticClass(), NULL, ClassName, NULL, LOAD_NoWarn | LOAD_Quiet, NULL ) : NULL;
+}
+
+static AActor* XboxWeaponWheelGetPreviewActor( UXboxViewport* Viewport )
+{
+    if( !Viewport || !Viewport->Actor || !Viewport->Actor->XLevel )
+        return NULL;
+
+    if( GXboxWeaponWheelPreviewActor && GXboxWeaponWheelPreviewLevel == Viewport->Actor->XLevel )
+        return GXboxWeaponWheelPreviewActor;
+
+    GXboxWeaponWheelPreviewActor = NULL;
+    GXboxWeaponWheelPreviewLevel = NULL;
+
+    UClass* MeshActorClass = FindObject<UClass>( ANY_PACKAGE, TEXT("MeshActor") );
+    if( !MeshActorClass )
+        MeshActorClass = UObject::StaticLoadClass( AActor::StaticClass(), NULL, TEXT("UMenu.MeshActor"), NULL, LOAD_NoWarn | LOAD_Quiet, NULL );
+    if( !MeshActorClass )
+        MeshActorClass = AInfo::StaticClass();
+
+    GXboxWeaponWheelPreviewActor = Viewport->Actor->XLevel->SpawnActor( MeshActorClass, NAME_None, NULL, NULL, FVector(0,0,0), FRotator(0,0,0), NULL, 1 );
+    GXboxWeaponWheelPreviewLevel = Viewport->Actor->XLevel;
+    if( GXboxWeaponWheelPreviewActor )
+    {
+        GXboxWeaponWheelPreviewActor->DrawType = DT_Mesh;
+        GXboxWeaponWheelPreviewActor->bHidden = 1;
+        GXboxWeaponWheelPreviewActor->bUnlit = 1;
+        GXboxWeaponWheelPreviewActor->bCollideActors = 0;
+        GXboxWeaponWheelPreviewActor->bCollideWorld = 0;
+        GXboxWeaponWheelPreviewActor->bBlockActors = 0;
+        GXboxWeaponWheelPreviewActor->bBlockPlayers = 0;
+        GXboxWeaponWheelPreviewActor->AmbientGlow = 255;
+        GXboxWeaponWheelPreviewActor->bMeshEnviroMap = 0;
+    }
+
+    if( GXboxWeaponWheelLogCount < 64 )
+    {
+        GXboxWeaponWheelLogCount++;
+        GXboxLog.Write( "XWHEEL preview actor %s", GXboxWeaponWheelPreviewActor ? "created" : "missing" );
+    }
+    return GXboxWeaponWheelPreviewActor;
+}
+
+static void XboxWeaponWheelLoadPickupMeshes()
+{
+    for( INT i=0; i<ARRAY_COUNT(GXboxWeaponWheelSlots); i++ )
+    {
+        if( GXboxWeaponWheelSlots[i].PickupMesh )
+            continue;
+
+        UClass* WeaponClass = XboxWeaponWheelLoadClass( GXboxWeaponWheelSlots[i].ClassName );
+        AInventory* Defaults = WeaponClass ? Cast<AInventory>( WeaponClass->GetDefaultObject() ) : NULL;
+        if( Defaults )
+        {
+            GXboxWeaponWheelSlots[i].PickupMesh = Defaults->PickupViewMesh ? Defaults->PickupViewMesh : Defaults->Mesh;
+            GXboxWeaponWheelSlots[i].PickupScale = Defaults->PickupViewScale > 0.0f ? Defaults->PickupViewScale : 1.0f;
+            GXboxWeaponWheelSlots[i].PickupRotation = Defaults->Rotation;
+        }
+
+        if( GXboxWeaponWheelLogCount < 64 )
+        {
+            GXboxWeaponWheelLogCount++;
+            GXboxLog.Write( "XWHEEL pickup mesh slot=%d weapon=%s mesh=%s scale=%.3f",
+                i,
+                TCHAR_TO_ANSI(GXboxWeaponWheelSlots[i].DisplayName),
+                GXboxWeaponWheelSlots[i].PickupMesh ? TCHAR_TO_ANSI(GXboxWeaponWheelSlots[i].PickupMesh->GetName()) : "missing",
+                GXboxWeaponWheelSlots[i].PickupScale );
+        }
+    }
+}
+
+static void XboxWeaponWheelDrawPickupMesh( UXboxViewport* Viewport, UCanvas* Canvas, INT SlotIndex, FLOAT X, FLOAT Y, FLOAT W, FLOAT H, UBOOL bAvailable, UBOOL bFocus )
+{
+    if( !Viewport || !Canvas || !Canvas->Frame || !Canvas->Render || !Viewport->Actor || !Viewport->RenDev )
+        return;
+
+    SlotIndex = Clamp<INT>( SlotIndex, 0, ARRAY_COUNT(GXboxWeaponWheelSlots)-1 );
+    UMesh* Mesh = GXboxWeaponWheelSlots[SlotIndex].PickupMesh;
+    if( !Mesh )
+        return;
+
+    AActor* Actor = XboxWeaponWheelGetPreviewActor( Viewport );
+    if( !Actor )
+        return;
+
+    FLOAT OldFov = Viewport->Actor->FovAngle;
+    UBOOL bOldHidden = Actor->bHidden;
+    UBOOL bOldUnlit = Actor->bUnlit;
+    UBOOL bOldMeshEnviroMap = Actor->bMeshEnviroMap;
+    UBOOL bOldMeshCurvy = Actor->bMeshCurvy;
+    BYTE OldAmbientGlow = Actor->AmbientGlow;
+    BYTE OldStyle = Actor->Style;
+    FLOAT OldScaleGlow = Actor->ScaleGlow;
+    UMesh* OldMesh = Actor->Mesh;
+    UTexture* OldTexture = Actor->Texture;
+    UTexture* OldSkin = Actor->Skin;
+    UTexture* OldMultiSkins[8];
+    INT SkinIndex;
+    for( SkinIndex=0; SkinIndex<8; SkinIndex++ )
+        OldMultiSkins[SkinIndex] = Actor->MultiSkins[SkinIndex];
+    FLOAT OldDrawScale = Actor->DrawScale;
+    FVector OldLocation = Actor->Location;
+    FRotator OldRotation = Actor->Rotation;
+    INT OldX = Canvas->Frame->X;
+    INT OldY = Canvas->Frame->Y;
+    INT OldXB = Canvas->Frame->XB;
+    INT OldYB = Canvas->Frame->YB;
+    INT OldRendMap = Viewport->Actor->RendMap;
+
+    UClass* WeaponClass = XboxWeaponWheelLoadClass( GXboxWeaponWheelSlots[SlotIndex].ClassName );
+    AActor* Defaults = WeaponClass ? Cast<AActor>( WeaponClass->GetDefaultObject() ) : NULL;
+
+    Viewport->Actor->FovAngle = 32.0f;
+    FLOAT FovRadians = Viewport->Actor->FovAngle * PI / 180.0f;
+
+    Actor->Mesh = Mesh;
+    Actor->DrawType = DT_Mesh;
+    Actor->DrawScale = GXboxWeaponWheelSlots[SlotIndex].PickupScale;
+    Actor->Rotation = GXboxWeaponWheelSlots[SlotIndex].PickupRotation + FRotator(0, -16384, 0);
+    Actor->bHidden = 0;
+    Actor->bUnlit = 1;
+    Actor->Style = Defaults ? Defaults->Style : STY_Normal;
+    Actor->Texture = Defaults ? Defaults->Texture : NULL;
+    Actor->Skin = Defaults ? Defaults->Skin : NULL;
+    Actor->bMeshEnviroMap = Defaults ? Defaults->bMeshEnviroMap : 0;
+    Actor->bMeshCurvy = Defaults ? Defaults->bMeshCurvy : 0;
+    for( SkinIndex=0; SkinIndex<8; SkinIndex++ )
+        Actor->MultiSkins[SkinIndex] = Defaults ? Defaults->MultiSkins[SkinIndex] : NULL;
+    Actor->AmbientGlow = bAvailable ? (bFocus ? 255 : 224) : 100;
+    Actor->ScaleGlow = bAvailable ? 1.0f : 0.34f;
+
+    FSphere BaseSphere = Mesh->GetRenderBoundingSphere( Actor, 0 );
+    FLOAT BaseRadius = Max<FLOAT>( BaseSphere.W, 1.0f );
+    FLOAT WantedRadius = Min<FLOAT>( W, H ) * (bFocus ? 0.34f : 0.30f);
+    FLOAT Distance = 18.0f;
+    Actor->DrawScale = Clamp<FLOAT>( (WantedRadius * Distance * appTan(FovRadians * 0.5f)) / (BaseRadius * Max<FLOAT>(H, 1.0f)), 0.015f, 0.45f );
+    FSphere Sphere = Mesh->GetRenderBoundingSphere( Actor, 0 );
+    Actor->Location = FVector( Distance, -Sphere.Y * Actor->DrawScale, -Sphere.Z * Actor->DrawScale );
+
+    Canvas->Frame->X = (INT)W;
+    Canvas->Frame->Y = (INT)H;
+    Canvas->Frame->XB = (INT)X;
+    Canvas->Frame->YB = (INT)Y;
+    Canvas->Frame->ComputeRenderCoords( FVector(0,0,0), FRotator(0,0,0) );
+    Canvas->Frame->ComputeRenderSize();
+
+    XboxRenderBeginMenuMeshSlot( Canvas->Frame, X, Y, W, H );
+    Canvas->Render->DrawActor( Canvas->Frame, Actor );
+    XboxRenderEndMenuMeshSlot( Canvas->Frame );
+
+    Actor->bHidden = bOldHidden;
+    Actor->bUnlit = bOldUnlit;
+    Actor->bMeshEnviroMap = bOldMeshEnviroMap;
+    Actor->bMeshCurvy = bOldMeshCurvy;
+    Actor->AmbientGlow = OldAmbientGlow;
+    Actor->Style = OldStyle;
+    Actor->ScaleGlow = OldScaleGlow;
+    Actor->Mesh = OldMesh;
+    Actor->Texture = OldTexture;
+    Actor->Skin = OldSkin;
+    for( SkinIndex=0; SkinIndex<8; SkinIndex++ )
+        Actor->MultiSkins[SkinIndex] = OldMultiSkins[SkinIndex];
+    Actor->DrawScale = OldDrawScale;
+    Actor->Location = OldLocation;
+    Actor->Rotation = OldRotation;
+    Viewport->Actor->RendMap = OldRendMap;
+    Canvas->Frame->X = OldX;
+    Canvas->Frame->Y = OldY;
+    Canvas->Frame->XB = OldXB;
+    Canvas->Frame->YB = OldYB;
+    Canvas->Frame->ComputeRenderCoords( FVector(0,0,0), FRotator(0,0,0) );
+    Canvas->Frame->ComputeRenderSize();
+    Viewport->Actor->FovAngle = OldFov;
+}
+
+static AWeapon* XboxWeaponWheelFindWeapon( APlayerPawn* Player, INT SlotIndex )
+{
+    if( !Player || SlotIndex < 0 || SlotIndex >= ARRAY_COUNT(GXboxWeaponWheelSlots) )
+        return NULL;
+
+    UClass* WeaponClass = XboxWeaponWheelLoadClass( GXboxWeaponWheelSlots[SlotIndex].ClassName );
+    if( !WeaponClass )
+        return NULL;
+
+    for( AInventory* Inv=Player->Inventory; Inv; Inv=Inv->Inventory )
+    {
+        AWeapon* Weapon = Cast<AWeapon>( Inv );
+        if( Weapon && Weapon->IsA(WeaponClass) )
+            return Weapon;
+    }
+    return NULL;
+}
+
+static INT XboxWeaponWheelAmmoAmount( AWeapon* Weapon )
+{
+    if( !Weapon || !Weapon->AmmoType )
+        return 0;
+
+    UProperty* AmmoProp = FindField<UProperty>( Weapon->AmmoType->GetClass(), TEXT("AmmoAmount") );
+    if( !AmmoProp )
+        return 0;
+
+    BYTE* Data = (BYTE*)Weapon->AmmoType + AmmoProp->Offset;
+    if( Cast<UIntProperty>(AmmoProp) )
+        return *(INT*)Data;
+    if( Cast<UByteProperty>(AmmoProp) )
+        return *(BYTE*)Data;
+
+    TCHAR Value[64]=TEXT("");
+    AmmoProp->ExportText( 0, Value, (BYTE*)Weapon->AmmoType, (BYTE*)Weapon->AmmoType, PPF_Localized );
+    return appAtoi( Value );
+}
+
+static UBOOL XboxWeaponWheelCanSelect( AWeapon* Weapon )
+{
+    if( !Weapon )
+        return 0;
+    return !Weapon->AmmoType || XboxWeaponWheelAmmoAmount( Weapon ) > 0;
+}
+
+static void XboxWeaponWheelSelect( UXboxViewport* Viewport, APlayerPawn* Player, INT SlotIndex )
+{
+    if( !Viewport || !Player || !Viewport->Input )
+        return;
+
+    AWeapon* Weapon = XboxWeaponWheelFindWeapon( Player, SlotIndex );
+    if( !XboxWeaponWheelCanSelect( Weapon ) )
+        return;
+
+    if( Player->Weapon == Weapon )
+        return;
+
+    TCHAR Cmd[128];
+    appSprintf( Cmd, TEXT("GetWeapon %s"), GXboxWeaponWheelSlots[SlotIndex].ClassName );
+    Viewport->Input->Exec( Cmd, *GLog );
+
+    if( GXboxWeaponWheelLogCount < 64 )
+    {
+        GXboxWeaponWheelLogCount++;
+        GXboxLog.Write( "XWHEEL selected slot=%d weapon=%s ammo=%d",
+            SlotIndex,
+            TCHAR_TO_ANSI(GXboxWeaponWheelSlots[SlotIndex].DisplayName),
+            XboxWeaponWheelAmmoAmount(Weapon) );
+    }
+}
+
+static void XboxWeaponCycle( UXboxViewport* Viewport, APlayerPawn* Player, UBOOL bForward )
+{
+    if( !Viewport || !Player || !Viewport->Input )
+        return;
+
+    Viewport->Input->Exec( bForward ? TEXT("NextWeapon") : TEXT("PrevWeapon"), *GLog );
+    if( GXboxWeaponWheelLogCount < 64 )
+    {
+        GXboxWeaponWheelLogCount++;
+        GXboxLog.Write( "XWHEEL tap cycle %s player=0x%08X", bForward ? "next" : "prev", (DWORD)Player );
+    }
+}
+
+static INT XboxWeaponWheelSlotFromStick( const XINPUT_GAMEPAD& Pad, INT CurrentSlot )
+{
+    const SHORT Threshold = 9000;
+    FLOAT X = (FLOAT)Pad.sThumbRX;
+    FLOAT Y = (FLOAT)Pad.sThumbRY;
+    if( X > -Threshold && X < Threshold && Y > -Threshold && Y < Threshold )
+        return CurrentSlot;
+
+    const FLOAT Slice = 6.28318530718f / 16.0f;
+    const FLOAT GapHalf = Slice * 1.5f;
+    FLOAT Angle = XboxWeaponWheelAngleFromTopCCW( X, -Y );
+    if( Angle < GapHalf )
+        return 0;
+    if( Angle >= 6.28318530718f - GapHalf )
+        return ARRAY_COUNT(GXboxWeaponWheelSlots)-1;
+
+    INT Slot = appFloor( (Angle - GapHalf) / Slice );
+    return Clamp<INT>( Slot, 0, ARRAY_COUNT(GXboxWeaponWheelSlots)-1 );
+}
+
+static BYTE XboxDodgeDirectionFromStick( const XINPUT_GAMEPAD& Pad )
+{
+    const SHORT Threshold = 14000;
+    SHORT LX = Pad.sThumbLX;
+    SHORT LY = Pad.sThumbLY;
+    if( LX > -Threshold && LX < Threshold && LY > -Threshold && LY < Threshold )
+        return DODGE_None;
+
+    if( Abs<INT>(LX) > Abs<INT>(LY) )
+        return LX < 0 ? DODGE_Left : DODGE_Right;
+    return LY < 0 ? DODGE_Back : DODGE_Forward;
+}
+
+static void XboxTriggerDodge( APlayerPawn* Player, const XINPUT_GAMEPAD& Pad )
+{
+    if( !Player || Player->Physics != PHYS_Walking )
+        return;
+
+    BYTE DodgeMove = XboxDodgeDirectionFromStick( Pad );
+    if( DodgeMove == DODGE_None )
+        return;
+
+    UFunction* DodgeFunc = Player->FindFunction( TEXT("Dodge") );
+    if( DodgeFunc )
+    {
+        struct { BYTE DodgeMove; } Parms;
+        Parms.DodgeMove = DodgeMove;
+        Player->ProcessEvent( DodgeFunc, &Parms );
+    }
+    else
+    {
+        // Fallback through the stock double-click state machine if the current
+        // state function table does not expose Dodge() to native ProcessEvent.
+        Player->DodgeClickTime = 0.25f;
+        Player->DodgeDir = DodgeMove;
+        Player->bEdgeForward = DodgeMove == DODGE_Forward;
+        Player->bWasForward  = DodgeMove == DODGE_Forward;
+        Player->bEdgeBack    = DodgeMove == DODGE_Back;
+        Player->bWasBack     = DodgeMove == DODGE_Back;
+        Player->bEdgeLeft    = DodgeMove == DODGE_Left;
+        Player->bWasLeft     = DodgeMove == DODGE_Left;
+        Player->bEdgeRight   = DodgeMove == DODGE_Right;
+        Player->bWasRight    = DodgeMove == DODGE_Right;
+    }
+
+    if( GXboxWeaponWheelLogCount < 64 )
+    {
+        GXboxWeaponWheelLogCount++;
+        GXboxLog.Write( "XDODGE dir=%d player=0x%08X", DodgeMove, (DWORD)Player );
+    }
+}
+
+static void XboxWeaponWheelDraw( UXboxViewport* Viewport, UCanvas* Canvas )
+{
+    if( !Viewport || !Canvas || !Canvas->Frame )
+        return;
+
+    INT ViewIndex = Clamp<INT>( XboxViewportIndex(Viewport), 0, 3 );
+    if( !GXboxWeaponWheelActive[ViewIndex] )
+        return;
+
+    APlayerPawn* Player = Viewport->Actor;
+    if( !Player )
+        return;
+
+    FLOAT CX = Canvas->ClipX * 0.5f;
+    FLOAT CY = Canvas->ClipY * 0.46f;
+    FLOAT OuterR = Min<FLOAT>( Canvas->ClipX, Canvas->ClipY ) * 0.31f;
+    FLOAT InnerR = OuterR * 0.58f;
+    FLOAT IconR = (OuterR + InnerR) * 0.5f;
+    FLOAT IconSize = Max<FLOAT>( 24.0f, Min<FLOAT>( Canvas->ClipX, Canvas->ClipY ) * 0.062f );
+
+    INT Focus = Clamp<INT>( GXboxWeaponWheelFocus[ViewIndex], 0, ARRAY_COUNT(GXboxWeaponWheelSlots)-1 );
+    AWeapon* FocusWeapon = XboxWeaponWheelFindWeapon( Player, Focus );
+    INT FocusAmmo = XboxWeaponWheelAmmoAmount( FocusWeapon );
+
+    for( INT i=0; i<ARRAY_COUNT(GXboxWeaponWheelSlots); i++ )
+    {
+        AWeapon* Weapon = XboxWeaponWheelFindWeapon( Player, i );
+        UBOOL bAvailable = XboxWeaponWheelCanSelect( Weapon );
+        UBOOL bFocus = i == Focus;
+        XboxWeaponWheelDrawSlice( Canvas, CX, CY, InnerR-2.0f, OuterR+2.0f, i, 18, 32, 58, bFocus ? 132 : 86 );
+
+        BYTE SliceR = bFocus ? 214 : 184;
+        BYTE SliceG = bFocus ? 224 : 218;
+        BYTE SliceB = bFocus ? 228 : 212;
+        BYTE SliceA = bAvailable ? (bFocus ? 162 : 122) : 66;
+        XboxWeaponWheelDrawSlice( Canvas, CX, CY, InnerR, OuterR, i, SliceR, SliceG, SliceB, SliceA );
+
+        if( bFocus )
+            XboxWeaponWheelDrawSlice( Canvas, CX, CY, InnerR+5.0f, OuterR-5.0f, i, 80, 166, 255, 52 );
+    }
+
+    for( INT i=0; i<ARRAY_COUNT(GXboxWeaponWheelSlots); i++ )
+    {
+        AWeapon* Weapon = XboxWeaponWheelFindWeapon( Player, i );
+        UBOOL bAvailable = XboxWeaponWheelCanSelect( Weapon );
+        FLOAT StartAngle, EndAngle;
+        XboxWeaponWheelSliceBounds( i, StartAngle, EndAngle );
+        FLOAT MidAngle = (StartAngle + EndAngle) * 0.5f;
+        FLOAT SlotIconSize = IconSize * GXboxWeaponWheelSlots[i].SpriteScale;
+        FLOAT X = CX - appSin( MidAngle ) * IconR - SlotIconSize * 0.5f;
+        FLOAT Y = CY - appCos( MidAngle ) * IconR - SlotIconSize * 0.5f;
+
+
+        if( GXboxWeaponWheelSlots[i].SpriteName )
+        {
+            if( i == Focus && bAvailable )
+                XboxRenderDrawMenuTexture( Canvas->Frame, GXboxWeaponWheelSlots[i].SpriteName, X-3.0f, Y-3.0f, SlotIconSize+6.0f, SlotIconSize+6.0f, 0.34f );
+            if( XboxRenderDrawMenuTexture( Canvas->Frame, GXboxWeaponWheelSlots[i].SpriteName, X, Y, SlotIconSize, SlotIconSize, bAvailable ? 1.0f : 0.32f ) )
+                continue;
+            if( GXboxWeaponWheelSpriteFailLogCount < 32 )
+            {
+                GXboxWeaponWheelSpriteFailLogCount++;
+                GXboxLog.Write( "XWHEEL sprite draw failed slot=%d asset=%s", i, GXboxWeaponWheelSlots[i].SpriteName );
+            }
+            continue;
+        }
+        if( GXboxWeaponWheelSlots[i].Icon )
+        {
+            if( bAvailable )
+            {
+                if( i == Focus )
+                    XboxMenuDrawTextureTint( Canvas, GXboxWeaponWheelSlots[i].Icon, X-5.0f, Y-5.0f, IconSize+10.0f, IconSize+10.0f, 62, 154, 255, 118 );
+                XboxMenuDrawTextureTint( Canvas, GXboxWeaponWheelSlots[i].Icon, X, Y, IconSize, IconSize, 255, 255, 255, 255 );
+            }
+            else
+                XboxMenuDrawTextureTint( Canvas, GXboxWeaponWheelSlots[i].Icon, X, Y, IconSize, IconSize, 94, 98, 102, 175 );
+        }
+    }
+
+    XboxMenuDrawRect( Canvas, CX-8, CY-1, CX+8, CY+1, 215, 235, 255, 0.88f );
+    XboxMenuDrawRect( Canvas, CX-1, CY-8, CX+1, CY+8, 215, 235, 255, 0.88f );
+
+    TCHAR Label[128];
+    appSprintf( Label, TEXT("%s - (%d)"), GXboxWeaponWheelSlots[Focus].DisplayName, FocusAmmo );
+    INT XL=0, YL=0;
+    XboxMenuTextSize( Canvas, Canvas->MedFont, Label, XL, YL );
+    UBOOL bFocusAvailable = XboxWeaponWheelCanSelect( FocusWeapon );
+    BYTE TextR = bFocusAvailable ? 255 : 120;
+    BYTE TextG = bFocusAvailable ? 255 : 130;
+    BYTE TextB = bFocusAvailable ? 255 : 140;
+    XboxMenuText( Canvas, Canvas->MedFont, CX - XL * 0.5f, Canvas->ClipY - 58.0f, TextR, TextG, TextB, Label );
+}
+
 static BYTE XboxMenuColorByte( INT ColorIndex, INT Component )
 {
     ColorIndex = Clamp<INT>( ColorIndex, 0, ARRAY_COUNT(GXboxColorNames)-1 );
@@ -3539,43 +4114,49 @@ static void XboxMenuDrawMutators( UCanvas* Canvas )
     XboxMenuDrawInstantAction( Canvas );
 
     UFont* MenuFont = Canvas->MedFont;
-    FLOAT X1 = 152.0f;
-    FLOAT Y1 = 92.0f;
-    FLOAT X2 = 488.0f;
-    FLOAT Y2 = 310.0f;
+    FLOAT X1 = 116.0f;
+    FLOAT Y1 = 72.0f;
+    FLOAT X2 = 560.0f;
+    FLOAT Y2 = 374.0f;
+    FLOAT ListTop = Y1 + 72.0f;
+    FLOAT RowStep = 34.0f;
+    FLOAT FooterY = Y2 - 44.0f;
     const INT MutatorCount = XboxMenuMutatorCount();
-    const INT VisibleRows = 4;
+    const INT VisibleRows = 5;
     INT Focus = Clamp<INT>( GXboxMenu.InstantMutatorChoice, 0, MutatorCount-1 );
     INT First = Focus - VisibleRows / 2;
     First = Clamp<INT>( First, 0, Max<INT>(0, MutatorCount - VisibleRows) );
     INT Last = Min<INT>( MutatorCount, First + VisibleRows );
 
-    XboxMenuDrawRect( Canvas, X1-8, Y1-8, X2+8, Y2+8, 0, 0, 0, 0.76f );
-    XboxMenuDrawRect( Canvas, X1, Y1, X2, Y2, 9, 42, 89, 0.88f );
-    XboxMenuDrawRect( Canvas, X1, Y1, X2, Y1+4, 28, 108, 205, 0.9f );
+    XboxMenuDrawRect( Canvas, X1-10, Y1-10, X2+10, Y2+10, 0, 0, 0, 0.88f );
+    XboxMenuDrawRect( Canvas, X1, Y1, X2, Y2, 7, 34, 76, 0.96f );
+    XboxMenuDrawRect( Canvas, X1, Y1, X2, Y1+4, 28, 108, 205, 0.92f );
+    XboxMenuDrawRect( Canvas, X1+22, ListTop-10, X2-22, FooterY-20, 5, 25, 58, 0.68f );
+    XboxMenuDrawRect( Canvas, X1+22, Y1+54, X2-22, Y1+56, 31, 90, 150, 0.42f );
+    XboxMenuDrawRect( Canvas, X1+22, FooterY-12, X2-22, FooterY-10, 31, 90, 150, 0.42f );
     XboxMenuText( Canvas, MenuFont, X1+18, Y1+18, 255, 255, 255, TEXT("MUTATORS") );
 
     if( First > 0 )
-        XboxMenuText( Canvas, MenuFont, X2-72, Y1+18, 135, 170, 205, TEXT("MORE ^") );
+        XboxMenuText( Canvas, MenuFont, X2-84, Y1+18, 135, 190, 225, TEXT("MORE ^") );
 
     for( INT i=First; i<Last; i++ )
     {
-        FLOAT Y = Y1 + 68.0f + (i - First) * 38.0f;
+        FLOAT Y = ListTop + (i - First) * RowStep;
         UBOOL bOn = (GXboxMenu.InstantMutatorMask[i >> 5] & (1 << (i & 31))) != 0;
         UBOOL bFocus = (i == Focus);
 
         if( bFocus )
-            XboxMenuDrawRect( Canvas, X1+18, Y-6, X2-18, Y+24, 12, 82, 166, 0.55f );
+            XboxMenuDrawRect( Canvas, X1+22, Y-6, X2-22, Y+24, 12, 82, 166, 0.62f );
 
-        XboxMenuText( Canvas, MenuFont, X1+36, Y, bOn ? 255 : 140, bOn ? 255 : 178, bOn ? 255 : 212, bOn ? TEXT("[X]") : TEXT("[ ]") );
-        XboxMenuText( Canvas, MenuFont, X1+92, Y, bFocus ? 255 : 180, bFocus ? 255 : 205, bFocus ? 255 : 230, *XboxMenuMutator(i).Label );
+        XboxMenuText( Canvas, MenuFont, X1+44, Y, bOn ? 255 : 140, bOn ? 255 : 178, bOn ? 255 : 212, bOn ? TEXT("[X]") : TEXT("[ ]") );
+        XboxMenuText( Canvas, MenuFont, X1+108, Y, bFocus ? 255 : 180, bFocus ? 255 : 205, bFocus ? 255 : 230, *XboxMenuMutator(i).Label );
     }
 
     if( Last < MutatorCount )
-        XboxMenuText( Canvas, MenuFont, X2-72, Y2-56, 135, 170, 205, TEXT("MORE v") );
+        XboxMenuText( Canvas, MenuFont, X2-84, FooterY-34, 135, 190, 225, TEXT("MORE v") );
 
-    XboxMenuDrawButtonPrompt( Canvas, X1+18, Y2-34, "button_a.xui", TEXT("TOGGLE") );
-    XboxMenuDrawButtonPrompt( Canvas, X1+160, Y2-34, "button_b.xui", TEXT("BACK") );
+    XboxMenuDrawButtonPrompt( Canvas, X1+30, FooterY, "button_a.xui", TEXT("TOGGLE") );
+    XboxMenuDrawButtonPrompt( Canvas, X1+198, FooterY, "button_b.xui", TEXT("BACK") );
 }
 
 static void XboxMenuDrawPlayerSetup( UXboxViewport* Viewport, UCanvas* Canvas )
@@ -3844,8 +4425,16 @@ static void XboxMenuDrawComingSoon( UCanvas* Canvas )
 void XboxMenuPostRender( UViewport* Viewport, UCanvas* Canvas )
 {
     guard(XboxMenuPostRender);
-    if( !GXboxMenu.Active || !Viewport || !Canvas )
+    UXboxViewport* XboxViewport = Cast<UXboxViewport>(Viewport);
+    INT WheelViewportIndex = XboxViewport ? Clamp<INT>( XboxViewportIndex(XboxViewport), 0, 3 ) : 0;
+    if( !Viewport || !Canvas )
         return;
+    if( !GXboxMenu.Active )
+    {
+        if( XboxViewport && GXboxWeaponWheelActive[WheelViewportIndex] )
+            XboxWeaponWheelDraw( XboxViewport, Canvas );
+        return;
+    }
 
     GXboxMenu.Pulse += 0.04f;
     XboxSystemLinkTick();
@@ -3864,9 +4453,9 @@ void XboxMenuPostRender( UViewport* Viewport, UCanvas* Canvas )
     else if( GXboxMenu.Screen == XMS_Mutators )
         XboxMenuDrawMutators( Canvas );
     else if( GXboxMenu.Screen == XMS_PlayerSetup )
-        XboxMenuDrawPlayerSetup( Cast<UXboxViewport>(Viewport), Canvas );
+        XboxMenuDrawPlayerSetup( XboxViewport, Canvas );
     else if( GXboxMenu.Screen == XMS_Settings )
-        XboxMenuDrawSettings( Cast<UXboxViewport>(Viewport), Canvas );
+        XboxMenuDrawSettings( XboxViewport, Canvas );
     else if( GXboxMenu.Screen == XMS_SystemLink )
         XboxMenuDrawSystemLink( Canvas );
     else
@@ -4130,17 +4719,27 @@ void UXboxViewport::ProcessControllerInput( const XINPUT_GAMEPAD& Pad )
     if( !Client || !Client->Engine )
         return;
 
+    APlayerPawn* Player = Actor;
+    INT WheelViewportIndex = Clamp<INT>( XboxViewportIndex(this), 0, 3 );
+    const BYTE AnalogThreshold = XINPUT_GAMEPAD_MAX_CROSSTALK; // 30
+    UBOOL WhiteNow = Pad.bAnalogButtons[XINPUT_GAMEPAD_WHITE] > AnalogThreshold;
+    UBOOL WhitePrev = PrevControllerState.Gamepad.bAnalogButtons[XINPUT_GAMEPAD_WHITE] > AnalogThreshold;
+    UBOOL BlackNow = Pad.bAnalogButtons[XINPUT_GAMEPAD_BLACK] > AnalogThreshold;
+    UBOOL BlackPrev = PrevControllerState.Gamepad.bAnalogButtons[XINPUT_GAMEPAD_BLACK] > AnalogThreshold;
+    UBOOL bWheelInputActive = Player && !GXboxMenu.Active && (GXboxWeaponWheelActive[WheelViewportIndex] || WhiteNow || WhitePrev || BlackNow || BlackPrev);
+
     if( GXboxSplitActive && GXboxMenu.Active )
     {
         if( XboxMenuHandleInput( this, Pad, PrevControllerState.Gamepad ) )
             return;
     }
 
-    if( !GXboxSplitActive && XboxMenuHandleInput( this, Pad, PrevControllerState.Gamepad ) )
+    if( !GXboxSplitActive && !bWheelInputActive && XboxMenuHandleInput( this, Pad, PrevControllerState.Gamepad ) )
         return;
     if( GXboxSplitActive
     &&  !bXboxSplitDummy
     &&  !GXboxMenu.Active
+    &&  !bWheelInputActive
     &&  (Pad.wButtons & XINPUT_GAMEPAD_START)
     && !(PrevControllerState.Gamepad.wButtons & XINPUT_GAMEPAD_START) )
     {
@@ -4148,7 +4747,41 @@ void UXboxViewport::ProcessControllerInput( const XINPUT_GAMEPAD& Pad )
         return;
     }
 
-    APlayerPawn* Player = Actor;
+    if( Player && !GXboxMenu.Active )
+    {
+        const DOUBLE NowSeconds = appSeconds();
+        const DOUBLE HoldSeconds = 0.24;
+
+        if( WhiteNow && !WhitePrev )
+            GXboxWeaponWheelPressTime[WheelViewportIndex][0] = NowSeconds;
+        if( BlackNow && !BlackPrev )
+            GXboxWeaponWheelPressTime[WheelViewportIndex][1] = NowSeconds;
+
+        if( WhiteNow && (NowSeconds - GXboxWeaponWheelPressTime[WheelViewportIndex][0]) >= HoldSeconds )
+            GXboxWeaponWheelActive[WheelViewportIndex] = 1;
+        if( BlackNow && (NowSeconds - GXboxWeaponWheelPressTime[WheelViewportIndex][1]) >= HoldSeconds )
+            GXboxWeaponWheelActive[WheelViewportIndex] = 1;
+
+        if( GXboxWeaponWheelActive[WheelViewportIndex] )
+        {
+            GXboxWeaponWheelFocus[WheelViewportIndex] = XboxWeaponWheelSlotFromStick( Pad, GXboxWeaponWheelFocus[WheelViewportIndex] );
+        }
+
+        if( GXboxWeaponWheelActive[WheelViewportIndex] && !WhiteNow && !BlackNow )
+        {
+            INT ChosenSlot = Clamp<INT>( GXboxWeaponWheelFocus[WheelViewportIndex], 0, ARRAY_COUNT(GXboxWeaponWheelSlots)-1 );
+            GXboxWeaponWheelActive[WheelViewportIndex] = 0;
+            XboxWeaponWheelSelect( this, Player, ChosenSlot );
+        }
+        else if( !GXboxWeaponWheelActive[WheelViewportIndex] )
+        {
+            if( WhitePrev && !WhiteNow && (NowSeconds - GXboxWeaponWheelPressTime[WheelViewportIndex][0]) < HoldSeconds )
+                XboxWeaponCycle( this, Player, 0 );
+            if( BlackPrev && !BlackNow && (NowSeconds - GXboxWeaponWheelPressTime[WheelViewportIndex][1]) < HoldSeconds )
+                XboxWeaponCycle( this, Player, 1 );
+        }
+    }
+
     if( GXboxSplitActive && Player )
     {
         Player->bShowMenu = 0;
@@ -4181,6 +4814,9 @@ void UXboxViewport::ProcessControllerInput( const XINPUT_GAMEPAD& Pad )
 
     for( INT i = 0; i < ARRAY_COUNT(DigitalMap); i++ )
     {
+        if( GXboxWeaponWheelActive[WheelViewportIndex] && DigitalMap[i].Key == IK_Tab )
+            continue;
+
         if( DigChanged & DigitalMap[i].Mask )
         {
             EInputAction Action = (CurDigital & DigitalMap[i].Mask) ? IST_Press : IST_Release;
@@ -4195,15 +4831,12 @@ void UXboxViewport::ProcessControllerInput( const XINPUT_GAMEPAD& Pad )
     }
 
     // ---- Analog buttons (bAnalogButtons[0..7], 0-255 value, index not bitmask) ----
-    // X, Y, Black, White remain binding-driven utility actions.
-    const BYTE AnalogThreshold = XINPUT_GAMEPAD_MAX_CROSSTALK; // 30
+    // X remains use/activate. White/Black tap-cycle weapons and hold the
+    // weapon wheel; Y is dodge.
     struct FAnalogBtnMap { INT Index; EInputKey Key; };
     static const FAnalogBtnMap AnalogMap[] =
     {
         { XINPUT_GAMEPAD_X,              IK_Enter },      // Use / accept
-        { XINPUT_GAMEPAD_Y,              IK_Slash },      // Next weapon
-        { XINPUT_GAMEPAD_BLACK,          IK_LeftBracket },// Previous item/weapon
-        { XINPUT_GAMEPAD_WHITE,          IK_RightBracket },// Next item/weapon
     };
 
     for( INT i = 0; i < ARRAY_COUNT(AnalogMap); i++ )
@@ -4241,6 +4874,11 @@ void UXboxViewport::ProcessControllerInput( const XINPUT_GAMEPAD& Pad )
     // Right stick: look (IK_JoyU = yaw, IK_JoyV = pitch).
     FLOAT RX = XboxStickAxis( Pad.sThumbRX, DeadZone ) * Client->ScaleRUV * Sensitivity;
     FLOAT RY = XboxStickAxis( Pad.sThumbRY, DeadZone ) * Client->ScaleRUV * Sensitivity;
+    if( GXboxWeaponWheelActive[WheelViewportIndex] )
+    {
+        RX = 0.0f;
+        RY = 0.0f;
+    }
     if( Client->InvertVertical )
         RY = -RY;
 
@@ -4260,24 +4898,26 @@ void UXboxViewport::ProcessControllerInput( const XINPUT_GAMEPAD& Pad )
             PrevControllerState.Gamepad.bAnalogButtons[XINPUT_GAMEPAD_RIGHT_TRIGGER] > AnalogThreshold
         ||  (FaceFireLayout && PrevControllerState.Gamepad.bAnalogButtons[XINPUT_GAMEPAD_A] > AnalogThreshold);
         UBOOL AltFireNow =
-            Pad.bAnalogButtons[XINPUT_GAMEPAD_LEFT_TRIGGER] > AnalogThreshold
-        ||  Pad.bAnalogButtons[XINPUT_GAMEPAD_B] > AnalogThreshold;
+            Pad.bAnalogButtons[XINPUT_GAMEPAD_LEFT_TRIGGER] > AnalogThreshold;
         UBOOL AltFirePrev =
-            PrevControllerState.Gamepad.bAnalogButtons[XINPUT_GAMEPAD_LEFT_TRIGGER] > AnalogThreshold
-        ||  PrevControllerState.Gamepad.bAnalogButtons[XINPUT_GAMEPAD_B] > AnalogThreshold;
-        UBOOL DuckNow = (Pad.wButtons & XINPUT_GAMEPAD_LEFT_THUMB) != 0;
-        UBOOL DuckPrev = (PrevControllerState.Gamepad.wButtons & XINPUT_GAMEPAD_LEFT_THUMB) != 0;
+            PrevControllerState.Gamepad.bAnalogButtons[XINPUT_GAMEPAD_LEFT_TRIGGER] > AnalogThreshold;
+        UBOOL DuckNow = Pad.bAnalogButtons[XINPUT_GAMEPAD_B] > AnalogThreshold;
+        UBOOL DuckPrev = PrevControllerState.Gamepad.bAnalogButtons[XINPUT_GAMEPAD_B] > AnalogThreshold;
         UBOOL JumpNow = FaceFireLayout
             ? Pad.bAnalogButtons[XINPUT_GAMEPAD_RIGHT_TRIGGER] > AnalogThreshold
             : Pad.bAnalogButtons[XINPUT_GAMEPAD_A] > AnalogThreshold;
         UBOOL JumpPrev = FaceFireLayout
             ? PrevControllerState.Gamepad.bAnalogButtons[XINPUT_GAMEPAD_RIGHT_TRIGGER] > AnalogThreshold
             : PrevControllerState.Gamepad.bAnalogButtons[XINPUT_GAMEPAD_A] > AnalogThreshold;
+        UBOOL DodgeNow = Pad.bAnalogButtons[XINPUT_GAMEPAD_Y] > AnalogThreshold;
+        UBOOL DodgePrev = PrevControllerState.Gamepad.bAnalogButtons[XINPUT_GAMEPAD_Y] > AnalogThreshold;
 
         XboxSendGameplayButton( this, IK_Joy1, FireNow, FirePrev );
         XboxSendGameplayButton( this, IK_Joy2, JumpNow, JumpPrev );
         XboxSendGameplayButton( this, IK_Joy3, AltFireNow, AltFirePrev );
         XboxSendGameplayButton( this, IK_Joy4, DuckNow, DuckPrev );
+        if( DodgeNow && !DodgePrev )
+            XboxTriggerDodge( Player, Pad );
         if( FireNow || AltFireNow )
             Player->bReadyToPlay = 1;
 

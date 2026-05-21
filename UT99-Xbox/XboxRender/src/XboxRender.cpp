@@ -2634,6 +2634,151 @@ extern "C" void XboxRenderDrawMenuRect( FSceneNode* Frame, FLOAT X1, FLOAT Y1, F
     unguard;
 }
 
+extern "C" void XboxRenderDrawMenuRingSlice( FSceneNode* Frame, FLOAT CX, FLOAT CY, FLOAT InnerR, FLOAT OuterR, FLOAT StartAngle, FLOAT EndAngle, BYTE R, BYTE G, BYTE B, BYTE A )
+{
+    guard(XboxRenderDrawMenuRingSlice);
+
+    UXboxRenderDevice* Ren = Cast<UXboxRenderDevice>( GRenderDevice );
+    if( !Ren || !Ren->Device || !Frame || OuterR <= InnerR || EndAngle <= StartAngle )
+        return;
+
+    Ren->FlushDGPBatch( "menu-ring-slice" );
+    Ren->FlushDTBatch( "menu-ring-slice" );
+    Ren->DisableStage1();
+
+    const INT Segments = 8;
+    FXboxTLVertex Verts[Segments * 6];
+    INT VertCount = 0;
+
+    DWORD Clr = ((DWORD)A << 24) | ((DWORD)R << 16) | ((DWORD)G << 8) | (DWORD)B;
+    FLOAT RHW = 1.0f;
+    FLOAT SZ  = Ren->ProjZRatio + Ren->ProjZOffset * RHW;
+
+    for( INT i=0; i<Segments; i++ )
+    {
+        FLOAT T0 = (FLOAT)i / (FLOAT)Segments;
+        FLOAT T1 = (FLOAT)(i + 1) / (FLOAT)Segments;
+        FLOAT A0 = StartAngle + (EndAngle - StartAngle) * T0;
+        FLOAT A1 = StartAngle + (EndAngle - StartAngle) * T1;
+
+        FLOAT OX0 = CX - appSin(A0) * OuterR;
+        FLOAT OY0 = CY - appCos(A0) * OuterR;
+        FLOAT OX1 = CX - appSin(A1) * OuterR;
+        FLOAT OY1 = CY - appCos(A1) * OuterR;
+        FLOAT IX0 = CX - appSin(A0) * InnerR;
+        FLOAT IY0 = CY - appCos(A0) * InnerR;
+        FLOAT IX1 = CX - appSin(A1) * InnerR;
+        FLOAT IY1 = CY - appCos(A1) * InnerR;
+
+        FXboxTLVertex Tri[6] =
+        {
+            { OX0 - 0.5f, OY0 - 0.5f, SZ, RHW, Clr, 0.0f, 0.0f },
+            { OX1 - 0.5f, OY1 - 0.5f, SZ, RHW, Clr, 0.0f, 0.0f },
+            { IX1 - 0.5f, IY1 - 0.5f, SZ, RHW, Clr, 0.0f, 0.0f },
+            { OX0 - 0.5f, OY0 - 0.5f, SZ, RHW, Clr, 0.0f, 0.0f },
+            { IX1 - 0.5f, IY1 - 0.5f, SZ, RHW, Clr, 0.0f, 0.0f },
+            { IX0 - 0.5f, IY0 - 0.5f, SZ, RHW, Clr, 0.0f, 0.0f },
+        };
+
+        for( INT j=0; j<6; j++ )
+            Verts[VertCount++] = Tri[j];
+    }
+
+    Ren->SetCachedRenderState( D3DRS_SHADEMODE, D3DSHADE_FLAT );
+    Ren->SetCachedTextureStageState( 0, D3DTSS_COLOROP, D3DTOP_SELECTARG1 );
+    Ren->SetCachedTextureStageState( 0, D3DTSS_COLORARG1, D3DTA_DIFFUSE );
+    Ren->SetCachedTextureStageState( 0, D3DTSS_ALPHAOP, D3DTOP_SELECTARG1 );
+    Ren->SetCachedTextureStageState( 0, D3DTSS_ALPHAARG1, D3DTA_DIFFUSE );
+    Ren->Device->SetTexture( 0, NULL );
+    Ren->BoundCacheID[0] = 0;
+    Ren->SetCachedRenderState( D3DRS_ZENABLE, D3DZB_FALSE );
+    Ren->SetCachedRenderState( D3DRS_ZWRITEENABLE, FALSE );
+    Ren->SetCachedRenderState( D3DRS_ZFUNC, D3DCMP_ALWAYS );
+    Ren->SetCachedRenderState( D3DRS_ALPHATESTENABLE, FALSE );
+
+    if( A < 255 )
+    {
+        Ren->SetCachedRenderState( D3DRS_ALPHABLENDENABLE, TRUE );
+        Ren->SetCachedRenderState( D3DRS_SRCBLEND, D3DBLEND_SRCALPHA );
+        Ren->SetCachedRenderState( D3DRS_DESTBLEND, D3DBLEND_INVSRCALPHA );
+    }
+    else
+    {
+        Ren->SetCachedRenderState( D3DRS_ALPHABLENDENABLE, FALSE );
+    }
+
+    Ren->SetCachedVertexShader( XBOX_FVF_TLVERTEX );
+    Ren->DrawPrimitiveVB( D3DPT_TRIANGLELIST, VertCount / 3, Verts, sizeof(FXboxTLVertex), "menu-ring-slice" );
+
+    Ren->RestoreDefaultTextureStages();
+    if( A < 255 )
+        Ren->SetCachedRenderState( D3DRS_ALPHABLENDENABLE, FALSE );
+    Ren->SetCachedRenderState( D3DRS_ALPHATESTENABLE, FALSE );
+    Ren->SetCachedRenderState( D3DRS_SHADEMODE, D3DSHADE_GOURAUD );
+    Ren->CurrentPolyFlags = 0xFFFFFFFF;
+
+    unguard;
+}
+
+static UBOOL GRD_MenuMeshSlotActive = 0;
+static D3DVIEWPORT8 GRD_MenuMeshSlotOldViewport;
+static DWORD GRD_MenuMeshSlotOldScissorCount = 0;
+static BOOL GRD_MenuMeshSlotOldScissorExclusive = FALSE;
+static D3DRECT GRD_MenuMeshSlotOldScissors[8];
+
+extern "C" void XboxRenderBeginMenuMeshSlot( FSceneNode* Frame, FLOAT X, FLOAT Y, FLOAT W, FLOAT H )
+{
+    guard(XboxRenderBeginMenuMeshSlot);
+
+    UXboxRenderDevice* Ren = Cast<UXboxRenderDevice>( GRenderDevice );
+    if( !Ren || !Ren->Device || !Frame || W < 1.0f || H < 1.0f )
+        return;
+
+    Ren->FlushDGPBatch( "menu-mesh-slot-begin" );
+    Ren->FlushDTBatch( "menu-mesh-slot-begin" );
+
+    Ren->Device->GetViewport( &GRD_MenuMeshSlotOldViewport );
+    GRD_MenuMeshSlotOldScissorCount = ARRAY_COUNT(GRD_MenuMeshSlotOldScissors);
+    GRD_MenuMeshSlotOldScissorExclusive = FALSE;
+    Ren->Device->GetScissors( &GRD_MenuMeshSlotOldScissorCount, &GRD_MenuMeshSlotOldScissorExclusive, GRD_MenuMeshSlotOldScissors );
+
+    INT X1 = Max<INT>( 0, (INT)appFloor(X) );
+    INT Y1 = Max<INT>( 0, (INT)appFloor(Y) );
+    INT X2 = Min<INT>( Frame->XB + Frame->X, (INT)appCeil(X + W) );
+    INT Y2 = Min<INT>( Frame->YB + Frame->Y, (INT)appCeil(Y + H) );
+    if( X2 <= X1 || Y2 <= Y1 )
+        return;
+
+    D3DRECT Rect;
+    Rect.x1 = X1;
+    Rect.y1 = Y1;
+    Rect.x2 = X2;
+    Rect.y2 = Y2;
+    Ren->Device->SetScissors( 1, FALSE, &Rect );
+    Ren->Device->Clear( 1, &Rect, D3DCLEAR_ZBUFFER, 0, 1.0f, 0 );
+    GRD_MenuMeshSlotActive = 1;
+
+    unguard;
+}
+
+extern "C" void XboxRenderEndMenuMeshSlot( FSceneNode* Frame )
+{
+    guard(XboxRenderEndMenuMeshSlot);
+
+    UXboxRenderDevice* Ren = Cast<UXboxRenderDevice>( GRenderDevice );
+    if( !Ren || !Ren->Device || !GRD_MenuMeshSlotActive )
+        return;
+
+    Ren->FlushDGPBatch( "menu-mesh-slot-end" );
+    Ren->FlushDTBatch( "menu-mesh-slot-end" );
+    Ren->Device->SetScissors( GRD_MenuMeshSlotOldScissorCount, GRD_MenuMeshSlotOldScissorExclusive, GRD_MenuMeshSlotOldScissors );
+    Ren->Device->SetViewport( &GRD_MenuMeshSlotOldViewport );
+    Ren->CurrentPolyFlags = 0xFFFFFFFF;
+    GRD_MenuMeshSlotActive = 0;
+
+    unguard;
+}
+
 struct FXboxMenuTexture
 {
     char Name[64];
@@ -2642,7 +2787,7 @@ struct FXboxMenuTexture
     DWORD Height;
 };
 
-static FXboxMenuTexture GXboxMenuTextures[8];
+static FXboxMenuTexture GXboxMenuTextures[32];
 
 static FXboxMenuTexture* XboxFindMenuTexture( const char* Name )
 {
@@ -2671,7 +2816,10 @@ static FXboxMenuTexture* XboxLoadMenuTexture( UXboxRenderDevice* Ren, const char
         }
     }
     if( !Slot )
+    {
+        GXboxLog.Write( "XMENU tex cache full loading %s slots=%d", Name, ARRAY_COUNT(GXboxMenuTextures) );
         return NULL;
+    }
 
     char Path[256];
     appSprintf( Path, "D:\\MenuAssets\\%s", Name );
@@ -2801,8 +2949,12 @@ extern "C" UBOOL XboxRenderDrawMenuTexture( FSceneNode* Frame, const char* Name,
     Ren->SetCachedTextureStageState( 0, D3DTSS_ALPHAOP, D3DTOP_MODULATE );
     Ren->SetCachedTextureStageState( 0, D3DTSS_ALPHAARG1, D3DTA_TEXTURE );
     Ren->SetCachedTextureStageState( 0, D3DTSS_ALPHAARG2, D3DTA_DIFFUSE );
+    Ren->SetCachedTextureStageState( 0, D3DTSS_ADDRESSU, D3DTADDRESS_CLAMP );
+    Ren->SetCachedTextureStageState( 0, D3DTSS_ADDRESSV, D3DTADDRESS_CLAMP );
+    Ren->SetCachedTextureStageState( 0, D3DTSS_TEXTURETRANSFORMFLAGS, D3DTTFF_DISABLE );
     Ren->SetCachedTextureStageState( 0, D3DTSS_MINFILTER, D3DTEXF_LINEAR );
     Ren->SetCachedTextureStageState( 0, D3DTSS_MAGFILTER, D3DTEXF_LINEAR );
+    Ren->SetCachedTextureStageState( 0, D3DTSS_MIPFILTER, D3DTEXF_NONE );
     Ren->Device->SetTexture( 0, Tex->Texture );
     Ren->BoundCacheID[0] = 0;
     Ren->SetCachedVertexShader( XBOX_FVF_TLVERTEX );

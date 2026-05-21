@@ -1377,3 +1377,144 @@ Follow-up:
 - Patched `Lock()` to set `SceneOpen = SUCCEEDED(hrBegin)` so the scene opened for the frame is always eligible to be closed by `Unlock()`.
 - Split return-to-frontend teardown now destroys dummy player actors before destroying dummy viewports and flushes the engine render cache before queuing `CityIntro.unr`.
 - Added a compact split pause renderer so the full main-menu chrome/footer is not drawn separately into every viewport.
+
+### 84. Weapon Wheel First Pass
+- Steve provided the weapon wheel mockup and requested a counter-clockwise wheel with no slot numbers, per-weapon icons, greyed unavailable weapons, and bottom text in the exact format `[weapon name] - ([ammo count])`.
+- Source-backed weapon/icon audit used the Botpack `.uc` defaults, not guessed texture names:
+  - `ImpactHammer` -> `Botpack.Icons.UseHammer`
+  - `Enforcer` -> `Botpack.Icons.UseAutoM`
+  - `UT_BioRifle` -> `Botpack.Icons.UseBio`
+  - `ShockRifle` -> `Botpack.Icons.UseASMD`
+  - `PulseGun` -> `Botpack.Icons.UsePulse`
+  - `Ripper` -> `Botpack.Icons.UseRazor`
+  - `Minigun2` -> `Botpack.UseMini`
+  - `UT_FlakCannon` -> `Botpack.Icons.UseFlak`
+  - `UT_Eightball` -> `Botpack.Icons.Use8ball`
+  - `SniperRifle` -> `Botpack.UseRifle`
+  - `WarHeadLauncher` -> `Botpack.UseWarH`
+  - `Translocator` -> `Botpack.Icons.UseTrans`
+  - `ChainSaw` -> `Botpack.Icons.UseSaw`
+- Added a gameplay-only wheel overlay drawn after the world/HUD, with greyed icon/text state when the weapon is missing or out of ammo.
+- Ammo count is read through Unreal reflection (`AmmoAmount`) because generated Xbox C++ headers do not expose `AAmmo::AmmoAmount` directly.
+- Selection uses the stock `GetWeapon <class>` command so Enforcer selection follows UT's own single/dual-enforcer behavior.
+- White/LB and Black/RB now support tap-or-hold behavior:
+  - tap White/LB: previous weapon
+  - tap Black/RB: next weapon
+  - hold either: open the weapon wheel
+- While the wheel is open, only right-stick look is suppressed. Movement, jump, fire, alt-fire, crouch, and use still pass through. Scoreboard/back and pause/start are blocked while the wheel is active.
+- Updated face controls for the new scheme:
+  - A: jump
+  - B: duck/crouch
+  - X: use
+  - Y + left-stick direction: dodge
+  - right trigger: fire
+  - left trigger: alt-fire
+- Build succeeded with `UT99-Xbox\Tools\build_xbox_cli.py`.
+
+### 85. Weapon Wheel Geometry And Icon Mask Correction
+- Steve clarified the mockup should be followed as exact geometry: 16 equal wheel slices with the top 3 missing, no blue background, leaving 13 visible wedge-shaped weapon slots.
+- Replaced the first-pass rectangular slot blocks with calculated annular sector slices:
+  - 16 equal angular sectors;
+  - the 3 centered around 12 o'clock are omitted;
+  - the remaining 13 slots are laid out counter-clockwise from the upper-left side of the gap.
+- Removed the full-screen blue overlay from the wheel path so only the wheel wedges/icons/label are drawn over gameplay.
+- Fixed icon rendering to force masked texture semantics instead of always drawing as translucent. This matches how UT PC draws `Weapon.StatusIcon` via `Canvas.DrawIcon()` and should prevent the square icon background from being treated as the icon itself.
+- Build succeeded with `UT99-Xbox\Tools\build_xbox_cli.py`.
+
+### 86. Weapon Wheel Presentation Pass
+- Steve tested the wheel and found two presentation failures: wedge fills were grainy, and the weapon art was still showing square HUD boxes instead of isolated weapon silhouettes.
+- Source audit confirmed the first pass used `Use*` textures from the weapon defaults, which are the black "selected/use" HUD box assets. PC UT separately imports color weapon silhouettes as `Icon*` textures in the `Botpack.Icons` group.
+- Switched the wheel table to the `Icon*` weapon silhouettes:
+  - `IconHammer`, `IconAutoM`, `IconBio`, `IconASMD`, `IconPulse`, `IconRazor`, `IconMini`, `IconFlak`, `Icon8ball`, `IconRifle`, `IconWarH`, `IconTrans`, `IconSaw`.
+- Added a runtime texture fallback that retries `Botpack.IconName` when the grouped `Botpack.Icons.IconName` lookup fails. This covers older defaults such as `UseMini`, `UseRifle`, and `UseWarH` that prove some Botpack icon references may exist outside the group path.
+- Replaced the scanline wedge fill with `XboxRenderDrawMenuRingSlice`, a proper D3D triangle-list annular-sector helper. This removes the horizontal grain caused by drawing every slice as thousands of 2-pixel menu rectangles.
+- Added a layered visual treatment: dark wedge underlay for contrast, clean light wedge fill, and a subtle cobalt focus sheen behind the selected weapon icon.
+
+### 87. Weapon Wheel Pickup Mesh Pivot
+- Steve confirmed the wheel geometry is much better, but the packaged weapon silhouette icons still are not resolving into the desired art.
+- Pivoted from HUD texture icons to actual weapon pickup meshes, using data that already exists on each weapon class:
+  - load each `AWeapon` class;
+  - read `AInventory::PickupViewMesh`, falling back to `AActor::Mesh`;
+  - preserve each class default `PickupViewScale` and pickup `Rotation`.
+- Added a separate hidden weapon-wheel preview actor so this does not interfere with the existing Player Setup preview actor.
+- The wheel now renders each slot as a tiny 3D pickup model through the same menu mesh-preview path used by Player Setup: temporary clipped canvas frame, small FOV, Z clear for the slot, then `DrawActor`.
+- Kept the previous texture icon path only as a fallback if a weapon mesh is missing.
+- Unavailable weapons now render dimmed through lower `ScaleGlow`, while available and focused weapons render brighter.
+
+### 88. Weapon Wheel Mesh Material And Mutator Overlay Cleanup
+- Steve's log confirmed every weapon-wheel slot resolved to the intended map pickup mesh (`ImpPick`, `MagPick`, `BRifle2Pick`, `ASMD2pick`, `Flak2Pick`, `Eight2Pick`, etc.), so the remaining grey-box problem was in the preview render state, not asset selection.
+- Fixed the mesh preview actor to copy the weapon class default visual fields before drawing:
+  - `Style`;
+  - `Texture`;
+  - `Skin`;
+  - all 8 `MultiSkins`;
+  - `bMeshEnviroMap`;
+  - `bMeshCurvy`.
+- Enlarged the slot mesh preview frame based on the wheel ring thickness instead of the old HUD-icon size, so pickup models have enough screen area to read as weapons rather than tiny low-detail blocks.
+- Reworked the Mutators overlay layout:
+  - larger, darker panel;
+  - dedicated header, list, and footer regions;
+  - five-row scroll window;
+  - footer prompts moved below the list with separator lines;
+  - `MORE ^/v` indicators moved out of the row text area.
+- Build succeeded with `UT99-Xbox\Tools\build_xbox_cli.py` and the XBE was deployed to the CXBX test install.
+
+### 89. Weapon Wheel Pre-Rendered Mesh Sprite Pivot
+- Steve's screenshot proved the live HUD previews still were not presenting as weapon meshes in the wheel: the data lookup was correct, but the tiny live actor render path remained too fragile for 13 independent previews in one HUD pass.
+- Added `UT99-Xbox\Tools\render_weapon_wheel_assets.py`, a source-asset renderer that reads UT's original `*_a.3D` / `*_d.3D` James mesh files plus PCX skins. The parser follows the PC import path in `Editor\Src\UnMeshEd.cpp` and the packed `FMeshVert` layout in `Engine\Inc\UnMesh.h`.
+- Generated transparent loose XUI sprites for all 13 wheel weapons:
+  - Impact Hammer, Enforcer, Bio Rifle, Shock Rifle, Pulse Gun, Ripper, Minigun, Flak Cannon, Rocket Launcher, Sniper Rifle, Redeemer, Translocator, Chainsaw.
+- Wrote a contact sheet at `UT99-Xbox\MenuAssets\weapon_mesh_contact.png` to verify the source renders show colored weapon/pickup shapes rather than square HUD icon boxes.
+- The gameplay wheel now draws these pre-rendered XUI sprites first and only falls back to the live pickup mesh path if a loose asset is missing.
+- Kept the renderer scissor / slot-only Z-clear helpers in place as a safer fallback for any future live menu mesh preview use.
+- Steve corrected the orientation requirement: these must read in profile, not isometric. Updated the asset renderer to compute a per-mesh profile camera from the weapon's longest principal axis, keeping the weapon long axis horizontal and rendering from the side.
+- Regenerated and redeployed all 13 weapon XUI sprites with the profile orientation.
+- Steve's next test still showed weapon-wheel junk, so the runtime path was audited instead of changing the images again:
+  - generated sprites were valid XUI0 files and the contact sheet proved the source images were not square HUD tiles;
+  - `XboxRenderDrawMenuTexture()` loaded loose `D:\MenuAssets\*.xui` into a fixed `GXboxMenuTextures[8]` cache;
+  - the wheel requires 13 weapon sprites by itself, before counting button/logo/menu assets;
+  - when a sprite failed to load, the wheel still fell back to the older live pickup mesh / HUD icon paths that caused the same grey-box failure.
+- Increased the menu texture cache to 32 entries so all weapon-wheel sprites and normal menu assets can stay resident together.
+- Removed the weapon wheel's live pickup-mesh fallback from the draw path. If a loose sprite is present, it is used; if it is not, only the old HUD icon fallback can draw. The broken live mini-mesh preview no longer re-enters the wheel.
+- Darkened the Mutators overlay's scrolling list region separately from the header/footer so the marked list area stands out.
+
+### 90. Weapon Wheel Runtime Audit And Gotcha Fixes
+- Re-audited the wheel after Steve reported the same junk visuals, instead of assuming the cache increase was sufficient.
+- Found a second major runtime gotcha: the generated loose weapon sprites were 96x96 XUI textures. That size is legal on modern D3D, but it is a bad fit for the original Xbox swizzled texture path and can fail or sample incorrectly on the XDK D3D8/XG upload path.
+- Regenerated every wheel sprite as a 128x128 power-of-two XUI texture and verified every file header from disk:
+  - magic `XUI0`;
+  - dimensions `128x128`;
+  - exact byte length `65548` (`12 + 128 * 128 * 4`).
+- Hardened `XboxRenderDrawMenuTexture()` for HUD/menu sprites:
+  - explicitly clamps `ADDRESSU`/`ADDRESSV` for every loose menu texture draw;
+  - disables texture coordinate transforms;
+  - disables mip filtering for one-level UI textures.
+- Hardened failure behavior in `XboxWeaponWheelDraw()`:
+  - each wheel slot has a `SpriteName`, so the pre-rendered sprite is now the authoritative wheel visual;
+  - if the sprite draw fails, the code logs `XWHEEL sprite draw failed` and skips that slot instead of falling into the old grey-box/icon/mesh path;
+  - the old live pickup mesh helper functions remain compiled but are no longer reachable from the wheel draw path.
+- Added a menu texture cache-full log entry (`XMENU tex cache full...`) so future asset pressure is visible in `ut99.log`.
+- Audit conclusion before test: the previously observed grey-box weapon wheel could be reproduced by either exhausting the 8-entry loose texture cache or by failing the fragile 96x96 sprite upload, then falling through to the old broken preview path. The current patch removes all three failure conditions from the active wheel path.
+- Build succeeded with `UT99-Xbox\Tools\build_xbox_cli.py`.
+- Deployed `default.xbe` plus all 13 verified 128x128 weapon XUI sprites to the CXBX test install at `C:\Games\Emulators\CXBX\UT99x`.
+
+### 91. Weapon Wheel Sprite Scale And Slice Transparency
+- Steve confirmed the weapon wheel now works, with only presentation adjustments remaining.
+- Added per-slot sprite scaling:
+  - Impact Hammer stays at `1.00x`;
+  - every other weapon sprite draws at `1.50x`.
+- Scaled the sprite draw rectangle at runtime instead of baking larger sprites, preserving the verified 128x128 XUI assets and avoiding accidental source-image cropping.
+- Reduced wheel slice alpha so the wedges read as a translucent gameplay overlay:
+  - dark underlay alpha lowered from `190/130` to `132/86`;
+  - main available slice alpha lowered from `222/182` to `162/122`;
+  - unavailable slice alpha lowered from `98` to `66`;
+  - focus sheen alpha lowered from `74` to `52`.
+- Build succeeded with `UT99-Xbox\Tools\build_xbox_cli.py`.
+- Deployed updated `default.xbe` to the CXBX test install.
+
+### 92. Weapon Wheel Larger Non-Hammer Icons
+- Steve confirmed the previous scale pass was good and asked for every weapon except Impact Hammer to grow another 30%.
+- Bumped non-hammer weapon sprite scale from `1.50x` to `1.95x`.
+- Impact Hammer remains at `1.00x`.
+- Build succeeded with `UT99-Xbox\Tools\build_xbox_cli.py`.
+- Deployed updated `default.xbe` to the CXBX test install.

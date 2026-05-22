@@ -124,6 +124,7 @@ struct FXboxTexCacheEntry
     INT                   UIndex;
     INT                   VIndex;
     D3DFORMAT             Format;
+    UBOOL                 MaskedAlpha;
     INT                   Bytes;
     INT                   FrameCounter;
     FXboxTexCacheEntry*   HashNext;

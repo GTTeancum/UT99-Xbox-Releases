@@ -1548,3 +1548,32 @@ Follow-up:
 - Added voice sample result logging (`XMENU voice sample ... played=0/1`) plus skip-reason logs for missing class/defaults/sound.
 - Build succeeded with `UT99-Xbox\Tools\build_xbox_cli.py`.
 - Deployed updated `default.xbe` to the CXBX test install.
+
+### 96. Skin Texture LOD Detail Test
+- Steve reported that textures still look muddy and asked whether `_skin` affects weapons.
+- Audited the engine path:
+  - `SkinDetail` is registered against `TextureLODSet[2]`;
+  - `LODSET_Skin` is enum value `2`;
+  - `UTexture::Lock()` uses `__Client->TextureLODSet[LODSet]`, so this setting affects any texture asset marked `LODSET_Skin`, not only player skins.
+- Confirmed many weapon import scripts use `LODSET=2`, so weapon/player/model textures can be affected by the skin LOD setting.
+- Changed only the Xbox forced skin LOD from `2` to `0`.
+- Left forced world texture LOD at `2` for a narrow test, per Steve's request.
+
+### 97. World Texture LOD And Masked Alpha Cache Variant
+- Steve confirmed a map showed an opaque black surface that should be alpha/masked, and approved setting world texture LOD to full detail.
+- Changed the Xbox forced world texture LOD from `2` to `0`; skin texture LOD remains `0`.
+- Audited the masked render path:
+  - `SetBlending()` enables alpha test for `PF_Masked`;
+  - the P8 texture upload path only writes palette index 0 as alpha 0 when the draw's `PolyFlags` include `PF_Masked`;
+  - the texture cache key was only `CacheID`, so a P8 texture first uploaded for an opaque draw could later be reused for a masked draw with index 0 still opaque black.
+- Added a `MaskedAlpha` cache variant bit to Xbox texture cache entries.
+- `SetTextureD3D()` now forces a re-upload when a P8 texture's masked-alpha requirement changes, so masked surfaces get an alpha-zero index 0 upload instead of reusing an opaque one.
+
+### 98. Texture Bool Flags Restored To PolyFlags
+- Steve's next test showed the vine texture still rendering as an opaque black rectangle.
+- Audited earlier than the renderer and found a porting mismatch:
+  - original v400 `UTexture` had an inline native `DWORD PolyFlags`;
+  - this port removed that field from the object layout and replaced it with a side table to keep `UTexture` binary size compatible;
+  - the current `UTexture::PolyFlags()` accessor only returned the side-table value, so texture package bool flags such as `bMasked`, `bTwoSided`, `bNoSmooth`, `bTransparent`, etc. were invisible unless another code path had manually copied them into the side table.
+- Added a `TextureBoolPolyFlags()` mapper so `UTexture::PolyFlags()` synthesizes the normal `PF_*` bits from the loaded texture bool properties when no explicit side-table override exists.
+- Changed `PolyFlagsRef()` to initialize the side-table value from the synthesized bool flags, preserving legacy mutation behavior like `PolyFlagsRef() |= Flags` and `PolyFlagsRef() &= ~PF_Masked`.

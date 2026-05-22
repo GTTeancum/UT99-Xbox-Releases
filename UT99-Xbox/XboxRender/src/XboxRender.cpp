@@ -1383,12 +1383,26 @@ void UXboxRenderDevice::SetTextureD3D( INT Stage, FTextureInfo& Info, DWORD Poly
         return;
     }
 
+    // P8 masked textures depend on draw flags during upload: palette index 0
+    // must become alpha 0. Cache that variant separately from ordinary P8
+    // uploads, or a texture first seen opaque will stay opaque when later
+    // drawn as PF_Masked.
+    UBOOL bNeedsMaskedAlpha = (Info.Format == TEXF_P8 && (PolyFlags & PF_Masked));
+
     // Early out if texture already bound.
     UBOOL bRgba7NeedsMaxColor = (Info.Format == TEXF_RGBA7 && Info.MaxColor && GET_COLOR_DWORD(*Info.MaxColor) == 0xFFFFFFFF);
 
     if( BoundCacheID[Stage] == Info.CacheID && !Info.bRealtimeChanged && !bRgba7NeedsMaxColor )
     {
-        return;
+        INT BoundHashIndex = ((7 * (DWORD)Info.CacheID) + (DWORD)(Info.CacheID >> 32)) & (XBOX_TEX_CACHE_SIZE - 1);
+        FXboxTexCacheEntry* BoundEntry;
+        for( BoundEntry = TexCache[BoundHashIndex]; BoundEntry; BoundEntry = BoundEntry->HashNext )
+        {
+            if( BoundEntry->CacheID == Info.CacheID )
+                break;
+        }
+        if( BoundEntry && BoundEntry->MaskedAlpha == bNeedsMaskedAlpha )
+            return;
     }
 
     // Look up in hash table.
@@ -1423,7 +1437,9 @@ void UXboxRenderDevice::SetTextureD3D( INT Stage, FTextureInfo& Info, DWORD Poly
         }
     }
 
-    if( !Entry || Info.bRealtimeChanged || bRgba7NeedsMaxColor )
+    UBOOL bMaskedAlphaChanged = (Entry && Entry->pTexture && Entry->MaskedAlpha != bNeedsMaskedAlpha);
+
+    if( !Entry || Info.bRealtimeChanged || bRgba7NeedsMaxColor || bMaskedAlphaChanged )
     {
         // Need to create or update the texture.
         EndSceneForTextureUpload( !Entry ? "tex-create" : "tex-update" );
@@ -1494,6 +1510,7 @@ void UXboxRenderDevice::SetTextureD3D( INT Stage, FTextureInfo& Info, DWORD Poly
             Entry->UIndex    = 0;
             Entry->VIndex    = 1;
             Entry->Format    = D3DFMT_UNKNOWN;
+            Entry->MaskedAlpha = 0;
             Entry->Bytes     = 0;
             Entry->HashNext  = TexCache[HashIndex];
             TexCache[HashIndex] = Entry;
@@ -1595,7 +1612,8 @@ void UXboxRenderDevice::SetTextureD3D( INT Stage, FTextureInfo& Info, DWORD Poly
             Entry->FirstMip != FirstMip ||
             Entry->UIndex   != (bSwapUV ? 1 : 0) ||
             Entry->VIndex   != (bSwapUV ? 0 : 1) ||
-            Entry->Format   != DestFormat;
+            Entry->Format   != DestFormat ||
+            Entry->MaskedAlpha != bNeedsMaskedAlpha;
         INT UploadSeq = ++GRD_FrameTexUploadSeq;
         UBOOL bHotUpload = ((RenderHotFrame( FrameCounter ) && UploadSeq <= 180) || RenderTextureHotTrace( TexPoolNext, GRD_TotalTexCreates ));
         if( bHotUpload && RenderHotTrace() )
@@ -1606,7 +1624,7 @@ void UXboxRenderDevice::SetTextureD3D( INT Stage, FTextureInfo& Info, DWORD Poly
         // Xbox D3D8 is much less forgiving than D3D7's system-surface upload
         // path: do not LockRect a texture while it is still resident in either
         // texture stage. Rebind after the upload below.
-        if( Entry->pTexture && (bRealtimeChanged || bForceRgba7MaxUpload) )
+        if( Entry->pTexture && (bRealtimeChanged || bForceRgba7MaxUpload || bMaskedAlphaChanged) )
         {
             if( BoundCacheID[0] == Info.CacheID )
             {
@@ -1645,6 +1663,7 @@ void UXboxRenderDevice::SetTextureD3D( INT Stage, FTextureInfo& Info, DWORD Poly
                 Entry->UIndex   = bSwapUV ? 1 : 0;
                 Entry->VIndex   = bSwapUV ? 0 : 1;
                 Entry->Format   = DestFormat;
+                Entry->MaskedAlpha = bNeedsMaskedAlpha;
                 TexLiveBytes   -= Entry->Bytes;
                 Entry->Bytes    = ApproxBytes;
                 TexLiveBytes   += Entry->Bytes;
@@ -1721,6 +1740,7 @@ void UXboxRenderDevice::SetTextureD3D( INT Stage, FTextureInfo& Info, DWORD Poly
                 Entry->UIndex   = bSwapUV ? 1 : 0;
                 Entry->VIndex   = bSwapUV ? 0 : 1;
                 Entry->Format   = DestFormat;
+                Entry->MaskedAlpha = bNeedsMaskedAlpha;
                 TexLiveBytes   -= Entry->Bytes;
                 Entry->Bytes    = ApproxBytes;
                 TexLiveBytes   += Entry->Bytes;

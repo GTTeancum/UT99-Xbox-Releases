@@ -46,10 +46,42 @@ static TMap<UTexture*, DWORD>& GetTexturePolyFlags()
 	return *GTexturePolyFlagsPtr;
 }
 
+static DWORD TextureBoolPolyFlags( const UTexture* Texture )
+{
+	DWORD Flags = 0;
+	if( Texture->bInvisible       ) Flags |= PF_Invisible;
+	if( Texture->bMasked          ) Flags |= PF_Masked;
+	if( Texture->bTransparent     ) Flags |= PF_Translucent;
+	if( Texture->bNotSolid        ) Flags |= PF_NotSolid;
+	if( Texture->bEnvironment     ) Flags |= PF_Environment;
+	if( Texture->bSemisolid       ) Flags |= PF_Semisolid;
+	if( Texture->bModulate        ) Flags |= PF_Modulated;
+	if( Texture->bFakeBackdrop    ) Flags |= PF_FakeBackdrop;
+	if( Texture->bTwoSided        ) Flags |= PF_TwoSided;
+	if( Texture->bAutoUPan        ) Flags |= PF_AutoUPan;
+	if( Texture->bAutoVPan        ) Flags |= PF_AutoVPan;
+	if( Texture->bNoSmooth        ) Flags |= PF_NoSmooth;
+	if( Texture->bBigWavy         ) Flags |= PF_BigWavy;
+	if( Texture->bSmallWavy       ) Flags |= PF_SmallWavy;
+	if( Texture->bWaterWavy       ) Flags |= PF_Flat;
+	if( Texture->bLowShadowDetail ) Flags |= PF_LowShadowDetail;
+	if( Texture->bNoMerge         ) Flags |= PF_NoMerge;
+	if( Texture->bCloudWavy       ) Flags |= PF_CloudWavy;
+	if( Texture->bDirtyShadows    ) Flags |= PF_DirtyShadows;
+	if( Texture->bHighLedge       ) Flags |= PF_BrightCorners;
+	if( Texture->bSpecialLit      ) Flags |= PF_SpecialLit;
+	if( Texture->bGouraud         ) Flags |= PF_Gouraud;
+	if( Texture->bUnlit           ) Flags |= PF_Unlit;
+	if( Texture->bHighShadowDetail) Flags |= PF_HighShadowDetail;
+	if( Texture->bPortal          ) Flags |= PF_Portal;
+	if( Texture->bMirrored        ) Flags |= PF_Mirrored;
+	return Flags;
+}
+
 DWORD UTexture::PolyFlags() const
 {
 	const DWORD* Found = GetTexturePolyFlags().Find( const_cast<UTexture*>(this) );
-	return Found ? *Found : 0;
+	return Found ? *Found : TextureBoolPolyFlags( this );
 }
 
 void UTexture::PolyFlags( DWORD NewFlags )
@@ -65,7 +97,7 @@ DWORD& UTexture::PolyFlagsRef()
 	DWORD* Found = Map.Find( this );
 	if( Found )
 		return *Found;
-	return Map.Set( this, 0 );
+	return Map.Set( this, TextureBoolPolyFlags( this ) );
 }
 
 void UTexture::ClearAllPolyFlags()

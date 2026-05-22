@@ -57,8 +57,8 @@ void UXboxClient::Init( UEngine* InEngine )
     Decals                = 0;
     NoDynamicLights       = 1;
     MinDesiredFrameRate   = 60.0f;
-    TextureLODSet[LODSET_World] = 2;
-    TextureLODSet[LODSET_Skin]  = 2;
+    TextureLODSet[LODSET_World] = 0;
+    TextureLODSet[LODSET_Skin]  = 0;
 
     GXboxLog.Write( "XboxClient::Init: settings flashes=%d decals=%d dynLights=%d minFPS=%.1f scaleXYZ=%.1f scaleRUV=%.1f layout=%d",
         ScreenFlashes, Decals, NoDynamicLights, MinDesiredFrameRate, ScaleXYZ, ScaleRUV, ButtonLayout );

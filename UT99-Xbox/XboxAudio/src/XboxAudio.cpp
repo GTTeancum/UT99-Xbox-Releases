@@ -35,6 +35,7 @@ extern "C"
 }
 
 extern "C" UBOOL XboxMenuWantsEffectSuppression();
+extern "C" UBOOL XboxMenuAllowsEffectSound( INT Id );
 
 /*-----------------------------------------------------------------------------
     UXboxAudioDevice
@@ -366,7 +367,7 @@ public:
         if( !DirectSound || !Sound )
             return 0;
 
-        if( XboxMenuWantsEffectSuppression() )
+        if( XboxMenuWantsEffectSuppression() && !XboxMenuAllowsEffectSound( Id ) )
         {
             static INT SuppressedLogCount = 0;
             if( SuppressedLogCount < 16 )

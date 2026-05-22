@@ -1518,3 +1518,33 @@ Follow-up:
 - Impact Hammer remains at `1.00x`.
 - Build succeeded with `UT99-Xbox\Tools\build_xbox_cli.py`.
 - Deployed updated `default.xbe` to the CXBX test install.
+
+### 93. Open Item Cleanup
+- Steve confirmed the OGX360 adapter/control issue is resolved.
+- Closed OGX360 adapter support as an open item.
+
+### 94. Duke Button Prompt Assets
+- Replaced the current menu button prompt assets with crops from `C:\Users\smmel\Downloads\xbox_duke_buttons.png`.
+- Updated `UT99-Xbox\Tools\build_menu_assets.py` so the asset build now carves the Duke sheet into transparent 64x64 XUI textures.
+- Generated a full Duke prompt set for current and future UI use:
+  - A, B, X, Y, White, Black, Start, Back;
+  - left/right stick, left/right stick move, L/R, LT/RT;
+  - D-pad neutral and cardinal directions.
+- Verified every generated `button_*.xui` file parses as `64x64` with expected byte size `16396`.
+- Deployed all generated button assets to `C:\Games\Emulators\CXBX\UT99x\MenuAssets`.
+- No XBE rebuild was needed because the runtime loads these prompt textures as loose menu assets.
+
+### 95. Weapon Wheel Grey Pass And Player Voice Samples
+- Steve confirmed the Duke buttons look good and requested:
+  - weapon wheel slices should be grey instead of blue-grey;
+  - wheel slices should be slightly darker and about 20% more transparent;
+  - player setup should play a voice sample when changing voice.
+- Updated the weapon wheel RGBA constants:
+  - dark wheel underlay changed from blue-tinted `(18,32,58)` to neutral `(10,10,10)`;
+  - available slices changed from blue-grey `(214/184,224/218,228/212)` to neutral greys `(176/148)`;
+  - slice alphas reduced by about 20% (`132/86 -> 106/69`, `162/122 -> 130/98`, `66 -> 53`, `52 -> 42`).
+- Root cause for missing voice sample: `XboxMenuPlayVoiceSample()` already fired when the voice row changed, but `XboxAudio::PlaySound()` suppressed all effects while menus were open.
+- Added a narrow bypass for only the explicit player-menu voice sample and only `SLOT_Interface`; normal menu-open effect/VO suppression remains active.
+- Added voice sample result logging (`XMENU voice sample ... played=0/1`) plus skip-reason logs for missing class/defaults/sound.
+- Build succeeded with `UT99-Xbox\Tools\build_xbox_cli.py`.
+- Deployed updated `default.xbe` to the CXBX test install.

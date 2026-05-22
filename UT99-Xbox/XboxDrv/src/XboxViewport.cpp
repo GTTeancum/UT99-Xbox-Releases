@@ -149,6 +149,7 @@ static INT   GXboxWeaponWheelLogCount  = 0;
 static INT   GXboxWeaponWheelSpriteFailLogCount = 0;
 static AActor* GXboxWeaponWheelPreviewActor = NULL;
 static ULevel* GXboxWeaponWheelPreviewLevel = NULL;
+static INT   GXboxMenuVoiceSampleBypass = 0;
 
 static FXboxMenuState GXboxMenu =
 {
@@ -2359,25 +2360,45 @@ static void XboxMenuPlayVoiceSample( UXboxViewport* Viewport )
     XboxMenuLoadPlayerVoices( GXboxMenu.PlayerClass );
     UClass* VoiceClass = UObject::StaticLoadClass( UObject::StaticClass(), NULL, *GXboxPlayerVoices(GXboxMenu.PlayerVoice).URLValue, NULL, LOAD_NoWarn | LOAD_Quiet, NULL );
     if( !VoiceClass || !VoiceClass->Defaults.Num() )
+    {
+        GXboxLog.Write( "XMENU voice sample skipped class=%s loaded=%d defaults=%d",
+            TCHAR_TO_ANSI(*GXboxPlayerVoices(GXboxMenu.PlayerVoice).URLValue),
+            VoiceClass ? 1 : 0,
+            VoiceClass ? VoiceClass->Defaults.Num() : 0 );
         return;
+    }
 
     INT NumAcks = XboxMenuClassDefaultInt( VoiceClass, TEXT("NumAcks"), 0 );
     UProperty* AckProp = FindField<UProperty>( VoiceClass, TEXT("AckSound") );
     UObjectProperty* AckObjectProp = Cast<UObjectProperty>( AckProp );
     if( !AckObjectProp || NumAcks <= 0 )
+    {
+        GXboxLog.Write( "XMENU voice sample skipped class=%s NumAcks=%d AckProp=%s",
+            TCHAR_TO_ANSI(*GXboxPlayerVoices(GXboxMenu.PlayerVoice).URLValue),
+            NumAcks,
+            AckProp ? TCHAR_TO_ANSI(AckProp->GetName()) : "None" );
         return;
+    }
 
     INT AckIndex = appRand() % Min<INT>( NumAcks, AckProp->ArrayDim );
     BYTE* AckData = &VoiceClass->Defaults(0) + AckProp->Offset + AckIndex * AckProp->ElementSize;
     USound* Sound = *(USound**)AckData;
     if( !Sound )
+    {
+        GXboxLog.Write( "XMENU voice sample skipped class=%s ack=%d sound=None",
+            TCHAR_TO_ANSI(*GXboxPlayerVoices(GXboxMenu.PlayerVoice).URLValue),
+            AckIndex );
         return;
+    }
 
-    Client->Engine->Audio->PlaySound( Viewport->Actor, SLOT_Interface, Sound, Viewport->Actor->Location, 16.0f, 1600.0f, 1.0f );
-    GXboxLog.Write( "XMENU voice sample class=%s ack=%d sound=%s",
+    GXboxMenuVoiceSampleBypass++;
+    UBOOL bPlayed = Client->Engine->Audio->PlaySound( Viewport->Actor, SLOT_Interface, Sound, Viewport->Actor->Location, 16.0f, 1600.0f, 1.0f );
+    GXboxMenuVoiceSampleBypass--;
+    GXboxLog.Write( "XMENU voice sample class=%s ack=%d sound=%s played=%d",
         TCHAR_TO_ANSI(*GXboxPlayerVoices(GXboxMenu.PlayerVoice).URLValue),
         AckIndex,
-        Sound ? Sound->GetName() : "None" );
+        Sound ? Sound->GetName() : "None",
+        bPlayed ? 1 : 0 );
 }
 
 static void XboxMenuSaveTripletColor( const TCHAR* Key, INT ColorIndex )
@@ -2568,6 +2589,11 @@ static UBOOL XboxMenuIsActive()
 extern "C" UBOOL XboxMenuWantsEffectSuppression()
 {
     return GXboxMenu.Active;
+}
+
+extern "C" UBOOL XboxMenuAllowsEffectSound( INT Id )
+{
+    return GXboxMenuVoiceSampleBypass > 0 && Id == SLOT_Interface;
 }
 
 static void XboxMenuBack( UXboxViewport* Viewport )
@@ -3678,16 +3704,16 @@ static void XboxWeaponWheelDraw( UXboxViewport* Viewport, UCanvas* Canvas )
         AWeapon* Weapon = XboxWeaponWheelFindWeapon( Player, i );
         UBOOL bAvailable = XboxWeaponWheelCanSelect( Weapon );
         UBOOL bFocus = i == Focus;
-        XboxWeaponWheelDrawSlice( Canvas, CX, CY, InnerR-2.0f, OuterR+2.0f, i, 18, 32, 58, bFocus ? 132 : 86 );
+        XboxWeaponWheelDrawSlice( Canvas, CX, CY, InnerR-2.0f, OuterR+2.0f, i, 10, 10, 10, bFocus ? 106 : 69 );
 
-        BYTE SliceR = bFocus ? 214 : 184;
-        BYTE SliceG = bFocus ? 224 : 218;
-        BYTE SliceB = bFocus ? 228 : 212;
-        BYTE SliceA = bAvailable ? (bFocus ? 162 : 122) : 66;
+        BYTE SliceR = bFocus ? 176 : 148;
+        BYTE SliceG = bFocus ? 176 : 148;
+        BYTE SliceB = bFocus ? 176 : 148;
+        BYTE SliceA = bAvailable ? (bFocus ? 130 : 98) : 53;
         XboxWeaponWheelDrawSlice( Canvas, CX, CY, InnerR, OuterR, i, SliceR, SliceG, SliceB, SliceA );
 
         if( bFocus )
-            XboxWeaponWheelDrawSlice( Canvas, CX, CY, InnerR+5.0f, OuterR-5.0f, i, 80, 166, 255, 52 );
+            XboxWeaponWheelDrawSlice( Canvas, CX, CY, InnerR+5.0f, OuterR-5.0f, i, 210, 210, 210, 42 );
     }
 
     for( INT i=0; i<ARRAY_COUNT(GXboxWeaponWheelSlots); i++ )

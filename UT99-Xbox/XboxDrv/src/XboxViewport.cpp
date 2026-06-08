@@ -339,6 +339,25 @@ static INT GXboxPlayerPreviewSkin = -1;
 static INT GXboxPlayerPreviewFace = -1;
 static INT GXboxPlayerPreviewTeam = -1;
 static const INT GXboxPlayerPreviewYaw = 32768;
+struct FXboxPlayerPreviewAssets
+{
+    INT ClassIndex;
+    INT SkinIndex;
+    INT FaceIndex;
+    INT TeamIndex;
+    UMesh* Mesh;
+    UTexture* Skin;
+    UTexture* MultiSkins[8];
+};
+static FXboxPlayerPreviewAssets GXboxPlayerPreviewCurrent;
+static FXboxPlayerPreviewAssets GXboxPlayerPreviewPrevious;
+static UBOOL GXboxPlayerPreviewAssetsInitialized = 0;
+struct FXboxPlayerPreviewRootRef
+{
+    UObject* Object;
+    INT Count;
+};
+static FXboxPlayerPreviewRootRef GXboxPlayerPreviewRootRefs[64];
 
 static const INT GXboxSystemLinkBasePort = 9777;
 static const INT GXboxSystemLinkPortCount = 4;
@@ -1138,8 +1157,139 @@ static void XboxMenuResetPlayerPreviewCache()
     GXboxPlayerPreviewTeam = -1;
 }
 
+static void XboxMenuRootPreviewObject( UObject* Object )
+{
+    if( Object )
+    {
+        for( INT i=0; i<ARRAY_COUNT(GXboxPlayerPreviewRootRefs); i++ )
+        {
+            if( GXboxPlayerPreviewRootRefs[i].Object == Object )
+            {
+                GXboxPlayerPreviewRootRefs[i].Count++;
+                return;
+            }
+        }
+        for( INT j=0; j<ARRAY_COUNT(GXboxPlayerPreviewRootRefs); j++ )
+        {
+            if( !GXboxPlayerPreviewRootRefs[j].Object )
+            {
+                GXboxPlayerPreviewRootRefs[j].Object = Object;
+                GXboxPlayerPreviewRootRefs[j].Count = 1;
+                Object->AddToRoot();
+                return;
+            }
+        }
+        GXboxLog.Write( "XMENU preview root table full for %s", TCHAR_TO_ANSI(Object->GetFullName()) );
+    }
+}
+
+static void XboxMenuUnrootPreviewObject( UObject* Object )
+{
+    if( Object )
+    {
+        for( INT i=0; i<ARRAY_COUNT(GXboxPlayerPreviewRootRefs); i++ )
+        {
+            if( GXboxPlayerPreviewRootRefs[i].Object == Object )
+            {
+                GXboxPlayerPreviewRootRefs[i].Count--;
+                if( GXboxPlayerPreviewRootRefs[i].Count <= 0 )
+                {
+                    Object->RemoveFromRoot();
+                    GXboxPlayerPreviewRootRefs[i].Object = NULL;
+                    GXboxPlayerPreviewRootRefs[i].Count = 0;
+                }
+                return;
+            }
+        }
+    }
+}
+
+static void XboxMenuInitPlayerPreviewAssets()
+{
+    if( GXboxPlayerPreviewAssetsInitialized )
+        return;
+
+    appMemzero( &GXboxPlayerPreviewCurrent, sizeof(GXboxPlayerPreviewCurrent) );
+    appMemzero( &GXboxPlayerPreviewPrevious, sizeof(GXboxPlayerPreviewPrevious) );
+    GXboxPlayerPreviewCurrent.ClassIndex = -1;
+    GXboxPlayerPreviewCurrent.SkinIndex  = -1;
+    GXboxPlayerPreviewCurrent.FaceIndex  = -1;
+    GXboxPlayerPreviewCurrent.TeamIndex  = -1;
+    GXboxPlayerPreviewPrevious.ClassIndex = -1;
+    GXboxPlayerPreviewPrevious.SkinIndex  = -1;
+    GXboxPlayerPreviewPrevious.FaceIndex  = -1;
+    GXboxPlayerPreviewPrevious.TeamIndex  = -1;
+    GXboxPlayerPreviewAssetsInitialized = 1;
+}
+
+static void XboxMenuRootPlayerPreviewAssets( FXboxPlayerPreviewAssets& Assets )
+{
+    XboxMenuRootPreviewObject( Assets.Mesh );
+    XboxMenuRootPreviewObject( Assets.Skin );
+    for( INT i=0; i<ARRAY_COUNT(Assets.MultiSkins); i++ )
+        XboxMenuRootPreviewObject( Assets.MultiSkins[i] );
+}
+
+static void XboxMenuUnrootPlayerPreviewAssets( FXboxPlayerPreviewAssets& Assets )
+{
+    XboxMenuUnrootPreviewObject( Assets.Mesh );
+    XboxMenuUnrootPreviewObject( Assets.Skin );
+    for( INT i=0; i<ARRAY_COUNT(Assets.MultiSkins); i++ )
+        XboxMenuUnrootPreviewObject( Assets.MultiSkins[i] );
+    appMemzero( &Assets, sizeof(Assets) );
+    Assets.ClassIndex = -1;
+    Assets.SkinIndex  = -1;
+    Assets.FaceIndex  = -1;
+    Assets.TeamIndex  = -1;
+}
+
+static UBOOL XboxMenuPreviewAssetsMatch( const FXboxPlayerPreviewAssets& Assets, INT ClassIndex, INT SkinIndex, INT FaceIndex, INT TeamIndex )
+{
+    return Assets.ClassIndex == ClassIndex
+        && Assets.SkinIndex  == SkinIndex
+        && Assets.FaceIndex  == FaceIndex
+        && Assets.TeamIndex  == TeamIndex;
+}
+
+static void XboxMenuTrackPlayerPreviewAssets( AActor* Actor, INT ClassIndex, INT SkinIndex, INT FaceIndex, INT TeamIndex )
+{
+    if( !Actor )
+        return;
+
+    XboxMenuInitPlayerPreviewAssets();
+    if( XboxMenuPreviewAssetsMatch( GXboxPlayerPreviewCurrent, ClassIndex, SkinIndex, FaceIndex, TeamIndex ) )
+        return;
+
+    XboxMenuUnrootPlayerPreviewAssets( GXboxPlayerPreviewPrevious );
+    GXboxPlayerPreviewPrevious = GXboxPlayerPreviewCurrent;
+    appMemzero( &GXboxPlayerPreviewCurrent, sizeof(GXboxPlayerPreviewCurrent) );
+    GXboxPlayerPreviewCurrent.ClassIndex  = ClassIndex;
+    GXboxPlayerPreviewCurrent.SkinIndex   = SkinIndex;
+    GXboxPlayerPreviewCurrent.FaceIndex   = FaceIndex;
+    GXboxPlayerPreviewCurrent.TeamIndex   = TeamIndex;
+    GXboxPlayerPreviewCurrent.Mesh        = Actor->Mesh;
+    GXboxPlayerPreviewCurrent.Skin        = Actor->Skin;
+    for( INT i=0; i<ARRAY_COUNT(GXboxPlayerPreviewCurrent.MultiSkins); i++ )
+        GXboxPlayerPreviewCurrent.MultiSkins[i] = Actor->MultiSkins[i];
+
+    XboxMenuRootPlayerPreviewAssets( GXboxPlayerPreviewCurrent );
+    GXboxLog.Write( "XMENU preview assets guarded current=%d/%d/%d/%d previous=%d/%d/%d/%d",
+        GXboxPlayerPreviewCurrent.ClassIndex, GXboxPlayerPreviewCurrent.SkinIndex,
+        GXboxPlayerPreviewCurrent.FaceIndex, GXboxPlayerPreviewCurrent.TeamIndex,
+        GXboxPlayerPreviewPrevious.ClassIndex, GXboxPlayerPreviewPrevious.SkinIndex,
+        GXboxPlayerPreviewPrevious.FaceIndex, GXboxPlayerPreviewPrevious.TeamIndex );
+}
+
+static void XboxMenuReleasePlayerPreviewAssets()
+{
+    XboxMenuInitPlayerPreviewAssets();
+    XboxMenuUnrootPlayerPreviewAssets( GXboxPlayerPreviewCurrent );
+    XboxMenuUnrootPlayerPreviewAssets( GXboxPlayerPreviewPrevious );
+}
+
 static void XboxMenuDestroyPlayerPreview()
 {
+    XboxMenuReleasePlayerPreviewAssets();
     if( GXboxPlayerPreviewActor )
         GXboxPlayerPreviewActor->Destroy();
     XboxMenuResetPlayerPreviewCache();
@@ -2393,6 +2543,7 @@ static void XboxMenuUpdatePlayerPreviewActor( UXboxViewport* Viewport )
     GXboxLog.Write( "XMENU player preview skin apply begin" );
     XboxMenuApplyPreviewSkin( Actor );
     GXboxLog.Write( "XMENU player preview skin apply end" );
+    XboxMenuTrackPlayerPreviewAssets( Actor, GXboxMenu.PlayerClass, GXboxMenu.PlayerSkin, GXboxMenu.PlayerFace, GXboxMenu.PlayerTeam );
 
     GXboxPlayerPreviewClass = GXboxMenu.PlayerClass;
     GXboxPlayerPreviewSkin = GXboxMenu.PlayerSkin;
@@ -2692,10 +2843,37 @@ static void XboxMenuSmokeTick( UXboxViewport* Viewport )
         GXboxMenu.InstantGameType = Clamp<INT>( GXboxMenu.InstantGameType, 0, XboxMenuGameTypeCount()-1 );
         XboxMenuLoadMapsForGameType( GXboxMenu.InstantGameType );
         SmokeStage = 2;
+        SmokeStartTime = appSeconds();
         GXboxLog.Write( "XMENU SMOKE opened Instant Action gameTypes=%d maps=%d mutators=%d",
             XboxMenuGameTypeCount(),
             XboxInstantMapList( GXboxMenu.InstantGameType ),
             XboxMenuMutatorCount() );
+    }
+    else if( SmokeStage == 2 && (appSeconds() - SmokeStartTime) > 2.0 )
+    {
+        GXboxMenu.Screen = XMS_PlayerSetup;
+        GXboxMenu.PlayerFocus = 0;
+        XboxMenuLoadPlayerState();
+        SmokeStage = 3;
+        SmokeStartTime = appSeconds();
+        GXboxLog.Write( "XMENU SMOKE opened Player Setup class=%d skin=%d face=%d",
+            GXboxMenu.PlayerClass, GXboxMenu.PlayerSkin, GXboxMenu.PlayerFace );
+    }
+    else if( SmokeStage == 3 && (appSeconds() - SmokeStartTime) > 2.0 )
+    {
+        XboxMenuLoadPlayerClasses();
+        GXboxMenu.PlayerClass = XboxMenuWrapInt( GXboxMenu.PlayerClass, 1, GXboxPlayerClasses.Num() );
+        GXboxPlayerSkinsClass = -1;
+        GXboxPlayerVoicesClass = -1;
+        GXboxMenu.PlayerSkin = 0;
+        GXboxMenu.PlayerFace = 0;
+        GXboxMenu.PlayerVoice = 0;
+        XboxMenuLoadPlayerSkins( GXboxMenu.PlayerClass );
+        XboxMenuLoadPlayerFaces( GXboxMenu.PlayerClass, GXboxMenu.PlayerSkin );
+        XboxMenuLoadPlayerVoices( GXboxMenu.PlayerClass );
+        SmokeStage = 4;
+        GXboxLog.Write( "XMENU SMOKE cycled Player Setup class=%d skin=%d face=%d",
+            GXboxMenu.PlayerClass, GXboxMenu.PlayerSkin, GXboxMenu.PlayerFace );
     }
 }
 

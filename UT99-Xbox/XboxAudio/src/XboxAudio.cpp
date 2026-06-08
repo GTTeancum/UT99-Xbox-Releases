@@ -88,7 +88,7 @@ static INT XboxFindEmbeddedTrackerModule( const BYTE* Data, INT Bytes )
     if( !Data || Bytes < 4 )
         return -1;
 
-    const INT ScanBytes = Min<INT>( Bytes, 4096 );
+    const INT ScanBytes = Bytes;
     for( INT i=0; i<=ScanBytes-4; i++ )
     {
         if( Data[i+0]=='I' && Data[i+1]=='M' && Data[i+2]=='P' && Data[i+3]=='M' )
@@ -349,16 +349,23 @@ static int XboxXmpLoadModuleFromXboxFile( xmp_context Context, const char* Path,
         return -XMP_ERROR_LOAD;
     }
 
-    BYTE Scan[4096];
-    DWORD ScanBytes = Min<DWORD>( FileBytes, sizeof(Scan) );
+    DWORD ScanBytes = Min<DWORD>( FileBytes, 256 * 1024 );
+    BYTE* Scan = (BYTE*)appMalloc( ScanBytes, TEXT("XboxMusicScan") );
+    if( !Scan )
+    {
+        CloseHandle( File );
+        return -XMP_ERROR_SYSTEM;
+    }
     DWORD Read = 0;
     if( !ReadFile( File, Scan, ScanBytes, &Read, NULL ) || Read != ScanBytes )
     {
+        appFree( Scan );
         CloseHandle( File );
         return -XMP_ERROR_SYSTEM;
     }
 
     INT ModuleOffset = XboxFindEmbeddedTrackerModule( Scan, (INT)ScanBytes );
+    appFree( Scan );
     if( ModuleOffset < 0 || (DWORD)ModuleOffset >= FileBytes )
     {
         CloseHandle( File );
@@ -714,12 +721,11 @@ public:
         appMemzero( &Desc, sizeof(Desc) );
         Desc.dwSize        = sizeof(Desc);
         Desc.dwFlags       = DSBCAPS_CTRLVOLUME | DSBCAPS_CTRLFREQUENCY;
-        Desc.dwBufferBytes = 0;
+        Desc.dwBufferBytes = (DWORD)WaveInfo.SampleDataSize;
         Desc.lpwfxFormat   = &wfx;
-        Desc.lpMixBins     = XboxDefaultMixBinsForChannels( wfx.nChannels );
 
         IDirectSoundBuffer* Buffer = NULL;
-        HRESULT hr = DirectSoundCreateBuffer( &Desc, &Buffer );
+        HRESULT hr = DirectSound->CreateSoundBuffer( &Desc, &Buffer, NULL );
         if( FAILED(hr) || !Buffer )
         {
             if( FailedSounds < 32 )
@@ -729,15 +735,24 @@ public:
             return;
         }
 
-        hr = Buffer->SetBufferData( WaveInfo.SampleDataStart, (DWORD)WaveInfo.SampleDataSize );
+        VOID* Lock1 = NULL;
+        DWORD Size1 = 0;
+        VOID* Lock2 = NULL;
+        DWORD Size2 = 0;
+        hr = Buffer->Lock( 0, (DWORD)WaveInfo.SampleDataSize, &Lock1, &Size1, &Lock2, &Size2, 0 );
         if( FAILED(hr) )
         {
             Buffer->Release();
             if( FailedSounds < 32 )
-                GXboxLog.Write( "XboxAudio: SetBufferData failed %s hr=0x%08X", TCHAR_TO_ANSI(Sound->GetName()), (DWORD)hr );
+                GXboxLog.Write( "XboxAudio: Buffer Lock failed %s hr=0x%08X", TCHAR_TO_ANSI(Sound->GetName()), (DWORD)hr );
             FailedSounds++;
             return;
         }
+
+        appMemcpy( Lock1, WaveInfo.SampleDataStart, Size1 );
+        if( Lock2 && Size2 )
+            appMemcpy( Lock2, WaveInfo.SampleDataStart + Size1, Size2 );
+        Buffer->Unlock( Lock1, Size1, Lock2, Size2 );
 
         Sound->Handle = Buffer;
         RegisteredSounds++;
@@ -810,7 +825,7 @@ public:
         Buffer->SetVolume( XboxVolumeToDS( Clamp( Volume * ((FLOAT)SoundVolume / 255.0f), 0.0f, 1.0f ) ) );
         Buffer->SetFrequency( Max<DWORD>( 100, (DWORD)(BaseRate * ClampedPitch) ) );
 
-        HRESULT hr = Buffer->PlayEx( 0, DSBPLAY_FROMSTART );
+        HRESULT hr = Buffer->Play( 0, 0, 0 );
         if( FAILED(hr) )
         {
             if( FailedSounds < 64 )
@@ -820,8 +835,6 @@ public:
         }
 
         PlayedSounds++;
-        DirectSound->CommitDeferredSettings();
-        DirectSoundDoWork();
         if( PlayedSounds <= 32 )
             GXboxLog.Write( "XboxAudio: play #%d %s vol=%.2f pitch=%.2f",
                 PlayedSounds, TCHAR_TO_ANSI(Sound->GetName()), Volume, Pitch );

@@ -463,7 +463,7 @@ UBOOL UXboxRenderDevice::Init( UViewport* InViewport, INT NewX, INT NewY, INT Ne
     GXboxLog.Write( "XboxRender::Init: entered (%dx%d, %dbpp) sizeof(D3DPP)=%d",
         NewX, NewY, NewColorBytes, (int)sizeof(D3DPRESENT_PARAMETERS) );
     GXboxLog.Write( "XboxRender::Init: render-audit build marker %s %s", __DATE__, __TIME__ );
-    GXboxLog.Write( "XboxRender::Init: fog maps disabled; DXT/S3TC disabled until tall compressed textures are rotated safely" );
+    GXboxLog.Write( "XboxRender::Init: fog maps disabled; DXT/S3TC disabled until compressed upload is verified safe" );
     if( GWireframeNoTextureProbe )
         GXboxLog.Write( "RWIRE probe active: no Info.Load, no texture create/lock/upload/bind, no light/detail/fog/macro passes, forced white wireframe" );
 
@@ -3294,12 +3294,15 @@ static FXboxMenuTexture* XboxLoadMenuTexture( UXboxRenderDevice* Ren, const char
         return NULL;
     }
 
+    DWORD TexWidth = Width;
+    DWORD TexHeight = Height;
+
     IDirect3DTexture8* Texture = NULL;
-    HRESULT hr = Ren->Device->CreateTexture( Width, Height, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_DEFAULT, &Texture );
+    HRESULT hr = Ren->Device->CreateTexture( TexWidth, TexHeight, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_DEFAULT, &Texture );
     if( FAILED(hr) || !Texture )
     {
         CloseHandle( File );
-        GXboxLog.Write( "XMENU tex create failed %s %lux%lu hr=0x%08X", Path, Width, Height, (DWORD)hr );
+        GXboxLog.Write( "XMENU tex create failed %s %lux%lu hr=0x%08X", Path, TexWidth, TexHeight, (DWORD)hr );
         return NULL;
     }
 
@@ -3321,18 +3324,21 @@ static FXboxMenuTexture* XboxLoadMenuTexture( UXboxRenderDevice* Ren, const char
         Ok = 0;
     if( Ok )
     {
-        RECT SrcRect = { 0, 0, (LONG)Width, (LONG)Height };
+        RECT SrcRect = { 0, 0, (LONG)TexWidth, (LONG)TexHeight };
         POINT DstPoint = { 0, 0 };
-        XGSwizzleRect(
-            Linear,
-            RowBytes,
-            &SrcRect,
-            Locked.pBits,
-            Width,
-            Height,
-            &DstPoint,
-            4
-        );
+        if( Ok )
+        {
+            XGSwizzleRect(
+                Linear,
+                RowBytes,
+                &SrcRect,
+                Locked.pBits,
+                TexWidth,
+                TexHeight,
+                &DstPoint,
+                4
+            );
+        }
     }
     if( Linear )
         appFree( Linear );
@@ -3349,9 +3355,9 @@ static FXboxMenuTexture* XboxLoadMenuTexture( UXboxRenderDevice* Ren, const char
     appStrncpy( Slot->Name, Name, ARRAY_COUNT(Slot->Name) );
     Slot->Name[ARRAY_COUNT(Slot->Name)-1] = 0;
     Slot->Texture = Texture;
-    Slot->Width = Width;
-    Slot->Height = Height;
-    GXboxLog.Write( "XMENU tex loaded %s %lux%lu", Path, Width, Height );
+    Slot->Width = TexWidth;
+    Slot->Height = TexHeight;
+    GXboxLog.Write( "XMENU tex loaded %s %lux%lu", Path, TexWidth, TexHeight );
     return Slot;
 }
 

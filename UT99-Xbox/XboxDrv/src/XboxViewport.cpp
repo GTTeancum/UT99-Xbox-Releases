@@ -4050,10 +4050,10 @@ static void XboxMenuDrawMain( UCanvas* Canvas )
 
     XboxMenuDrawChrome( Canvas, TEXT("MAIN MENU"), 0 );
     UFont* MainFont = Canvas->MedFont;
-    if( !Canvas->Frame || !XboxRenderDrawMenuTexture( Canvas->Frame, "ut_logo.xui", 44, 58, 270, 135, 1.0f ) )
+    if( Canvas->Frame )
     {
-        XboxMenuText( Canvas, Canvas->MedFont, 52, 78, 255, 255, 255, TEXT("UNREAL") );
-        XboxMenuText( Canvas, Canvas->MedFont, 52, 120, 255, 255, 255, TEXT("TOURNAMENT") );
+        if( !XboxRenderDrawMenuTexture( Canvas->Frame, "ut_logo_256.xui", 44, 58, 270, 135, 1.0f ) )
+            XboxRenderDrawMenuTexture( Canvas->Frame, "ut_logo.xui", 44, 58, 270, 135, 1.0f );
     }
 
     for( INT i=0; i<ARRAY_COUNT(Items); i++ )

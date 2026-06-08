@@ -40,7 +40,15 @@ def read_uclass_super_name(pkg, ex):
     return pkg.name(pkg.imports[-super_ref - 1]['name_idx'])
 
 
-def read_uproperty_header(pkg, ex):
+def object_ref_name(pkg, ref):
+    if ref == 0:
+        return None
+    if ref > 0:
+        return pkg.name(pkg.exports[ref - 1]['name_idx'])
+    return pkg.name(pkg.imports[-ref - 1]['name_idx'])
+
+
+def read_uproperty_header(pkg, ex, child_cls=None):
     o = ex['offset']
     o = skip_tagged_properties(pkg.data, o, pkg)
     _super, o = read_compact_int(pkg.data, o)
@@ -50,7 +58,23 @@ def read_uproperty_header(pkg, ex):
     category, o = read_compact_int(pkg.data, o)
     if prop_flags & 0x00000020:  # CPF_Net
         _rep_offset, o = read_word(pkg.data, o)
-    return next_ref, array_dim, prop_flags
+    extra = {}
+    if child_cls == 'StructProperty':
+        struct_ref, o = read_compact_int(pkg.data, o)
+        extra['struct'] = object_ref_name(pkg, struct_ref)
+    elif child_cls == 'ArrayProperty':
+        inner_ref, o = read_compact_int(pkg.data, o)
+        extra['inner'] = object_ref_name(pkg, inner_ref)
+    elif child_cls in ('ObjectProperty', 'ClassProperty'):
+        prop_ref, o = read_compact_int(pkg.data, o)
+        extra['property_class'] = object_ref_name(pkg, prop_ref)
+        if child_cls == 'ClassProperty':
+            meta_ref, o = read_compact_int(pkg.data, o)
+            extra['meta_class'] = object_ref_name(pkg, meta_ref)
+    elif child_cls == 'ByteProperty':
+        enum_ref, o = read_compact_int(pkg.data, o)
+        extra['enum'] = object_ref_name(pkg, enum_ref)
+    return next_ref, array_dim, prop_flags, extra
 
 
 def read_field_next(pkg, ex):
@@ -82,13 +106,15 @@ def collect_class(pkg, cls_idx, cls_ex):
             child_cls = pkg.name(pkg.imports[-ci - 1]['name_idx'])
         try:
             if child_cls.endswith('Property'):
-                next_ref, array_dim, prop_flags = read_uproperty_header(pkg, ex)
-                properties.append({
+                next_ref, array_dim, prop_flags, extra = read_uproperty_header(pkg, ex, child_cls)
+                prop = {
                     'name': name,
                     'type': child_cls,
                     'array_dim': array_dim,
                     'prop_flags': prop_flags,
-                })
+                }
+                prop.update(extra)
+                properties.append(prop)
             else:
                 next_ref = read_field_next(pkg, ex)
             cur = next_ref

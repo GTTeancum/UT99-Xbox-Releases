@@ -23,6 +23,12 @@
 #include "common.h"
 #include "memio.h"
 
+#if TARGET_XBOX
+#define XMP_XBOX_MEMORY_PAD 1024
+#else
+#define XMP_XBOX_MEMORY_PAD 0
+#endif
+
 static inline ptrdiff_t CAN_READ(MFILE *m)
 {
 	return m->pos >= 0 ? m->size - m->pos : 0;
@@ -31,8 +37,12 @@ static inline ptrdiff_t CAN_READ(MFILE *m)
 
 int mgetc(MFILE *m)
 {
-	if (CAN_READ(m) >= 1)
-		return *(const uint8 *)(m->start + m->pos++);
+	if (CAN_READ(m) >= 1) {
+		if (m->pos < m->physical_size)
+			return *(const uint8 *)(m->start + m->pos++);
+		m->pos++;
+		return 0;
+	}
 	return EOF;
 }
 
@@ -46,12 +56,28 @@ size_t mread(void *buf, size_t size, size_t num, MFILE *m)
 	}
 
 	if (should_read > can_read) {
-		memcpy(buf, m->start + m->pos, can_read);
+		ptrdiff_t real_read = m->physical_size - m->pos;
+		if (real_read < 0)
+			real_read = 0;
+		if (real_read > can_read)
+			real_read = can_read;
+		if (real_read > 0)
+			memcpy(buf, m->start + m->pos, real_read);
+		if (can_read > real_read)
+			memset((unsigned char *)buf + real_read, 0, can_read - real_read);
 		m->pos += can_read;
 
 		return can_read / size;
 	} else {
-		memcpy(buf, m->start + m->pos, should_read);
+		ptrdiff_t real_read = m->physical_size - m->pos;
+		if (real_read < 0)
+			real_read = 0;
+		if (real_read > (ptrdiff_t)should_read)
+			real_read = (ptrdiff_t)should_read;
+		if (real_read > 0)
+			memcpy(buf, m->start + m->pos, real_read);
+		if ((ptrdiff_t)should_read > real_read)
+			memset((unsigned char *)buf + real_read, 0, should_read - real_read);
 		m->pos += should_read;
 
 		return num;
@@ -102,7 +128,8 @@ MFILE *mopen(void *ptr, long size, int free_after_use)
 
 	m->start = (const unsigned char *)ptr;
 	m->pos = 0;
-	m->size = size;
+	m->physical_size = size;
+	m->size = size + XMP_XBOX_MEMORY_PAD;
 	m->ptr_free = free_after_use ? ptr : NULL;
 
 	return m;
@@ -118,7 +145,8 @@ MFILE *mcopen(const void *ptr, long size)
 
 	m->start = (const unsigned char *)ptr;
 	m->pos = 0;
-	m->size = size;
+	m->physical_size = size;
+	m->size = size + XMP_XBOX_MEMORY_PAD;
 	m->ptr_free = NULL;
 
 	return m;

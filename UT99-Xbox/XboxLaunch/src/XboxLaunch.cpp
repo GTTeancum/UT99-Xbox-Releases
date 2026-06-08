@@ -35,9 +35,10 @@ FXboxLogger GXboxLog;
 void __cdecl main()
 {
     // ── Open log FIRST — before any Unreal code runs ─────────────────────
-    GXboxLog.Open( "D:\\ut99.log" );
+    GXboxLog.OpenWithFallbacks();
     GXboxLog.Write( "BOOT: main() entered" );
     GXboxLog.Write( "BOOT: build %s %s", __DATE__, __TIME__ );
+    GXboxLog.Write( "BOOT: features p8tex=1 xinputReuse=1 xinputThrottle=1 cache=256k memstack=32k audio=normal logDiet=1 texEvict=1 texFailCooldown=1 musicMemPad=1 scratchDiet=1 fixedXboxMenuDiscovery=1" );
 
     XDEVICE_PREALLOC_TYPE DeviceTypes[2];
     DeviceTypes[0].DeviceType = XDEVICE_TYPE_GAMEPAD;

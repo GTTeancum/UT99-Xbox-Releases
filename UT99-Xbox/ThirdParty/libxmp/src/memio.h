@@ -7,6 +7,7 @@
 typedef struct {
 	const unsigned char *start;
 	ptrdiff_t pos;
+	ptrdiff_t physical_size;
 	ptrdiff_t size;
 	void *ptr_free;
 } MFILE;

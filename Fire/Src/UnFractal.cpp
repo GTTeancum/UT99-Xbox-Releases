@@ -4058,11 +4058,12 @@ void UFireTexture::Clear( DWORD ClearFlags )
 void UFireTexture::PostLoad()
 {
 	guard(UFireTexture::PostLoad);
+	static const UBOOL bXboxVerboseFireLayoutLog = 0;
 	// Xbox: log actual-vs-expected and dump property chain for any class with
 	// drift, so we can diff .u's field list against our C++ class layout.
 	// First call only: dump once per class via static guard.
 	static UBOOL bFireDumpDone = 0;
-	if( !bFireDumpDone )
+	if( bXboxVerboseFireLayoutLog && !bFireDumpDone )
 	{
 		bFireDumpDone = 1;
 		UClass* DumpList[] = {
@@ -4111,20 +4112,26 @@ void UFireTexture::PostLoad()
 		debugf( NAME_Init, TEXT("[FireSize] %s: sizeof=%d  PropertiesSize=%d  delta=%d"), \
 			TEXT(#C), (INT)sizeof(C), C::StaticClass()->GetPropertiesSize(), \
 			(INT)sizeof(C) - C::StaticClass()->GetPropertiesSize() )
-	XBOX_REPORT_SIZE(UFireTexture);
-	XBOX_REPORT_SIZE(UWetTexture);
-	XBOX_REPORT_SIZE(UWaveTexture);
-	XBOX_REPORT_SIZE(UFractalTexture);
+	if( bXboxVerboseFireLayoutLog )
+	{
+		XBOX_REPORT_SIZE(UFireTexture);
+		XBOX_REPORT_SIZE(UWetTexture);
+		XBOX_REPORT_SIZE(UWaveTexture);
+		XBOX_REPORT_SIZE(UFractalTexture);
+	}
 	#undef XBOX_REPORT_SIZE
 
 	// Beacons: if the log truncates between any two of these we know
 	// exactly which call hung (previous one printed, next didn't).
-	debugf( NAME_Init, TEXT("[FireBoot] %s: pre Super::PostLoad()"), GetName() );
+	if( bXboxVerboseFireLayoutLog )
+		debugf( NAME_Init, TEXT("[FireBoot] %s: pre Super::PostLoad()"), GetName() );
 	// Call base class.
 	Super::PostLoad();
-	debugf( NAME_Init, TEXT("[FireBoot] %s: post Super::PostLoad()"), GetName() );
+	if( bXboxVerboseFireLayoutLog )
+		debugf( NAME_Init, TEXT("[FireBoot] %s: post Super::PostLoad()"), GetName() );
 	PolyFlagsRef() &= ~PF_Masked;
-	debugf( NAME_Init, TEXT("[FireBoot] %s: PolyFlags cleared"), GetName() );
+	if( bXboxVerboseFireLayoutLog )
+		debugf( NAME_Init, TEXT("[FireBoot] %s: PolyFlags cleared"), GetName() );
 
 	// Make sure the texture has its _own_ copy of the palette.
 #if COPYPALETTE

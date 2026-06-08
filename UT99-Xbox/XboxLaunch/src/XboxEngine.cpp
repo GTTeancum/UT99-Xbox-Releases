@@ -23,23 +23,27 @@ UEngine* InitEngine()
 	GXboxLog.Write( "InitEngine: GIsClient=%d GIsServer=%d GIsScriptable=%d GIsEditor=%d",
 		GIsClient, GIsServer, GIsScriptable, GIsEditor );
 
+	static const UBOOL bXboxVerboseClassSizeLog = 0;
+	if( bXboxVerboseClassSizeLog )
+	{
 #define XLOG_CLASS_SIZE(T) \
-	GXboxLog.Write( "XSIZE %-18s sizeof=%d props=%d delta=%d", \
-		#T, (INT)sizeof(T), T::StaticClass()->GetPropertiesSize(), \
-		(INT)sizeof(T) - T::StaticClass()->GetPropertiesSize() )
-	XLOG_CLASS_SIZE(UObject);
-	XLOG_CLASS_SIZE(UBitmap);
-	XLOG_CLASS_SIZE(UTexture);
-	XLOG_CLASS_SIZE(AActor);
-	XLOG_CLASS_SIZE(APawn);
-	XLOG_CLASS_SIZE(APlayerPawn);
-	XLOG_CLASS_SIZE(ALevelInfo);
-	XLOG_CLASS_SIZE(AInventory);
-	XLOG_CLASS_SIZE(APickup);
-	XLOG_CLASS_SIZE(AAmmo);
-	XLOG_CLASS_SIZE(AWeapon);
-	XLOG_CLASS_SIZE(AHUD);
+		GXboxLog.Write( "XSIZE %-18s sizeof=%d props=%d delta=%d", \
+			#T, (INT)sizeof(T), T::StaticClass()->GetPropertiesSize(), \
+			(INT)sizeof(T) - T::StaticClass()->GetPropertiesSize() )
+		XLOG_CLASS_SIZE(UObject);
+		XLOG_CLASS_SIZE(UBitmap);
+		XLOG_CLASS_SIZE(UTexture);
+		XLOG_CLASS_SIZE(AActor);
+		XLOG_CLASS_SIZE(APawn);
+		XLOG_CLASS_SIZE(APlayerPawn);
+		XLOG_CLASS_SIZE(ALevelInfo);
+		XLOG_CLASS_SIZE(AInventory);
+		XLOG_CLASS_SIZE(APickup);
+		XLOG_CLASS_SIZE(AAmmo);
+		XLOG_CLASS_SIZE(AWeapon);
+		XLOG_CLASS_SIZE(AHUD);
 #undef XLOG_CLASS_SIZE
+	}
 
 	GXboxLog.Write( "InitEngine: loading GameEngine class from config" );
 
@@ -123,6 +127,9 @@ void MainLoop( UEngine* Engine )
 	DOUBLE SecondStartTime = OldTime;
 	INT TickCount = 0;
 	const FLOAT XboxMaxTickRate = 60.0f;
+	FString LastSmokeURL;
+	UBOOL bXboxStartSmokeReadyApplied = 0;
+	UBOOL bXboxStartSmokeEnabled = (GetFileAttributesA( "D:\\XboxStartURL.ini" ) != 0xFFFFFFFF);
 
 	GXboxLog.Write( "MainLoop: entering game loop (Engine=0x%08X)", (DWORD)Engine );
 	GXboxLog.Write( "MainLoop: Xbox frame limiter active max=%.1f Hz", XboxMaxTickRate );
@@ -190,6 +197,62 @@ void MainLoop( UEngine* Engine )
 		static const UBOOL GXboxVerboseHeartbeatLog = 0;
 		if( GXboxVerboseHeartbeatLog && TickCount > 2 && (TickCount % 300) == 0 )
 			GXboxLog.Write( "MainLoop: heartbeat tick=%d", TickCount );
+
+		if( TickCount == 30 || (TickCount > 30 && (TickCount % 300) == 0) )
+		{
+			UGameEngine* GE = (UGameEngine*)Engine;
+			ULevel* Level = GE ? GE->GLevel : NULL;
+			if( Level && Level->GetLevelInfo() )
+			{
+				FString CurrentURL = Level->URL.String();
+				if( bXboxStartSmokeEnabled && !bXboxStartSmokeReadyApplied && appStrnicmp( *Level->URL.Map, TEXT("DM-"), 3 ) == 0 )
+				{
+					INT ReadyPlayers = 0;
+					for( APawn* Pawn = Level->GetLevelInfo()->PawnList; Pawn; Pawn = Pawn->nextPawn )
+					{
+						APlayerPawn* Player = Cast<APlayerPawn>(Pawn);
+						if( Player )
+						{
+							Player->bReadyToPlay = 1;
+							Player->bShowMenu = 0;
+							Player->bSpecialMenu = 0;
+							ReadyPlayers++;
+						}
+					}
+					bXboxStartSmokeReadyApplied = 1;
+					GXboxLog.Write( "SMOKE auto-ready players=%d url=%s", ReadyPlayers, TCHAR_TO_ANSI(*CurrentURL) );
+				}
+
+				INT PawnCount = 0;
+				INT PlayerPawnCount = 0;
+				INT BotPawnCount = 0;
+				MEMORYSTATUS MemStatus;
+				appMemzero( &MemStatus, sizeof(MemStatus) );
+				MemStatus.dwLength = sizeof(MemStatus);
+				GlobalMemoryStatus( &MemStatus );
+				for( APawn* Pawn = Level->GetLevelInfo()->PawnList; Pawn; Pawn = Pawn->nextPawn )
+				{
+					PawnCount++;
+					if( Cast<APlayerPawn>(Pawn) )
+						PlayerPawnCount++;
+					if( Pawn->GetClass() && appStricmp( Pawn->GetClass()->GetName(), TEXT("Bot") ) == 0 )
+						BotPawnCount++;
+				}
+
+				if( CurrentURL != LastSmokeURL || (TickCount % 300) == 0 )
+				{
+					LastSmokeURL = CurrentURL;
+					GXboxLog.Write( "SMOKE tick=%d url=%s actors=%d pawns=%d players=%d bots=%d availKB=%d",
+						TickCount,
+						TCHAR_TO_ANSI(*CurrentURL),
+						Level->Actors.Num(),
+						PawnCount,
+						PlayerPawnCount,
+						BotPawnCount,
+						MemStatus.dwAvailPhys / 1024 );
+				}
+			}
+		}
 	}
 
 	GXboxLog.Write( "MainLoop: exiting (TickCount=%d)", TickCount );

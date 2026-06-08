@@ -91,6 +91,11 @@ static FLOAT  GRD_DisplayFPS = 0.0f;
 static FLOAT  GRD_LastFrameMS = 0.0f;
 static FLOAT  GRD_LastRenderMS = 0.0f;
 static FLOAT  GRD_LastPresentMS = 0.0f;
+static UBOOL  GRD_HasPendingLockViewport = 0;
+static INT    GRD_PendingLockX = 0;
+static INT    GRD_PendingLockY = 0;
+static INT    GRD_PendingLockW = 640;
+static INT    GRD_PendingLockH = 480;
 
 enum { XBOX_SAFE_TRI_BATCH_VERTS = (XBOX_MAX_DRAW_VERTS / 3) * 3 };
 enum { XBOX_DGP_BATCH_VERTS = XBOX_SAFE_TRI_BATCH_VERTS };
@@ -115,6 +120,84 @@ static INT   GRD_MenuTextLogBudget = 0;
 static char  GRD_MenuTextLabel[64] = {0};
 static UBOOL GRD_DrawVBStreamBound = 0;
 static UINT  GRD_DrawVBStreamStride = 0;
+
+static HRESULT XboxRenderApplyViewport( IDirect3DDevice8* InDevice, INT X, INT Y, INT W, INT H, UINT BackBufferW, UINT BackBufferH )
+{
+    if( !InDevice )
+        return E_FAIL;
+
+    if( BackBufferW < 1 )
+        BackBufferW = 1;
+    if( BackBufferH < 1 )
+        BackBufferH = 1;
+
+    INT vpX = X;
+    INT vpY = Y;
+    INT vpW = W;
+    INT vpH = H;
+    if( vpX < 0 ) vpX = 0;
+    if( vpY < 0 ) vpY = 0;
+    if( vpX >= (INT)BackBufferW ) vpX = (INT)BackBufferW - 1;
+    if( vpY >= (INT)BackBufferH ) vpY = (INT)BackBufferH - 1;
+    if( vpW < 1 ) vpW = 1;
+    if( vpH < 1 ) vpH = 1;
+    if( (UINT)(vpX + vpW) > BackBufferW ) vpW = (INT)BackBufferW - vpX;
+    if( (UINT)(vpY + vpH) > BackBufferH ) vpH = (INT)BackBufferH - vpY;
+    if( vpW < 1 ) vpW = 1;
+    if( vpH < 1 ) vpH = 1;
+
+    D3DVIEWPORT8 vp;
+    vp.X      = (DWORD)vpX;
+    vp.Y      = (DWORD)vpY;
+    vp.Width  = (DWORD)vpW;
+    vp.Height = (DWORD)vpH;
+    vp.MinZ   = 0.0f;
+    vp.MaxZ   = 1.0f;
+    return InDevice->SetViewport( &vp );
+}
+
+extern "C" void XboxRenderSetPendingViewRegion( INT X, INT Y, INT W, INT H )
+{
+    GRD_PendingLockX = X;
+    GRD_PendingLockY = Y;
+    GRD_PendingLockW = W;
+    GRD_PendingLockH = H;
+    GRD_HasPendingLockViewport = 1;
+}
+
+static HRESULT XboxRenderCreateDeviceChecked( IDirect3D8* InDirect3D, DWORD BehaviorFlags, D3DPRESENT_PARAMETERS* PP, IDirect3DDevice8** OutDevice, const char* Label )
+{
+    HRESULT hr = E_FAIL;
+    DWORD ExceptionCode = 0;
+    if( !InDirect3D )
+    {
+        GXboxLog.Write( "XboxRender::Init: %s CreateDevice skipped; Direct3D is NULL", Label );
+        if( OutDevice )
+            *OutDevice = NULL;
+        return E_FAIL;
+    }
+    __try
+    {
+        hr = InDirect3D->CreateDevice(
+            0,
+            D3DDEVTYPE_HAL,
+            NULL,
+            BehaviorFlags,
+            PP,
+            OutDevice
+        );
+        GXboxLog.Write( "XboxRender::Init: %s CreateDevice returned 0x%08X ptr=0x%08X",
+            Label, (DWORD)hr, OutDevice ? (DWORD)*OutDevice : 0 );
+    }
+    __except( ExceptionCode = GetExceptionCode(), EXCEPTION_EXECUTE_HANDLER )
+    {
+        GXboxLog.Write( "XboxRender::Init: %s CreateDevice SEH exception=0x%08X", Label, ExceptionCode );
+        hr = E_FAIL;
+        if( OutDevice )
+            *OutDevice = NULL;
+    }
+    return hr;
+}
 
 static void RenderDiagPrim( INT NumVerts, DWORD PolyFlags, const char* Op )
 {
@@ -260,6 +343,16 @@ static void RenderBlockAndReleaseTexture( IDirect3DTexture8*& Texture )
         Texture->BlockUntilNotBusy();
         Texture->Release();
         Texture = NULL;
+    }
+}
+
+static void RenderBlockAndReleasePalette( IDirect3DPalette8*& Palette )
+{
+    if( Palette )
+    {
+        Palette->BlockUntilNotBusy();
+        Palette->Release();
+        Palette = NULL;
     }
 }
 
@@ -422,13 +515,10 @@ UBOOL UXboxRenderDevice::Init( UViewport* InViewport, INT NewX, INT NewY, INT Ne
     ProjZRatio  = zFar / (zFar - zNear);
     ProjZOffset = -ProjZRatio * zNear;
 
-    // Create Direct3D. Pass 0 NOT D3D_SDK_VERSION ??? per TFE's research
-    // (renderBackend_xbox.cpp:181-186): in this XDK <d3d8.h> resolves to the
-    // PC header where D3D_SDK_VERSION=120, but Xbox / CXBX-R HLE expect 0.
-    // Passing 120 makes CXBX-R fall back to a non-Xbox surface allocator
-    // that returns 480x518 LIN_X8R8G8B8 instead of the requested 640x480.
-    GXboxLog.Write( "XboxRender::Init: calling Direct3DCreate8(0)" );
-    Direct3D = Direct3DCreate8( 0 );
+    // Use the same Direct3DCreate8 entry path as the May 15 hardware-oriented
+    // renderer snapshot, then guard CreateDevice so hardware failures are logged.
+    GXboxLog.Write( "XboxRender::Init: calling Direct3DCreate8(D3D_SDK_VERSION=%d)", D3D_SDK_VERSION );
+    Direct3D = Direct3DCreate8( D3D_SDK_VERSION );
     if( !Direct3D )
     {
         GXboxLog.Write( "XboxRender::Init: Direct3DCreate8 FAILED" );
@@ -440,16 +530,10 @@ UBOOL UXboxRenderDevice::Init( UViewport* InViewport, INT NewX, INT NewY, INT Ne
     // Setup present parameters
     D3DPRESENT_PARAMETERS PP;
     appMemzero( &PP, sizeof(PP) );
-    // Aligned to xQuake/OpenJKDF2/TheForceEngine ??? all 3 Xbox D3D8 ports use these:
-    //   swizzled X8R8G8B8 backbuffer (CRTC requires swizzled ??? LIN_ broke sample),
-    //   D24S8 depth+stencil (required for the always-clear-all-three-targets rule
-    //   below; partial Clear crashes NV20 HLE per xQuake gl_draw.c:1829),
-    //   IMMEDIATE present, single backbuffer, DISCARD swap.
-    // Canonical Xbox D3D8 PP ??? identical to OpenJKDF2 fakeglx.cpp:1579-1591
-    // and xQuake gl_fakegl.cpp:1579-1591. Earlier diagnostic values
-    // (BackBufferCount=2 + INTERVAL_ONE) were left over from when we thought
-    // scanout was the issue; with CXBX-R HLE now properly engaged the
-    // canonical 1 + IMMEDIATE is what the hooked Swap implementation expects.
+    // Hardware baseline from the May 15 renderer snapshot:
+    //   swizzled X8R8G8B8 backbuffer, D16 auto-depth, single backbuffer,
+    //   DISCARD swap, and immediate presentation.
+    // D16 intentionally has no stencil plane; do not clear stencil below.
     PP.BackBufferWidth  = 640;
     PP.BackBufferHeight = 480;
     PP.BackBufferFormat = D3DFMT_X8R8G8B8;
@@ -459,26 +543,39 @@ UBOOL UXboxRenderDevice::Init( UViewport* InViewport, INT NewX, INT NewY, INT Ne
     PP.hDeviceWindow    = NULL;
     PP.Windowed         = FALSE;
     PP.EnableAutoDepthStencil = TRUE;
-    PP.AutoDepthStencilFormat = D3DFMT_D24S8;
+    PP.AutoDepthStencilFormat = D3DFMT_D16;
     PP.FullScreen_RefreshRateInHz      = 60;
     PP.FullScreen_PresentationInterval = D3DPRESENT_INTERVAL_IMMEDIATE;
 
-    // xQuake (MS official sample) does NOT call SetPushBufferSize ??? it relies on
-    // the runtime defaults. Earlier we called it explicitly with custom sizes;
-    // those sizes appear to collide with the auto-depth-stencil allocation,
-    // leaving the stencil plane uninitialized so the Xbox D3D8 lib rejects our
-    // subsequent Clear(D3DCLEAR_STENCIL) with "Invalid flags passed to Clear".
+    // May 15 hardware-oriented path configured push buffers before CreateDevice.
+    Direct3D_SetPushBufferSize( 768 * 1024, 128 * 1024 );
+    GXboxLog.Write( "XboxRender::Init: SetPushBufferSize(768K, 128K) called" );
 
-    // Create device
-    GXboxLog.Write( "XboxRender::Init: calling CreateDevice()" );
-    HRESULT hr = Direct3D->CreateDevice(
-        0,
-        D3DDEVTYPE_HAL,
-        NULL,
+    // Create device. Real hardware must not let D3D's create path escape to
+    // main() as an unknown exception; retry once without PUREDEVICE.
+    GXboxLog.Write( "XboxRender::Init: calling CreateDevice primary()" );
+    HRESULT hr = XboxRenderCreateDeviceChecked(
+        Direct3D,
         D3DCREATE_HARDWARE_VERTEXPROCESSING | D3DCREATE_PUREDEVICE,
         &PP,
-        &Device
+        &Device,
+        "primary"
     );
+    if( FAILED(hr) || !Device )
+    {
+        D3DPRESENT_PARAMETERS FallbackPP = PP;
+        FallbackPP.AutoDepthStencilFormat = D3DFMT_D16;
+        GXboxLog.Write( "XboxRender::Init: primary failed; retrying fallback D16/non-pure" );
+        hr = XboxRenderCreateDeviceChecked(
+            Direct3D,
+            D3DCREATE_HARDWARE_VERTEXPROCESSING,
+            &FallbackPP,
+            &Device,
+            "fallback"
+        );
+        if( SUCCEEDED(hr) && Device )
+            PP = FallbackPP;
+    }
     if( FAILED(hr) )
     {
         GXboxLog.Write( "XboxRender::Init: CreateDevice FAILED (hr=0x%08X)", hr );
@@ -528,13 +625,8 @@ UBOOL UXboxRenderDevice::Init( UViewport* InViewport, INT NewX, INT NewY, INT Ne
     BackBuffer  = NULL;  // We don't hold long-lived surface refs.
     DepthBuffer = NULL;
 
-    // NOTE: render/texture-stage state is deliberately NOT set here. Every
-    // working Xbox D3D8 reference (TFE renderBackend_xbox.cpp:426+, MS
-    // AlphaFog AlphaFog.cpp:376+) sets state AFTER the first Clear, not
-    // before. When we set state between CreateDevice and the first Clear,
-    // the Xbox D3D8 lib's Clear validator rejects D3DCLEAR_STENCIL with
-    // "Invalid flags passed to Clear" (despite a valid LIN_D24S8 auto-DS).
-    // State setup is now performed inside Lock(), right after Clear.
+    // NOTE: render/texture-stage state is deliberately NOT set here. State
+    // setup is performed inside Lock(), after the first depth/target clear.
 
     GXboxLog.Write( "XboxRender::Init: complete" );
     debugf( NAME_Init, TEXT("XboxRender: D3D8 device created (640x480)") );
@@ -610,6 +702,7 @@ void UXboxRenderDevice::FlushTexCache()
         while( Entry )
         {
             RenderBlockAndReleaseTexture( Entry->pTexture );
+            RenderBlockAndReleasePalette( Entry->pPalette );
             Entry = Entry->HashNext;
         }
         TexCache[i] = NULL;
@@ -617,6 +710,69 @@ void UXboxRenderDevice::FlushTexCache()
     TexPoolNext = 0;
     TexLiveBytes = 0;
     appMemzero( TexPool, sizeof(TexPool) );
+}
+
+void UXboxRenderDevice::ReleaseTexCacheEntry( FXboxTexCacheEntry* Entry )
+{
+    if( !Entry )
+        return;
+
+    if( Entry->CacheID == BoundCacheID[0] )
+    {
+        Device->SetTexture( 0, NULL );
+        BoundCacheID[0] = 0;
+    }
+    if( Entry->CacheID == BoundCacheID[1] )
+    {
+        Device->SetTexture( 1, NULL );
+        BoundCacheID[1] = 0;
+    }
+
+    RenderBlockAndReleaseTexture( Entry->pTexture );
+    RenderBlockAndReleasePalette( Entry->pPalette );
+    TexLiveBytes -= Entry->Bytes;
+    if( TexLiveBytes < 0 )
+        TexLiveBytes = 0;
+    Entry->Bytes = 0;
+}
+
+void UXboxRenderDevice::EvictTexCacheForUpload( INT NeededBytes )
+{
+    const DWORD WantedKB = (DWORD)(Max(NeededBytes, 0) / 1024 + 768);
+    INT Released = 0;
+    INT ReleasedKB = 0;
+    while( (RenderAvailPhysKB() < WantedKB || TexLiveBytes > XBOX_TEX_LIVE_BUDGET) && Released < 48 )
+    {
+        INT BestIndex = -1;
+        INT BestAge = -1;
+        for( INT i = 0; i < TexPoolNext; i++ )
+        {
+            FXboxTexCacheEntry* Candidate = &TexPool[i];
+            if( !Candidate->pTexture )
+                continue;
+            if( Candidate->Pinned )
+                continue;
+            if( Candidate->CacheID == BoundCacheID[0] || Candidate->CacheID == BoundCacheID[1] )
+                continue;
+            INT Age = FrameCounter - Candidate->FrameCounter;
+            if( Age > BestAge )
+            {
+                BestAge = Age;
+                BestIndex = i;
+            }
+        }
+        if( BestIndex < 0 )
+            break;
+
+        FXboxTexCacheEntry* Entry = &TexPool[BestIndex];
+        ReleasedKB += Entry->Bytes / 1024;
+        ReleaseTexCacheEntry( Entry );
+        Released++;
+    }
+
+    if( Released && (GRD_TotalTexCreates <= 16 || (GRD_TotalTexCreates % 64) == 0 || RenderAvailPhysKB() < 512) )
+        GXboxLog.Write( "RTEX evict f=%d count=%d freedKB=%d liveKB=%d availKB=%u needKB=%d",
+            FrameCounter, Released, ReleasedKB, TexLiveBytes / 1024, (unsigned)RenderAvailPhysKB(), NeededBytes / 1024 );
 }
 
 void UXboxRenderDevice::ReleaseDrawVertexBuffer()
@@ -1023,10 +1179,16 @@ void UXboxRenderDevice::Lock( FPlane InFlashScale, FPlane InFlashFog, FPlane Scr
     // Clear runs before BeginScene ??? MS official PolynomialTextureMaps.cpp:289
     // and xQuake gl_fakegl.cpp:1752-1760 both follow this pattern.
     HRESULT hrClear = S_OK;
+    HRESULT hrViewport = S_OK;
+    if( GRD_HasPendingLockViewport )
+    {
+        hrViewport = XboxRenderApplyViewport( Device, GRD_PendingLockX, GRD_PendingLockY, GRD_PendingLockW, GRD_PendingLockH, ActualBackBufferW, ActualBackBufferH );
+        GRD_HasPendingLockViewport = 0;
+    }
     if( XboxSplitShouldClearRenderLock() )
     {
         hrClear = Device->Clear( 0, NULL,
-            D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER | D3DCLEAR_STENCIL,
+            D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER,
             0x00000000,
             1.0f, 0 );
     }
@@ -1034,9 +1196,9 @@ void UXboxRenderDevice::Lock( FPlane InFlashScale, FPlane InFlashFog, FPlane Scr
     HRESULT hrBegin = Device->BeginScene();
     SceneOpen = SUCCEEDED(hrBegin);
 
-    if( RenderFrameSummaryLog( FrameCounter ) || FAILED(hrClear) || FAILED(hrBegin) )
-        GXboxLog.Write( "RLOCK f=%d clear=0x%08X begin=0x%08X",
-            FrameCounter, (DWORD)hrClear, (DWORD)hrBegin );
+    if( RenderFrameSummaryLog( FrameCounter ) || FAILED(hrViewport) || FAILED(hrClear) || FAILED(hrBegin) )
+        GXboxLog.Write( "RLOCK f=%d viewport=0x%08X clear=0x%08X begin=0x%08X",
+            FrameCounter, (DWORD)hrViewport, (DWORD)hrClear, (DWORD)hrBegin );
 
     GRD_FrameDCS        = 0;
     GRD_FrameDGP        = 0;
@@ -1228,30 +1390,9 @@ void UXboxRenderDevice::SetSceneNode( FSceneNode* Frame )
     CurrentFrame = Frame;
     RProjZ = Frame->RProj.Z;
 
-    // Clamp the D3D viewport to the ACTUAL backbuffer extents. The engine
-    // drives Frame->X/Y at its logical 640x480; CXBX-R may have allocated
-    // a smaller surface (e.g. 480x518). Setting a viewport larger than the
-    // current render target makes CXBX-R's HLE silently discard the draw
-    // (including Clear when rects=NULL, which clears the viewport region).
-    INT vpX = Frame->XB;
-    INT vpY = Frame->YB;
-    INT vpW = Frame->X;
-    INT vpH = Frame->Y;
-    if( vpX < 0 ) vpX = 0;
-    if( vpY < 0 ) vpY = 0;
-    if( (UINT)(vpX + vpW) > ActualBackBufferW ) vpW = (INT)ActualBackBufferW - vpX;
-    if( (UINT)(vpY + vpH) > ActualBackBufferH ) vpH = (INT)ActualBackBufferH - vpY;
-    if( vpW < 1 ) vpW = 1;
-    if( vpH < 1 ) vpH = 1;
-
-    D3DVIEWPORT8 vp;
-    vp.X      = (DWORD)vpX;
-    vp.Y      = (DWORD)vpY;
-    vp.Width  = (DWORD)vpW;
-    vp.Height = (DWORD)vpH;
-    vp.MinZ   = 0.0f;
-    vp.MaxZ   = 1.0f;
-    Device->SetViewport( &vp );
+    // Clamp to the ACTUAL backbuffer extents. CXBX-R can allocate a smaller
+    // surface than the engine's logical 640x480 dimensions.
+    XboxRenderApplyViewport( Device, Frame->XB, Frame->YB, Frame->X, Frame->Y, ActualBackBufferW, ActualBackBufferH );
 
     D3DMATRIX Identity;
     appMemzero( &Identity, sizeof(Identity) );
@@ -1358,7 +1499,7 @@ void UXboxRenderDevice::SetBlending( DWORD PolyFlags )
 // ============================================================================
 // SetTextureD3D ??? simplified texture cache for Xbox D3D8
 // ============================================================================
-void UXboxRenderDevice::SetTextureD3D( INT Stage, FTextureInfo& Info, DWORD PolyFlags )
+UBOOL UXboxRenderDevice::SetTextureD3D( INT Stage, FTextureInfo& Info, DWORD PolyFlags )
 {
     guard(UXboxRenderDevice::SetTextureD3D);
 
@@ -1380,7 +1521,7 @@ void UXboxRenderDevice::SetTextureD3D( INT Stage, FTextureInfo& Info, DWORD Poly
         StageVScale[Stage] = 1.0f / (FLOAT)(VSize * VScale);
         StageUIndex[Stage] = 0;
         StageVIndex[Stage] = 1;
-        return;
+        return 1;
     }
 
     // P8 masked textures depend on draw flags during upload: palette index 0
@@ -1401,8 +1542,9 @@ void UXboxRenderDevice::SetTextureD3D( INT Stage, FTextureInfo& Info, DWORD Poly
             if( BoundEntry->CacheID == Info.CacheID )
                 break;
         }
-        if( BoundEntry && BoundEntry->MaskedAlpha == bNeedsMaskedAlpha )
-            return;
+        if( BoundEntry && BoundEntry->pTexture && BoundEntry->MaskedAlpha == bNeedsMaskedAlpha )
+            return 1;
+        BoundCacheID[Stage] = 0;
     }
 
     // Look up in hash table.
@@ -1433,13 +1575,13 @@ void UXboxRenderDevice::SetTextureD3D( INT Stage, FTextureInfo& Info, DWORD Poly
             StageUIndex[Stage]  = Entry->UIndex;
             StageVIndex[Stage]  = Entry->VIndex;
             Entry->FrameCounter = FrameCounter;
-            return;
+            return 1;
         }
     }
 
     UBOOL bMaskedAlphaChanged = (Entry && Entry->pTexture && Entry->MaskedAlpha != bNeedsMaskedAlpha);
 
-    if( !Entry || Info.bRealtimeChanged || bRgba7NeedsMaxColor || bMaskedAlphaChanged )
+    if( !Entry || !Entry->pTexture || Info.bRealtimeChanged || bRgba7NeedsMaxColor || bMaskedAlphaChanged )
     {
         // Need to create or update the texture.
         EndSceneForTextureUpload( !Entry ? "tex-create" : "tex-update" );
@@ -1466,6 +1608,8 @@ void UXboxRenderDevice::SetTextureD3D( INT Stage, FTextureInfo& Info, DWORD Poly
                 for( INT i = 0; i < TexPoolNext; i++ )
                 {
                     FXboxTexCacheEntry* Candidate = &TexPool[i];
+                    if( Candidate->Pinned )
+                        continue;
                     if( Candidate->CacheID == BoundCacheID[0] || Candidate->CacheID == BoundCacheID[1] )
                         continue;
                     INT Age = FrameCounter - Candidate->FrameCounter;
@@ -1476,7 +1620,17 @@ void UXboxRenderDevice::SetTextureD3D( INT Stage, FTextureInfo& Info, DWORD Poly
                     }
                 }
                 if( BestIndex < 0 )
-                    BestIndex = 0;
+                {
+                    GRD_FrameTexSkipped++;
+                    GRD_TotalTexSkipped++;
+                    GXboxLog.Write( "RTEX reuse no-candidate frame=%d pool=%d liveKB=%d availKB=%u id=%08X:%08X",
+                        FrameCounter, TexPoolNext, TexLiveBytes / 1024,
+                        (unsigned)RenderAvailPhysKB(), (DWORD)(Info.CacheID >> 32), (DWORD)Info.CacheID );
+                    Device->SetTexture( Stage, NULL );
+                    BoundCacheID[Stage] = 0;
+                    ResumeSceneAfterTextureUpload( "tex-reuse-no-candidate" );
+                    return 0;
+                }
 
                 Entry = &TexPool[BestIndex];
                 INT OldHash = ((7 * (DWORD)Entry->CacheID) + (DWORD)(Entry->CacheID >> 32)) & (XBOX_TEX_CACHE_SIZE - 1);
@@ -1494,6 +1648,7 @@ void UXboxRenderDevice::SetTextureD3D( INT Stage, FTextureInfo& Info, DWORD Poly
                     BoundCacheID[1] = 0;
                     RenderBlockAndReleaseTexture( Entry->pTexture );
                 }
+                RenderBlockAndReleasePalette( Entry->pPalette );
                 TexLiveBytes -= Entry->Bytes;
                 Entry->Bytes = 0;
                 if( GRD_TotalTexCreates <= 16 || (GRD_TotalTexCreates % 128) == 0 )
@@ -1503,6 +1658,7 @@ void UXboxRenderDevice::SetTextureD3D( INT Stage, FTextureInfo& Info, DWORD Poly
             }
             Entry->CacheID   = Info.CacheID;
             Entry->pTexture  = NULL;
+            Entry->pPalette  = NULL;
             Entry->USize     = 0;
             Entry->VSize     = 0;
             Entry->NumMips   = 0;
@@ -1512,6 +1668,9 @@ void UXboxRenderDevice::SetTextureD3D( INT Stage, FTextureInfo& Info, DWORD Poly
             Entry->Format    = D3DFMT_UNKNOWN;
             Entry->MaskedAlpha = 0;
             Entry->Bytes     = 0;
+            Entry->CreateFailedFrame = -1000000;
+            Entry->CreateFailedBytes = 0;
+            Entry->Pinned    = 0;
             Entry->HashNext  = TexCache[HashIndex];
             TexCache[HashIndex] = Entry;
         }
@@ -1550,7 +1709,7 @@ void UXboxRenderDevice::SetTextureD3D( INT Stage, FTextureInfo& Info, DWORD Poly
             StageUIndex[Stage] = 0;
             StageVIndex[Stage] = 1;
             ResumeSceneAfterTextureUpload( "tex-reject" );
-            return;
+            return 0;
         }
 
         if( bSwapUV && GRD_TallTexLogCount < 24 )
@@ -1603,7 +1762,17 @@ void UXboxRenderDevice::SetTextureD3D( INT Stage, FTextureInfo& Info, DWORD Poly
         INT ApproxBytes = 0;
         INT NumMips = Info.NumMips - FirstMip;
         if( NumMips < 1 ) NumMips = 1;
-        D3DFORMAT DestFormat = (Info.Format == TEXF_DXT1) ? D3DFMT_DXT1 : D3DFMT_A8R8G8B8;
+        D3DFORMAT DestFormat = (Info.Format == TEXF_DXT1) ? D3DFMT_DXT1 : (Info.Format == TEXF_P8 ? D3DFMT_P8 : D3DFMT_A8R8G8B8);
+        INT ExpectedBytes = 0;
+        for( INT tm = 0; tm < NumMips; tm++ )
+        {
+            if( DestFormat == D3DFMT_DXT1 )
+                ExpectedBytes += Max(1, ((USize >> tm) + 3) / 4) * Max(1, ((VSize >> tm) + 3) / 4) * 8;
+            else if( DestFormat == D3DFMT_P8 )
+                ExpectedBytes += Max(1, USize >> tm) * Max(1, VSize >> tm);
+            else
+                ExpectedBytes += Max(1, USize >> tm) * Max(1, VSize >> tm) * 4;
+        }
         UBOOL bNeedCreate =
             !Entry->pTexture ||
             Entry->USize    != USize ||
@@ -1620,6 +1789,25 @@ void UXboxRenderDevice::SetTextureD3D( INT Stage, FTextureInfo& Info, DWORD Poly
             GXboxLog.Write( "RTEXUP begin f=%d seq=%d stage=%d id=%08X:%08X fmt=%d size=%dx%d mips=%d first=%d need=%d realtime=%d tex=0x%08X",
                 FrameCounter, UploadSeq, Stage, GRD_LastTextureIDHi, GRD_LastTextureIDLo,
                 Info.Format, USize, VSize, NumMips, FirstMip, bNeedCreate, bRealtimeChanged || bForceRgba7MaxUpload, (DWORD)Entry->pTexture );
+
+        if( bNeedCreate )
+        {
+            if( FrameCounter - Entry->CreateFailedFrame < 15 && Entry->CreateFailedBytes >= ExpectedBytes )
+            {
+                GRD_FrameTexSkipped++;
+                GRD_TotalTexSkipped++;
+                Device->SetTexture( Stage, NULL );
+                BoundCacheID[Stage] = 0;
+                StageUScale[Stage] = Entry->UScale;
+                StageVScale[Stage] = Entry->VScale;
+                StageUIndex[Stage] = Entry->UIndex;
+                StageVIndex[Stage] = Entry->VIndex;
+                Info.bRealtimeChanged = 0;
+                ResumeSceneAfterTextureUpload( "tex-create-retry-skip" );
+                return 0;
+            }
+            EvictTexCacheForUpload( ExpectedBytes );
+        }
 
         // Xbox D3D8 is much less forgiving than D3D7's system-surface upload
         // path: do not LockRect a texture while it is still resident in either
@@ -1651,32 +1839,45 @@ void UXboxRenderDevice::SetTextureD3D( INT Stage, FTextureInfo& Info, DWORD Poly
                 {
                     RenderBlockAndReleaseTexture( Entry->pTexture );
                 }
+                RenderBlockAndReleasePalette( Entry->pPalette );
                 if( bHotUpload && GVerboseRenderPerfLog )
                     GXboxLog.Write( "RTEX precreate f=%d seq=%d createNext=%d stage=%d id=%08X:%08X fmt=DXT1 size=%dx%d mips=%d bytes=%d pool=%d liveKB=%d availKB=%u",
                         FrameCounter, UploadSeq, GRD_TotalTexCreates + 1, Stage, GRD_LastTextureIDHi, GRD_LastTextureIDLo,
                         USize, VSize, NumMips, ApproxBytes, TexPoolNext, TexLiveBytes / 1024, (unsigned)RenderAvailPhysKB() );
                 hrCreate = Device->CreateTexture( USize, VSize, NumMips, 0, D3DFMT_DXT1, D3DPOOL_DEFAULT, &Entry->pTexture );
-                Entry->USize    = USize;
-                Entry->VSize    = VSize;
-                Entry->NumMips  = NumMips;
-                Entry->FirstMip = FirstMip;
-                Entry->UIndex   = bSwapUV ? 1 : 0;
-                Entry->VIndex   = bSwapUV ? 0 : 1;
-                Entry->Format   = DestFormat;
-                Entry->MaskedAlpha = bNeedsMaskedAlpha;
-                TexLiveBytes   -= Entry->Bytes;
-                Entry->Bytes    = ApproxBytes;
-                TexLiveBytes   += Entry->Bytes;
-                GRD_FrameTexCreates++;
-                GRD_TotalTexCreates++;
+                if( SUCCEEDED(hrCreate) && Entry->pTexture )
+                {
+                    Entry->USize    = USize;
+                    Entry->VSize    = VSize;
+                    Entry->NumMips  = NumMips;
+                    Entry->FirstMip = FirstMip;
+                    Entry->UIndex   = bSwapUV ? 1 : 0;
+                    Entry->VIndex   = bSwapUV ? 0 : 1;
+                    Entry->Format   = DestFormat;
+                    Entry->MaskedAlpha = bNeedsMaskedAlpha;
+                    TexLiveBytes   -= Entry->Bytes;
+                    Entry->Bytes    = ApproxBytes;
+                    TexLiveBytes   += Entry->Bytes;
+                    GRD_FrameTexCreates++;
+                    GRD_TotalTexCreates++;
+                    Entry->CreateFailedFrame = -1000000;
+                    Entry->CreateFailedBytes = 0;
+                }
             }
             GRD_FrameTexUploads++;
             GRD_TotalTexUploads++;
             GRD_TotalTexBytes += ApproxBytes;
             if( FAILED(hrCreate) || !Entry->pTexture || (GVerboseRenderPerfLog && bNeedCreate && (GRD_TotalTexCreates <= 16 || (GRD_TotalTexCreates % 64) == 0)) )
+            {
+                if( bNeedCreate && (FAILED(hrCreate) || !Entry->pTexture) )
+                {
+                    Entry->CreateFailedFrame = FrameCounter;
+                    Entry->CreateFailedBytes = ApproxBytes;
+                }
                 GXboxLog.Write( "RTEX %s create#=%d upload#=%d frame=%d stage=%d id=%08X:%08X fmt=DXT1 size=%dx%d mips=%d bytes=%d hr=0x%08X tex=0x%08X d3dpool=DEFAULT cache=%d realtime=%d",
                     bNeedCreate ? "create" : "update", GRD_TotalTexCreates, GRD_TotalTexUploads, FrameCounter, Stage, GRD_LastTextureIDHi, GRD_LastTextureIDLo,
                     USize, VSize, NumMips, ApproxBytes, (DWORD)hrCreate, (DWORD)Entry->pTexture, TexPoolNext, bRealtimeChanged || bForceRgba7MaxUpload );
+            }
             if( Entry->pTexture )
             {
                 for( INT m = FirstMip; m < Info.NumMips; m++ )
@@ -1711,9 +1912,169 @@ void UXboxRenderDevice::SetTextureD3D( INT Stage, FTextureInfo& Info, DWORD Poly
                 }
             }
         }
+        else if( Info.Format == TEXF_P8 )
+        {
+            // Native Xbox P8 texture plus hardware palette. This preserves the
+            // original indexed art while avoiding 4x expansion to A8R8G8B8.
+            HRESULT hrCreate = S_OK;
+            HRESULT hrPalette = S_OK;
+            for( INT tm = 0; tm < NumMips; tm++ )
+                ApproxBytes += Max(1, USize >> tm) * Max(1, VSize >> tm);
+            if( bNeedCreate )
+            {
+                if( Entry->pTexture )
+                    RenderBlockAndReleaseTexture( Entry->pTexture );
+                RenderBlockAndReleasePalette( Entry->pPalette );
+                hrCreate = Device->CreateTexture( USize, VSize, NumMips, 0, D3DFMT_P8, D3DPOOL_DEFAULT, &Entry->pTexture );
+                if( SUCCEEDED(hrCreate) && Entry->pTexture )
+                {
+                    hrPalette = Device->CreatePalette( D3DPALETTE_256, &Entry->pPalette );
+                    if( FAILED(hrPalette) || !Entry->pPalette )
+                    {
+                        RenderBlockAndReleaseTexture( Entry->pTexture );
+                    }
+                }
+                if( SUCCEEDED(hrCreate) && Entry->pTexture && SUCCEEDED(hrPalette) && Entry->pPalette )
+                {
+                    Entry->USize    = USize;
+                    Entry->VSize    = VSize;
+                    Entry->NumMips  = NumMips;
+                    Entry->FirstMip = FirstMip;
+                    Entry->UIndex   = bSwapUV ? 1 : 0;
+                    Entry->VIndex   = bSwapUV ? 0 : 1;
+                    Entry->Format   = DestFormat;
+                    Entry->MaskedAlpha = bNeedsMaskedAlpha;
+                    TexLiveBytes   -= Entry->Bytes;
+                    Entry->Bytes    = ApproxBytes;
+                    TexLiveBytes   += Entry->Bytes;
+                    GRD_FrameTexCreates++;
+                    GRD_TotalTexCreates++;
+                    Entry->CreateFailedFrame = -1000000;
+                    Entry->CreateFailedBytes = 0;
+                }
+            }
+            GRD_FrameTexUploads++;
+            GRD_TotalTexUploads++;
+            GRD_TotalTexBytes += ApproxBytes;
+            if( FAILED(hrCreate) || FAILED(hrPalette) || !Entry->pTexture || !Entry->pPalette || (GVerboseRenderPerfLog && bNeedCreate && (GRD_TotalTexCreates <= 16 || (GRD_TotalTexCreates % 64) == 0)) )
+            {
+                if( bNeedCreate && (FAILED(hrCreate) || FAILED(hrPalette) || !Entry->pTexture || !Entry->pPalette) )
+                {
+                    Entry->CreateFailedFrame = FrameCounter;
+                    Entry->CreateFailedBytes = ApproxBytes;
+                }
+                GXboxLog.Write( "RTEX %s create#=%d upload#=%d frame=%d stage=%d id=%08X:%08X fmt=P8 size=%dx%d mips=%d bytes=%d hr=0x%08X phr=0x%08X tex=0x%08X pal=0x%08X cache=%d masked=%d",
+                    bNeedCreate ? "create" : "update", GRD_TotalTexCreates, GRD_TotalTexUploads, FrameCounter, Stage, GRD_LastTextureIDHi, GRD_LastTextureIDLo,
+                    USize, VSize, NumMips, ApproxBytes, (DWORD)hrCreate, (DWORD)hrPalette, (DWORD)Entry->pTexture, (DWORD)Entry->pPalette, TexPoolNext, bNeedsMaskedAlpha );
+            }
+
+            if( Entry->pPalette && Info.Palette )
+            {
+                D3DCOLOR* PalColors = NULL;
+                HRESULT hrPalLock = Entry->pPalette->Lock( &PalColors, 0 );
+                if( SUCCEEDED(hrPalLock) && PalColors )
+                {
+                    for( INT i = 0; i < 256; i++ )
+                    {
+                        FColor& C = Info.Palette[i];
+                        BYTE A = (i == 0 && (PolyFlags & PF_Masked)) ? 0 : C.A;
+                        PalColors[i] = D3DCOLOR_ARGB( A, C.R, C.G, C.B );
+                    }
+                    Entry->pPalette->Unlock();
+                }
+                else
+                {
+                    GXboxLog.Write( "RTEX P8 palette lock failed frame=%d stage=%d id=%08X:%08X hr=0x%08X",
+                        FrameCounter, Stage, GRD_LastTextureIDHi, GRD_LastTextureIDLo, (DWORD)hrPalLock );
+                }
+            }
+
+            if( Entry->pTexture )
+            {
+                static BYTE* ScratchP8 = NULL;
+                static INT   ScratchP8Size = 0;
+
+                for( INT m = FirstMip; m < Info.NumMips; m++ )
+                {
+                    if( !Info.Mips[m] || !Info.Mips[m]->DataPtr )
+                        continue;
+
+                    INT MipW = Info.Mips[m]->USize;
+                    INT MipH = Info.Mips[m]->VSize;
+                    INT DestW = bSwapUV ? MipH : MipW;
+                    INT DestH = bSwapUV ? MipW : MipH;
+                    INT Need = DestW * DestH;
+                    if( MipW < 1 || MipH < 1 || DestW < 1 || DestH < 1 || Need <= 0 || Need > (1024 * 1024) )
+                    {
+                        GRD_FrameTexSkipped++;
+                        GRD_TotalTexSkipped++;
+                        GXboxLog.Write( "RTEXUP P8 reject-mip f=%d seq=%d mip=%d mipSize=%dx%d dest=%dx%d need=%d",
+                            FrameCounter, UploadSeq, m - FirstMip, MipW, MipH, DestW, DestH, Need );
+                        continue;
+                    }
+                    if( Need > ScratchP8Size )
+                    {
+                        appFree( ScratchP8 );
+                        ScratchP8 = (BYTE*)appMalloc( Need, TEXT("XboxRenderP8SwizzleScratch") );
+                        ScratchP8Size = Need;
+                    }
+                    if( !ScratchP8 )
+                    {
+                        GRD_FrameTexSkipped++;
+                        GRD_TotalTexSkipped++;
+                        GXboxLog.Write( "RTEXUP P8 scratch-failed f=%d seq=%d mip=%d need=%d",
+                            FrameCounter, UploadSeq, m - FirstMip, Need );
+                        continue;
+                    }
+
+                    BYTE* Src = (BYTE*)Info.Mips[m]->DataPtr;
+                    INT CopyW = RenderMipClampSize( Info.UClamp, m, MipW );
+                    INT CopyH = RenderMipClampSize( Info.VClamp, m, MipH );
+                    for( INT y = 0; y < DestH; y++ )
+                    {
+                        INT sy = bSwapUV ? Min( y, CopyW - 1 ) : Min( y, CopyH - 1 );
+                        for( INT x = 0; x < DestW; x++ )
+                        {
+                            INT sx = bSwapUV ? Min( x, CopyH - 1 ) : Min( x, CopyW - 1 );
+                            ScratchP8[y * DestW + x] = Src[sy * MipW + sx];
+                        }
+                    }
+
+                    D3DLOCKED_RECT lr;
+                    HRESULT hrLock = Entry->pTexture->LockRect( m - FirstMip, &lr, NULL, 0 );
+                    if( SUCCEEDED(hrLock) )
+                    {
+                        RECT  srcRect = { 0, 0, DestW, DestH };
+                        POINT dstPoint = { 0, 0 };
+                        XGSwizzleRect(
+                            ScratchP8,
+                            DestW,
+                            &srcRect,
+                            lr.pBits,
+                            DestW,
+                            DestH,
+                            &dstPoint,
+                            1
+                        );
+                        Entry->pTexture->UnlockRect( m - FirstMip );
+                    }
+                    else
+                    {
+                        GXboxLog.Write( "RTEX P8 LockRect FAILED frame=%d stage=%d id=%08X:%08X mip=%d hr=0x%08X",
+                            FrameCounter, Stage, GRD_LastTextureIDHi, GRD_LastTextureIDLo, m - FirstMip, (DWORD)hrLock );
+                    }
+                    if( ScratchP8Size > (256 * 1024) )
+                    {
+                        appFree( ScratchP8 );
+                        ScratchP8 = NULL;
+                        ScratchP8Size = 0;
+                    }
+                }
+            }
+        }
         else
         {
-            // P8, RGBA7, RGBA8 ??? convert to A8R8G8B8.
+            // RGBA7/RGBA8: convert to A8R8G8B8.
             // D3DFMT_A8R8G8B8 (swizzled) ??? matches xQuake/OpenJKDF2 pattern.
             // UT99's renderer assumes normalized 0..1 UVs (UScale = 1/USize).
             // LIN_ formats on Xbox require *texel-space* UVs (0..USize), which
@@ -1728,32 +2089,45 @@ void UXboxRenderDevice::SetTextureD3D( INT Stage, FTextureInfo& Info, DWORD Poly
                 {
                     RenderBlockAndReleaseTexture( Entry->pTexture );
                 }
+                RenderBlockAndReleasePalette( Entry->pPalette );
                 if( bHotUpload && GVerboseRenderPerfLog )
                     GXboxLog.Write( "RTEX precreate f=%d seq=%d createNext=%d stage=%d id=%08X:%08X fmt=%d->A8R8G8B8 size=%dx%d mips=%d bytes=%d pool=%d liveKB=%d availKB=%u",
                         FrameCounter, UploadSeq, GRD_TotalTexCreates + 1, Stage, GRD_LastTextureIDHi, GRD_LastTextureIDLo,
                         Info.Format, USize, VSize, NumMips, ApproxBytes, TexPoolNext, TexLiveBytes / 1024, (unsigned)RenderAvailPhysKB() );
                 hrCreate = Device->CreateTexture( USize, VSize, NumMips, 0, D3DFMT_A8R8G8B8, D3DPOOL_DEFAULT, &Entry->pTexture );
-                Entry->USize    = USize;
-                Entry->VSize    = VSize;
-                Entry->NumMips  = NumMips;
-                Entry->FirstMip = FirstMip;
-                Entry->UIndex   = bSwapUV ? 1 : 0;
-                Entry->VIndex   = bSwapUV ? 0 : 1;
-                Entry->Format   = DestFormat;
-                Entry->MaskedAlpha = bNeedsMaskedAlpha;
-                TexLiveBytes   -= Entry->Bytes;
-                Entry->Bytes    = ApproxBytes;
-                TexLiveBytes   += Entry->Bytes;
-                GRD_FrameTexCreates++;
-                GRD_TotalTexCreates++;
+                if( SUCCEEDED(hrCreate) && Entry->pTexture )
+                {
+                    Entry->USize    = USize;
+                    Entry->VSize    = VSize;
+                    Entry->NumMips  = NumMips;
+                    Entry->FirstMip = FirstMip;
+                    Entry->UIndex   = bSwapUV ? 1 : 0;
+                    Entry->VIndex   = bSwapUV ? 0 : 1;
+                    Entry->Format   = DestFormat;
+                    Entry->MaskedAlpha = bNeedsMaskedAlpha;
+                    TexLiveBytes   -= Entry->Bytes;
+                    Entry->Bytes    = ApproxBytes;
+                    TexLiveBytes   += Entry->Bytes;
+                    GRD_FrameTexCreates++;
+                    GRD_TotalTexCreates++;
+                    Entry->CreateFailedFrame = -1000000;
+                    Entry->CreateFailedBytes = 0;
+                }
             }
             GRD_FrameTexUploads++;
             GRD_TotalTexUploads++;
             GRD_TotalTexBytes += ApproxBytes;
             if( FAILED(hrCreate) || !Entry->pTexture || (GVerboseRenderPerfLog && bNeedCreate && (GRD_TotalTexCreates <= 16 || (GRD_TotalTexCreates % 64) == 0)) )
+            {
+                if( bNeedCreate && (FAILED(hrCreate) || !Entry->pTexture) )
+                {
+                    Entry->CreateFailedFrame = FrameCounter;
+                    Entry->CreateFailedBytes = ApproxBytes;
+                }
                 GXboxLog.Write( "RTEX %s create#=%d upload#=%d frame=%d stage=%d id=%08X:%08X fmt=%d->A8R8G8B8 size=%dx%d mips=%d bytes=%d hr=0x%08X tex=0x%08X d3dpool=DEFAULT cache=%d realtime=%d",
                     bNeedCreate ? "create" : "update", GRD_TotalTexCreates, GRD_TotalTexUploads, FrameCounter, Stage, GRD_LastTextureIDHi, GRD_LastTextureIDLo,
                     Info.Format, USize, VSize, NumMips, ApproxBytes, (DWORD)hrCreate, (DWORD)Entry->pTexture, TexPoolNext, bRealtimeChanged || bForceRgba7MaxUpload );
+            }
             if( Entry->pTexture )
             {
                 // Scratch buffer for linear pixel composition before swizzling.
@@ -1909,13 +2283,32 @@ void UXboxRenderDevice::SetTextureD3D( INT Stage, FTextureInfo& Info, DWORD Poly
                         GXboxLog.Write( "RTEX LockRect FAILED frame=%d stage=%d id=%08X:%08X mip=%d hr=0x%08X",
                             FrameCounter, Stage, GRD_LastTextureIDHi, GRD_LastTextureIDLo, m - FirstMip, (DWORD)hrLock );
                     }
+                    if( ScratchSize > (256 * 1024) )
+                    {
+                        appFree( Scratch );
+                        Scratch = NULL;
+                        ScratchSize = 0;
+                    }
                 }
             }
         }
         ResumeSceneAfterTextureUpload( "tex-upload" );
     }
 
+    if( !Entry || !Entry->pTexture )
+    {
+        Device->SetTexture( Stage, NULL );
+        BoundCacheID[Stage] = 0;
+        StageUScale[Stage] = Entry ? Entry->UScale : 1.0f;
+        StageVScale[Stage] = Entry ? Entry->VScale : 1.0f;
+        StageUIndex[Stage] = Entry ? Entry->UIndex : 0;
+        StageVIndex[Stage] = Entry ? Entry->VIndex : 1;
+        return 0;
+    }
+
     // Store stage state.
+    if( GRD_MenuTextMode )
+        Entry->Pinned = 1;
     BoundCacheID[Stage] = Info.CacheID;
     StageUScale[Stage]  = Entry->UScale;
     StageVScale[Stage]  = Entry->VScale;
@@ -1924,12 +2317,16 @@ void UXboxRenderDevice::SetTextureD3D( INT Stage, FTextureInfo& Info, DWORD Poly
     Entry->FrameCounter = FrameCounter;
 
     // Bind the D3D texture.
+    if( Entry->pPalette )
+        Device->SetPalette( Stage, Entry->pPalette );
     HRESULT hrSet = Device->SetTexture( Stage, Entry->pTexture );
+    UBOOL bSetOk = SUCCEEDED(hrSet) && Entry->pTexture;
     GRD_FrameTexBinds++;
     if( FAILED(hrSet) || !Entry->pTexture )
         GXboxLog.Write( "RTEX SetTexture frame=%d stage=%d id=%08X:%08X tex=0x%08X hr=0x%08X",
             FrameCounter, Stage, GRD_LastTextureIDHi, GRD_LastTextureIDLo, (DWORD)Entry->pTexture, (DWORD)hrSet );
 
+    return bSetOk;
     unguard;
 }
 
@@ -1974,8 +2371,13 @@ void UXboxRenderDevice::DrawComplexSurface( FSceneNode* Frame, FSurfaceInfo& Sur
     if( GUseXboxBspMultitexture && Surface.LightMap != NULL && Surface.MacroTexture == NULL )
     {
         SetBlending( Surface.PolyFlags | PF_Memorized );
-        SetTextureD3D( 0, *Surface.Texture, Surface.PolyFlags );
-        SetTextureD3D( 1, *Surface.LightMap, 0 );
+        UBOOL bBaseTextureOk = SetTextureD3D( 0, *Surface.Texture, Surface.PolyFlags );
+        UBOOL bLightMapOk = SetTextureD3D( 1, *Surface.LightMap, 0 );
+        if( !bBaseTextureOk )
+        {
+            DisableStage1();
+            return;
+        }
 
         // Make the lightmap stage deterministic. 2D HUD/flash/overlay draws
         // also use the fixed-function stages, so never rely only on
@@ -1986,15 +2388,25 @@ void UXboxRenderDevice::DrawComplexSurface( FSceneNode* Frame, FSurfaceInfo& Sur
         SetCachedTextureStageState( 0, D3DTSS_ALPHAOP, D3DTOP_MODULATE );
         SetCachedTextureStageState( 0, D3DTSS_ALPHAARG1, D3DTA_TEXTURE );
         SetCachedTextureStageState( 0, D3DTSS_ALPHAARG2, D3DTA_DIFFUSE );
-        SetCachedTextureStageState( 1, D3DTSS_COLOROP, D3DTOP_MODULATE );
-        SetCachedTextureStageState( 1, D3DTSS_COLORARG1, D3DTA_TEXTURE );
-        SetCachedTextureStageState( 1, D3DTSS_COLORARG2, D3DTA_CURRENT );
-        SetCachedTextureStageState( 1, D3DTSS_ALPHAOP, D3DTOP_SELECTARG2 );
-        SetCachedTextureStageState( 1, D3DTSS_ALPHAARG1, D3DTA_TEXTURE );
-        SetCachedTextureStageState( 1, D3DTSS_ALPHAARG2, D3DTA_CURRENT );
-        SetCachedTextureStageState( 1, D3DTSS_TEXCOORDINDEX, 1 );
-        SetCachedTextureStageState( 1, D3DTSS_MINFILTER, D3DTEXF_LINEAR );
-        SetCachedTextureStageState( 1, D3DTSS_MAGFILTER, D3DTEXF_LINEAR );
+        if( bLightMapOk )
+        {
+            SetCachedTextureStageState( 1, D3DTSS_COLOROP, D3DTOP_MODULATE );
+            SetCachedTextureStageState( 1, D3DTSS_COLORARG1, D3DTA_TEXTURE );
+            SetCachedTextureStageState( 1, D3DTSS_COLORARG2, D3DTA_CURRENT );
+            SetCachedTextureStageState( 1, D3DTSS_ALPHAOP, D3DTOP_SELECTARG2 );
+            SetCachedTextureStageState( 1, D3DTSS_ALPHAARG1, D3DTA_TEXTURE );
+            SetCachedTextureStageState( 1, D3DTSS_ALPHAARG2, D3DTA_CURRENT );
+            SetCachedTextureStageState( 1, D3DTSS_TEXCOORDINDEX, 1 );
+            SetCachedTextureStageState( 1, D3DTSS_MINFILTER, D3DTEXF_LINEAR );
+            SetCachedTextureStageState( 1, D3DTSS_MAGFILTER, D3DTEXF_LINEAR );
+        }
+        else
+        {
+            Device->SetTexture( 1, NULL );
+            BoundCacheID[1] = 0;
+            SetCachedTextureStageState( 1, D3DTSS_COLOROP, D3DTOP_DISABLE );
+            SetCachedTextureStageState( 1, D3DTSS_ALPHAOP, D3DTOP_DISABLE );
+        }
 
         SetCachedVertexShader( XBOX_FVF_WORLDVERTEX2 );
 
@@ -2045,7 +2457,8 @@ void UXboxRenderDevice::DrawComplexSurface( FSceneNode* Frame, FSurfaceInfo& Sur
         // Single-texture fallback: multiple passes. Build a bounded scratch
         // vertex array per polygon; large BSP facets can exceed 512 vertices
         // in total, so never accumulate the whole surface into one buffer.
-        SetTextureD3D( 0, *Surface.Texture, Surface.PolyFlags );
+        if( !SetTextureD3D( 0, *Surface.Texture, Surface.PolyFlags ) )
+            return;
         SetBlending( Surface.PolyFlags & ~PF_Memorized );
         SetCachedVertexShader( XBOX_FVF_WORLDVERTEX );
 
@@ -2089,32 +2502,34 @@ void UXboxRenderDevice::DrawComplexSurface( FSceneNode* Frame, FSurfaceInfo& Sur
         if( Surface.MacroTexture )
         {
             SetBlending( PF_Modulated );
-            SetTextureD3D( 0, *Surface.MacroTexture, 0 );
-            for( FSavedPoly* Poly = Facet.Polys; Poly; Poly = Poly->Next )
+            if( SetTextureD3D( 0, *Surface.MacroTexture, 0 ) )
             {
-                if( Poly->NumPts < 3 || Poly->NumPts > XBOX_MAX_VERTS )
-                    continue;
-
-                FXboxWorldVertex Verts[XBOX_MAX_VERTS];
-                for( INT i = 0; i < Poly->NumPts; i++ )
+                for( FSavedPoly* Poly = Facet.Polys; Poly; Poly = Poly->Next )
                 {
-                    FLOAT u = Facet.MapCoords.XAxis | (*(FVector*)Poly->Pts[i] - Facet.MapCoords.Origin);
-                    FLOAT v = Facet.MapCoords.YAxis | (*(FVector*)Poly->Pts[i] - Facet.MapCoords.Origin);
-                    Verts[i].x     = Poly->Pts[i]->Point.X;
-                    Verts[i].y     = Poly->Pts[i]->Point.Y;
-                    Verts[i].z     = Poly->Pts[i]->Point.Z;
-                    Verts[i].color = 0xFFFFFFFF;
-                    SetUV( Verts[i], 0, u - Surface.MacroTexture->Pan.X, v - Surface.MacroTexture->Pan.Y, StageUScale, StageVScale, StageUIndex, StageVIndex );
+                    if( Poly->NumPts < 3 || Poly->NumPts > XBOX_MAX_VERTS )
+                        continue;
+
+                    FXboxWorldVertex Verts[XBOX_MAX_VERTS];
+                    for( INT i = 0; i < Poly->NumPts; i++ )
+                    {
+                        FLOAT u = Facet.MapCoords.XAxis | (*(FVector*)Poly->Pts[i] - Facet.MapCoords.Origin);
+                        FLOAT v = Facet.MapCoords.YAxis | (*(FVector*)Poly->Pts[i] - Facet.MapCoords.Origin);
+                        Verts[i].x     = Poly->Pts[i]->Point.X;
+                        Verts[i].y     = Poly->Pts[i]->Point.Y;
+                        Verts[i].z     = Poly->Pts[i]->Point.Z;
+                        Verts[i].color = 0xFFFFFFFF;
+                        SetUV( Verts[i], 0, u - Surface.MacroTexture->Pan.X, v - Surface.MacroTexture->Pan.Y, StageUScale, StageVScale, StageUIndex, StageVIndex );
+                    }
+                    RenderDiagPrim( Poly->NumPts, PF_Modulated, "DCS-macro" );
+                    if( RenderHotFrame( FrameCounter ) && RenderHotTrace() )
+                        GXboxLog.Write( "RDRAW begin op=DCS-macro f=%d dcs=%d prim=%d pts=%d",
+                            FrameCounter, GRD_FrameDCS, GRD_FramePrims + 1, Poly->NumPts );
+                    HRESULT hrDraw = DrawPrimitiveVBWorld( D3DPT_TRIANGLEFAN, Poly->NumPts - 2, Verts, sizeof(FXboxWorldVertex), "DCS-macro" );
+                    if( RenderHotFrame( FrameCounter ) && RenderHotTrace() )
+                        GXboxLog.Write( "RDRAW end op=DCS-macro f=%d hr=0x%08X", FrameCounter, (DWORD)hrDraw );
+                    if( FAILED(hrDraw) && RenderShouldLogDrawFailure( FrameCounter ) )
+                        GXboxLog.Write( "RDRAW FAILED op=DCS-macro frame=%d pts=%d hr=0x%08X", FrameCounter, Poly->NumPts, (DWORD)hrDraw );
                 }
-                RenderDiagPrim( Poly->NumPts, PF_Modulated, "DCS-macro" );
-                if( RenderHotFrame( FrameCounter ) && RenderHotTrace() )
-                    GXboxLog.Write( "RDRAW begin op=DCS-macro f=%d dcs=%d prim=%d pts=%d",
-                        FrameCounter, GRD_FrameDCS, GRD_FramePrims + 1, Poly->NumPts );
-                HRESULT hrDraw = DrawPrimitiveVBWorld( D3DPT_TRIANGLEFAN, Poly->NumPts - 2, Verts, sizeof(FXboxWorldVertex), "DCS-macro" );
-                if( RenderHotFrame( FrameCounter ) && RenderHotTrace() )
-                    GXboxLog.Write( "RDRAW end op=DCS-macro f=%d hr=0x%08X", FrameCounter, (DWORD)hrDraw );
-                if( FAILED(hrDraw) && RenderShouldLogDrawFailure( FrameCounter ) )
-                    GXboxLog.Write( "RDRAW FAILED op=DCS-macro frame=%d pts=%d hr=0x%08X", FrameCounter, Poly->NumPts, (DWORD)hrDraw );
             }
         }
 
@@ -2122,32 +2537,34 @@ void UXboxRenderDevice::DrawComplexSurface( FSceneNode* Frame, FSurfaceInfo& Sur
         if( Surface.LightMap )
         {
             SetBlending( PF_Modulated );
-            SetTextureD3D( 0, *Surface.LightMap, 0 );
-            for( FSavedPoly* Poly = Facet.Polys; Poly; Poly = Poly->Next )
+            if( SetTextureD3D( 0, *Surface.LightMap, 0 ) )
             {
-                if( Poly->NumPts < 3 || Poly->NumPts > XBOX_MAX_VERTS )
-                    continue;
-
-                FXboxWorldVertex Verts[XBOX_MAX_VERTS];
-                for( INT i = 0; i < Poly->NumPts; i++ )
+                for( FSavedPoly* Poly = Facet.Polys; Poly; Poly = Poly->Next )
                 {
-                    FLOAT u = Facet.MapCoords.XAxis | (*(FVector*)Poly->Pts[i] - Facet.MapCoords.Origin);
-                    FLOAT v = Facet.MapCoords.YAxis | (*(FVector*)Poly->Pts[i] - Facet.MapCoords.Origin);
-                    Verts[i].x     = Poly->Pts[i]->Point.X;
-                    Verts[i].y     = Poly->Pts[i]->Point.Y;
-                    Verts[i].z     = Poly->Pts[i]->Point.Z;
-                    Verts[i].color = 0xFFFFFFFF;
-                    SetUV( Verts[i], 0, u - Surface.LightMap->Pan.X + 0.5f * Surface.LightMap->UScale, v - Surface.LightMap->Pan.Y + 0.5f * Surface.LightMap->VScale, StageUScale, StageVScale, StageUIndex, StageVIndex );
+                    if( Poly->NumPts < 3 || Poly->NumPts > XBOX_MAX_VERTS )
+                        continue;
+
+                    FXboxWorldVertex Verts[XBOX_MAX_VERTS];
+                    for( INT i = 0; i < Poly->NumPts; i++ )
+                    {
+                        FLOAT u = Facet.MapCoords.XAxis | (*(FVector*)Poly->Pts[i] - Facet.MapCoords.Origin);
+                        FLOAT v = Facet.MapCoords.YAxis | (*(FVector*)Poly->Pts[i] - Facet.MapCoords.Origin);
+                        Verts[i].x     = Poly->Pts[i]->Point.X;
+                        Verts[i].y     = Poly->Pts[i]->Point.Y;
+                        Verts[i].z     = Poly->Pts[i]->Point.Z;
+                        Verts[i].color = 0xFFFFFFFF;
+                        SetUV( Verts[i], 0, u - Surface.LightMap->Pan.X + 0.5f * Surface.LightMap->UScale, v - Surface.LightMap->Pan.Y + 0.5f * Surface.LightMap->VScale, StageUScale, StageVScale, StageUIndex, StageVIndex );
+                    }
+                    RenderDiagPrim( Poly->NumPts, PF_Modulated, "DCS-light" );
+                    if( RenderHotFrame( FrameCounter ) && RenderHotTrace() )
+                        GXboxLog.Write( "RDRAW begin op=DCS-light f=%d dcs=%d prim=%d pts=%d",
+                            FrameCounter, GRD_FrameDCS, GRD_FramePrims + 1, Poly->NumPts );
+                    HRESULT hrDraw = DrawPrimitiveVBWorld( D3DPT_TRIANGLEFAN, Poly->NumPts - 2, Verts, sizeof(FXboxWorldVertex), "DCS-light" );
+                    if( RenderHotFrame( FrameCounter ) && RenderHotTrace() )
+                        GXboxLog.Write( "RDRAW end op=DCS-light f=%d hr=0x%08X", FrameCounter, (DWORD)hrDraw );
+                    if( FAILED(hrDraw) && RenderShouldLogDrawFailure( FrameCounter ) )
+                        GXboxLog.Write( "RDRAW FAILED op=DCS-light frame=%d pts=%d hr=0x%08X", FrameCounter, Poly->NumPts, (DWORD)hrDraw );
                 }
-                RenderDiagPrim( Poly->NumPts, PF_Modulated, "DCS-light" );
-                if( RenderHotFrame( FrameCounter ) && RenderHotTrace() )
-                    GXboxLog.Write( "RDRAW begin op=DCS-light f=%d dcs=%d prim=%d pts=%d",
-                        FrameCounter, GRD_FrameDCS, GRD_FramePrims + 1, Poly->NumPts );
-                HRESULT hrDraw = DrawPrimitiveVBWorld( D3DPT_TRIANGLEFAN, Poly->NumPts - 2, Verts, sizeof(FXboxWorldVertex), "DCS-light" );
-                if( RenderHotFrame( FrameCounter ) && RenderHotTrace() )
-                    GXboxLog.Write( "RDRAW end op=DCS-light f=%d hr=0x%08X", FrameCounter, (DWORD)hrDraw );
-                if( FAILED(hrDraw) && RenderShouldLogDrawFailure( FrameCounter ) )
-                    GXboxLog.Write( "RDRAW FAILED op=DCS-light frame=%d pts=%d hr=0x%08X", FrameCounter, Poly->NumPts, (DWORD)hrDraw );
             }
         }
     }
@@ -2156,34 +2573,36 @@ void UXboxRenderDevice::DrawComplexSurface( FSceneNode* Frame, FSurfaceInfo& Sur
     if( Surface.FogMap )
     {
         SetBlending( PF_Highlighted );
-        SetTextureD3D( 0, *Surface.FogMap, 0 );
-        SetCachedVertexShader( XBOX_FVF_WORLDVERTEX );
-
-        for( FSavedPoly* Poly = Facet.Polys; Poly; Poly = Poly->Next )
+        if( SetTextureD3D( 0, *Surface.FogMap, 0 ) )
         {
-            if( Poly->NumPts < 3 || Poly->NumPts > XBOX_MAX_VERTS )
-                continue;
+            SetCachedVertexShader( XBOX_FVF_WORLDVERTEX );
 
-            FXboxWorldVertex FogVerts[XBOX_MAX_VERTS];
-            for( INT i = 0; i < Poly->NumPts; i++ )
+            for( FSavedPoly* Poly = Facet.Polys; Poly; Poly = Poly->Next )
             {
-                FLOAT u = Facet.MapCoords.XAxis | (*(FVector*)Poly->Pts[i] - Facet.MapCoords.Origin);
-                FLOAT v = Facet.MapCoords.YAxis | (*(FVector*)Poly->Pts[i] - Facet.MapCoords.Origin);
-                FogVerts[i].x     = Poly->Pts[i]->Point.X;
-                FogVerts[i].y     = Poly->Pts[i]->Point.Y;
-                FogVerts[i].z     = Poly->Pts[i]->Point.Z;
-                FogVerts[i].color = 0xFFFFFFFF;
-                SetUV( FogVerts[i], 0, u - Surface.FogMap->Pan.X + 0.5f * Surface.FogMap->UScale, v - Surface.FogMap->Pan.Y + 0.5f * Surface.FogMap->VScale, StageUScale, StageVScale, StageUIndex, StageVIndex );
+                if( Poly->NumPts < 3 || Poly->NumPts > XBOX_MAX_VERTS )
+                    continue;
+
+                FXboxWorldVertex FogVerts[XBOX_MAX_VERTS];
+                for( INT i = 0; i < Poly->NumPts; i++ )
+                {
+                    FLOAT u = Facet.MapCoords.XAxis | (*(FVector*)Poly->Pts[i] - Facet.MapCoords.Origin);
+                    FLOAT v = Facet.MapCoords.YAxis | (*(FVector*)Poly->Pts[i] - Facet.MapCoords.Origin);
+                    FogVerts[i].x     = Poly->Pts[i]->Point.X;
+                    FogVerts[i].y     = Poly->Pts[i]->Point.Y;
+                    FogVerts[i].z     = Poly->Pts[i]->Point.Z;
+                    FogVerts[i].color = 0xFFFFFFFF;
+                    SetUV( FogVerts[i], 0, u - Surface.FogMap->Pan.X + 0.5f * Surface.FogMap->UScale, v - Surface.FogMap->Pan.Y + 0.5f * Surface.FogMap->VScale, StageUScale, StageVScale, StageUIndex, StageVIndex );
+                }
+                RenderDiagPrim( Poly->NumPts, PF_Highlighted, "DCS-fog" );
+                if( RenderHotFrame( FrameCounter ) && RenderHotTrace() )
+                    GXboxLog.Write( "RDRAW begin op=DCS-fog f=%d dcs=%d prim=%d pts=%d",
+                        FrameCounter, GRD_FrameDCS, GRD_FramePrims + 1, Poly->NumPts );
+                HRESULT hrDraw = DrawPrimitiveVBWorld( D3DPT_TRIANGLEFAN, Poly->NumPts - 2, FogVerts, sizeof(FXboxWorldVertex), "DCS-fog" );
+                if( RenderHotFrame( FrameCounter ) && RenderHotTrace() )
+                    GXboxLog.Write( "RDRAW end op=DCS-fog f=%d hr=0x%08X", FrameCounter, (DWORD)hrDraw );
+                if( FAILED(hrDraw) && RenderShouldLogDrawFailure( FrameCounter ) )
+                    GXboxLog.Write( "RDRAW FAILED op=DCS-fog frame=%d pts=%d hr=0x%08X", FrameCounter, Poly->NumPts, (DWORD)hrDraw );
             }
-            RenderDiagPrim( Poly->NumPts, PF_Highlighted, "DCS-fog" );
-            if( RenderHotFrame( FrameCounter ) && RenderHotTrace() )
-                GXboxLog.Write( "RDRAW begin op=DCS-fog f=%d dcs=%d prim=%d pts=%d",
-                    FrameCounter, GRD_FrameDCS, GRD_FramePrims + 1, Poly->NumPts );
-            HRESULT hrDraw = DrawPrimitiveVBWorld( D3DPT_TRIANGLEFAN, Poly->NumPts - 2, FogVerts, sizeof(FXboxWorldVertex), "DCS-fog" );
-            if( RenderHotFrame( FrameCounter ) && RenderHotTrace() )
-                GXboxLog.Write( "RDRAW end op=DCS-fog f=%d hr=0x%08X", FrameCounter, (DWORD)hrDraw );
-            if( FAILED(hrDraw) && RenderShouldLogDrawFailure( FrameCounter ) )
-                GXboxLog.Write( "RDRAW FAILED op=DCS-fog frame=%d pts=%d hr=0x%08X", FrameCounter, Poly->NumPts, (DWORD)hrDraw );
         }
     }
 
@@ -2257,7 +2676,8 @@ void UXboxRenderDevice::DrawGouraudPolygon( FSceneNode* Frame, FTextureInfo& Inf
 
     if( bCanBatch && !GRD_DGPBatchActive )
     {
-        SetTextureD3D( 0, Info, PolyFlags );
+        if( !SetTextureD3D( 0, Info, PolyFlags ) )
+            return;
         SetBlending( PolyFlags );
         SetCachedVertexShader( XBOX_FVF_WORLDVERTEX );
         GRD_DGPBatchActive = 1;
@@ -2278,7 +2698,8 @@ void UXboxRenderDevice::DrawGouraudPolygon( FSceneNode* Frame, FTextureInfo& Inf
     else
     {
         FlushDGPBatch( "DGP-fallback" );
-        SetTextureD3D( 0, Info, PolyFlags );
+        if( !SetTextureD3D( 0, Info, PolyFlags ) )
+            return;
         SetBlending( PolyFlags );
         SetCachedVertexShader( XBOX_FVF_WORLDVERTEX );
         if( RenderHotFrame( FrameCounter ) && RenderHotTrace() )
@@ -2336,6 +2757,9 @@ void UXboxRenderDevice::DrawTile( FSceneNode* Frame, FTextureInfo& Info, FLOAT X
             FrameCounter, GRD_FrameDT, X, Y, XL, YL, Z, Info.Format,
             (DWORD)(Info.CacheID >> 32), (DWORD)Info.CacheID, PolyFlags );
 
+    if( GRD_MenuTextMode )
+        PolyFlags = (PolyFlags | PF_Masked | PF_NoSmooth) & ~(PF_Translucent | PF_Modulated);
+
     FLOAT RZ  = 1.0f / Z;
     FLOAT SZ  = ProjZRatio + ProjZOffset * RZ;
     X        += Frame->XB - 0.5f;
@@ -2357,7 +2781,8 @@ void UXboxRenderDevice::DrawTile( FSceneNode* Frame, FTextureInfo& Info, FLOAT X
     if( bCanBatch && !GRD_DTBatchActive )
     {
         SetBlending( PolyFlags );
-        SetTextureD3D( 0, Info, PolyFlags );
+        if( !SetTextureD3D( 0, Info, PolyFlags ) )
+            return;
         SetCachedVertexShader( XBOX_FVF_TLVERTEX );
         GRD_DTBatchActive = 1;
         GRD_DTBatchCacheID = Info.CacheID;
@@ -2367,7 +2792,8 @@ void UXboxRenderDevice::DrawTile( FSceneNode* Frame, FTextureInfo& Info, FLOAT X
     {
         FlushDTBatch( "DT-fallback" );
         SetBlending( PolyFlags );
-        SetTextureD3D( 0, Info, PolyFlags );
+        if( !SetTextureD3D( 0, Info, PolyFlags ) )
+            return;
         SetCachedVertexShader( XBOX_FVF_TLVERTEX );
     }
 

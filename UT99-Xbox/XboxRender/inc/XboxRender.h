@@ -108,13 +108,15 @@ struct FXboxWorldVertex2
 // ============================================================================
 // Texture cache
 // ============================================================================
-enum { XBOX_TEX_CACHE_SIZE = 4096 };
-enum { XBOX_TEX_RESIDENT_LIMIT = 768 };
+enum { XBOX_TEX_CACHE_SIZE = 1024 };
+enum { XBOX_TEX_RESIDENT_LIMIT = 512 };
+enum { XBOX_TEX_LIVE_BUDGET = 16 * 1024 * 1024 };
 
 struct FXboxTexCacheEntry
 {
     QWORD                 CacheID;
     IDirect3DTexture8*    pTexture;
+    IDirect3DPalette8*    pPalette;
     FLOAT                 UScale;
     FLOAT                 VScale;
     INT                   USize;
@@ -127,6 +129,9 @@ struct FXboxTexCacheEntry
     UBOOL                 MaskedAlpha;
     INT                   Bytes;
     INT                   FrameCounter;
+    INT                   CreateFailedFrame;
+    INT                   CreateFailedBytes;
+    UBOOL                 Pinned;
     FXboxTexCacheEntry*   HashNext;
 };
 
@@ -134,8 +139,8 @@ struct FXboxTexCacheEntry
 // Max verts per draw call (stack buffer)
 // ============================================================================
 enum { XBOX_MAX_VERTS = 512 };
-enum { XBOX_MAX_DRAW_VERTS = 2048 };
-enum { XBOX_DRAW_VB_BYTES = 512 * 1024 };
+enum { XBOX_MAX_DRAW_VERTS = 1024 };
+enum { XBOX_DRAW_VB_BYTES = 256 * 1024 };
 enum { XBOX_RS_CACHE_COUNT = 256 };
 enum { XBOX_TSS_CACHE_COUNT = 256 };
 
@@ -229,7 +234,7 @@ public:
 
     // Private helpers
     void  SetBlending( DWORD PolyFlags );
-    void  SetTextureD3D( INT Stage, FTextureInfo& Info, DWORD PolyFlags );
+    UBOOL SetTextureD3D( INT Stage, FTextureInfo& Info, DWORD PolyFlags );
     void  EndSceneForTextureUpload( const char* Reason );
     void  ResumeSceneAfterTextureUpload( const char* Reason );
     HRESULT DrawPrimitiveVB( D3DPRIMITIVETYPE PrimitiveType, UINT PrimitiveCount, const void* Vertices, UINT Stride, const char* OpName );
@@ -243,5 +248,7 @@ public:
     void  RestoreDefaultTextureStages();
     void  DrawPerfOverlay();
     void  FlushTexCache();
+    void  ReleaseTexCacheEntry( FXboxTexCacheEntry* Entry );
+    void  EvictTexCacheForUpload( INT NeededBytes );
     void  ReleaseDrawVertexBuffer();
 };

@@ -1770,7 +1770,11 @@ CORE_API void appInit( const TCHAR* InPackage, const TCHAR* InCmdLine, FMalloc* 
 	UObject::StaticInit();
 
 	// Memory initalization.
+#if TARGET_XBOX
+	GMem.Init( 32768 );
+#else
 	GMem.Init( 65536 );
+#endif
 
 	// Cd path.
 	if( !Parse( appCmdLine(), TEXT("CDPATH="), GCdPath, 256 ) )

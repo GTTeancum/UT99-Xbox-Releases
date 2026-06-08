@@ -101,8 +101,6 @@
 #  include <SupportDefs.h>
 #elif defined __amigaos4__
 #  include <exec/types.h>
-#elif defined _arch_dreamcast /* KallistiOS */
-#  include <arch/types.h>
 #else
 typedef signed char int8;
 typedef signed short int int16;

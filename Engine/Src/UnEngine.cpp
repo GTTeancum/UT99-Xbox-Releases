@@ -108,15 +108,25 @@ void UEngine::Init()
 
 	// Subsystems.
 	FURL::StaticInit();
+#if TARGET_XBOX
+	GEngineMem.Init( 32768 );
+#else
 	GEngineMem.Init( 65536 );
+#endif
 #if TARGET_XBOX
 	if( GIsClient && CacheSizeMegs > 1 )
 	{
 		debugf( NAME_Init, TEXT("Xbox: capping CacheSizeMegs from %i to 1"), CacheSizeMegs );
 		CacheSizeMegs = 1;
 	}
+	if( GIsClient )
+	{
+		debugf( NAME_Init, TEXT("Xbox: using 256 KB object cache for hardware memory headroom") );
+		GCache.Init( 256 * 1024, 4096 );
+	}
+	else
 #endif
-	GCache.Init( 1024 * 1024 * Clamp(GIsClient ? CacheSizeMegs : 1,1,1024), 4096 );
+		GCache.Init( 1024 * 1024 * Clamp(GIsClient ? CacheSizeMegs : 1,1,1024), 4096 );
 
 	// Translation.
 	YesKey = appToUpper( *Localize( "General", "Yes", TEXT("Core") ) );

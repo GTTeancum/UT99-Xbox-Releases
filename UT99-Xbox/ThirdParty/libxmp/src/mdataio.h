@@ -35,8 +35,10 @@ static inline uint16 mread16l(MFILE *m, int *err)
 {
 	ptrdiff_t can_read = CAN_READ(m);
 	if (can_read >= 2) {
-		uint16 n = readmem16l(m->start + m->pos);
-		m->pos += 2;
+		uint8 buf[2];
+		uint16 n;
+		mread(buf, 1, 2, m);
+		n = readmem16l(buf);
 		if(err) *err = 0;
 		return n;
 	} else {
@@ -50,8 +52,10 @@ static inline uint16 mread16b(MFILE *m, int *err)
 {
 	ptrdiff_t can_read = CAN_READ(m);
 	if (can_read >= 2) {
-		uint16 n = readmem16b(m->start + m->pos);
-		m->pos += 2;
+		uint8 buf[2];
+		uint16 n;
+		mread(buf, 1, 2, m);
+		n = readmem16b(buf);
 		if(err) *err = 0;
 		return n;
 	} else {
@@ -65,8 +69,10 @@ static inline uint32 mread24l(MFILE *m, int *err)
 {
 	ptrdiff_t can_read = CAN_READ(m);
 	if (can_read >= 3) {
-		uint32 n = readmem24l(m->start + m->pos);
-		m->pos += 3;
+		uint8 buf[3];
+		uint32 n;
+		mread(buf, 1, 3, m);
+		n = readmem24l(buf);
 		if(err) *err = 0;
 		return n;
 	} else {
@@ -80,8 +86,10 @@ static inline uint32 mread24b(MFILE *m, int *err)
 {
 	ptrdiff_t can_read = CAN_READ(m);
 	if (can_read >= 3) {
-		uint32 n = readmem24b(m->start + m->pos);
-		m->pos += 3;
+		uint8 buf[3];
+		uint32 n;
+		mread(buf, 1, 3, m);
+		n = readmem24b(buf);
 		if(err) *err = 0;
 		return n;
 	} else {
@@ -95,8 +103,10 @@ static inline uint32 mread32l(MFILE *m, int *err)
 {
 	ptrdiff_t can_read = CAN_READ(m);
 	if (can_read >= 4) {
-		uint32 n = readmem32l(m->start + m->pos);
-		m->pos += 4;
+		uint8 buf[4];
+		uint32 n;
+		mread(buf, 1, 4, m);
+		n = readmem32l(buf);
 		if(err) *err = 0;
 		return n;
 	} else {
@@ -110,8 +120,10 @@ static inline uint32 mread32b(MFILE *m, int *err)
 {
 	ptrdiff_t can_read = CAN_READ(m);
 	if (can_read >= 4) {
-		uint32 n = readmem32b(m->start + m->pos);
-		m->pos += 4;
+		uint8 buf[4];
+		uint32 n;
+		mread(buf, 1, 4, m);
+		n = readmem32b(buf);
 		if(err) *err = 0;
 		return n;
 	} else {

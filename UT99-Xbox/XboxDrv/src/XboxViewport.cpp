@@ -7,6 +7,11 @@ extern "C" void  XboxRenderBeginMenuMeshSlot( FSceneNode* Frame, FLOAT X, FLOAT 
 extern "C" void  XboxRenderEndMenuMeshSlot( FSceneNode* Frame );
 extern "C" void  XboxRenderPrepareMenuText( FSceneNode* Frame, const char* Label );
 extern "C" void  XboxRenderFinishMenuText( FSceneNode* Frame );
+extern "C" void  XboxRenderSetPendingViewRegion( INT X, INT Y, INT W, INT H );
+extern "C" volatile LONG GXboxAudioToneSmokeState;
+extern "C" volatile LONG GXboxAudioMusicLoadState;
+extern "C" volatile LONG GXboxAudioMusicPacketState;
+extern "C" volatile LONG GXboxAudioMusicStreamState;
 
 static FLOAT XboxStickAxis( SHORT Raw, FLOAT DeadZone )
 {
@@ -31,7 +36,13 @@ static HANDLE XboxOpenControllerOnPort( INT Port, DWORD DeviceMask )
     }
     else
     {
-        GXboxLog.Write( "XINPUT open failed port=%d mask=0x%08X", Port, DeviceMask );
+        static INT FailLogCount[4] = {0,0,0,0};
+        INT LogPort = (Port >= 0 && Port < 4) ? Port : 0;
+        if( FailLogCount[LogPort] < 4 )
+        {
+            FailLogCount[LogPort]++;
+            GXboxLog.Write( "XINPUT open failed port=%d mask=0x%08X count=%d", Port, DeviceMask, FailLogCount[LogPort] );
+        }
     }
     return Handle;
 }
@@ -447,6 +458,11 @@ static UBOOL XboxSplitSmokeEnabled()
     return GetFileAttributesA( "D:\\XboxSplitSmoke.ini" ) != 0xFFFFFFFF;
 }
 
+static UBOOL XboxMenuSmokeEnabled()
+{
+    return GetFileAttributesA( "D:\\XboxMenuSmoke.ini" ) != 0xFFFFFFFF;
+}
+
 static void XboxSplitSmokeMaybeQueue( UXboxClient* Client )
 {
     if( !XboxSplitSmokeEnabled() || GXboxSplitSmokeTravelStarted || GXboxSplitPending || GXboxSplitActive )
@@ -479,7 +495,7 @@ extern "C" void XboxSplitSetRenderViewport( INT ViewportIndex )
 
 extern "C" UBOOL XboxSplitShouldClearRenderLock()
 {
-    return !GXboxSplitActive || GXboxSplitRenderViewport == 0;
+    return 1;
 }
 
 extern "C" void XboxViewportApplyViewRegion( UViewport* Viewport, FSceneNode* Frame )
@@ -1099,6 +1115,10 @@ static void XboxSystemLinkTick()
 
 static void XboxMenuEnsureRegistryCache()
 {
+#if TARGET_XBOX
+    GXboxMenuRegistryCacheRefreshed = 1;
+    return;
+#endif
     if( GXboxMenuRegistryCacheRefreshed )
         return;
 
@@ -1275,6 +1295,25 @@ static void XboxMenuLoadDiscoveredLists()
 {
     if( GXboxDiscoveredListsLoaded )
         return;
+
+#if TARGET_XBOX
+    GXboxDiscoveredListsLoaded = 1;
+    GXboxDiscoveredGameTypes.Empty();
+    GXboxDiscoveredMutators.Empty();
+
+    XboxMenuAddFallbackGameType( TEXT("DEATHMATCH"), TEXT("Botpack.DeathMatchPlus"), TEXT("DM") );
+    XboxMenuAddFallbackGameType( TEXT("CAPTURE THE FLAG"), TEXT("Botpack.CTFGame"), TEXT("CTF") );
+    XboxMenuAddFallbackGameType( TEXT("DOMINATION"), TEXT("Botpack.Domination"), TEXT("DOM") );
+    XboxMenuAddFallbackGameType( TEXT("ASSAULT"), TEXT("Botpack.Assault"), TEXT("AS") );
+
+    XboxMenuAddFallbackMutator( TEXT("LOW GRAVITY"), TEXT("Botpack.LowGrav") );
+    XboxMenuAddFallbackMutator( TEXT("INSTAGIB"), TEXT("Botpack.InstaGibDM") );
+    XboxMenuAddFallbackMutator( TEXT("NO POWERUPS"), TEXT("Botpack.NoPowerups") );
+
+    GXboxLog.Write( "XMENU using fixed Xbox discovery list gameTypes=%d mutators=%d",
+        GXboxDiscoveredGameTypes.Num(), GXboxDiscoveredMutators.Num() );
+    return;
+#endif
 
     XboxMenuEnsureRegistryCache();
     GXboxDiscoveredListsLoaded = 1;
@@ -1678,9 +1717,27 @@ static void XboxMenuLoadPlayerClasses()
     if( GXboxPlayerListsLoaded )
         return;
 
-    XboxMenuEnsureRegistryCache();
     GXboxPlayerListsLoaded = 1;
     GXboxPlayerClasses.Empty();
+
+#if TARGET_XBOX
+    XboxMenuAddFallbackPlayerClass();
+
+    FXboxPlayerClassOption& Female = *new(GXboxPlayerClasses)FXboxPlayerClassOption;
+    Female.Label = TEXT("FEMALE COMMANDO");
+    Female.URLValue = TEXT("Botpack.TFemale1");
+    Female.MeshName = TEXT("FCommando");
+    Female.MeshPath = TEXT("Botpack.FCommando");
+    Female.SelectionMesh = TEXT("Botpack.SelectionFemale1");
+    Female.VoiceMetaClass = TEXT("BotPack.VoiceFemale");
+    Female.DefaultVoice = TEXT("BotPack.VoiceFemaleOne");
+    Female.bMultiSkinned = 1;
+
+    GXboxLog.Write( "XMENU using fixed Xbox player classes=%d", GXboxPlayerClasses.Num() );
+    return;
+#endif
+
+    XboxMenuEnsureRegistryCache();
 
     UClass* TournamentPlayerClass = FindObject<UClass>( ANY_PACKAGE, TEXT("TournamentPlayer") );
     if( !TournamentPlayerClass )
@@ -1745,6 +1802,24 @@ static void XboxMenuLoadPlayerSkins( INT ClassIndex )
     GXboxPlayerSkins.Empty();
 
     const FXboxPlayerClassOption& Player = XboxMenuPlayerClass( ClassIndex );
+
+#if TARGET_XBOX
+    FXboxDiscoveredOption& Option = *new(GXboxPlayerSkins)FXboxDiscoveredOption;
+    if( appStricmp( *Player.URLValue, TEXT("Botpack.TFemale1") ) == 0 )
+    {
+        Option.Label = TEXT("COMMANDO");
+        Option.URLValue = TEXT("FCommandoSkins.daco");
+    }
+    else
+    {
+        Option.Label = TEXT("BLACK");
+        Option.URLValue = TEXT("SoldierSkins.blkt");
+    }
+    GXboxLog.Write( "XMENU using fixed Xbox skins for player=%s",
+        TCHAR_TO_ANSI(*Player.URLValue) );
+    return;
+#endif
+
     if( Player.MeshName.Len() > 0 )
     {
         TArray<FRegistryObjectInfo> Textures;
@@ -1817,6 +1892,24 @@ static void XboxMenuLoadPlayerFaces( INT ClassIndex, INT SkinIndex )
     GXboxPlayerFaces.Empty();
 
     const FXboxPlayerClassOption& Player = XboxMenuPlayerClass( ClassIndex );
+
+#if TARGET_XBOX
+    FXboxDiscoveredOption& Option = *new(GXboxPlayerFaces)FXboxDiscoveredOption;
+    if( appStricmp( *Player.URLValue, TEXT("Botpack.TFemale1") ) == 0 )
+    {
+        Option.Label = TEXT("ANNA");
+        Option.URLValue = TEXT("FCommandoSkins.Anna");
+    }
+    else
+    {
+        Option.Label = TEXT("OTHELLO");
+        Option.URLValue = TEXT("SoldierSkins.Othello");
+    }
+    GXboxLog.Write( "XMENU using fixed Xbox faces for player=%s",
+        TCHAR_TO_ANSI(*Player.URLValue) );
+    return;
+#endif
+
     if( Player.bMultiSkinned && Player.MeshName.Len() > 0 )
     {
         FString SkinItem;
@@ -1871,6 +1964,16 @@ static void XboxMenuLoadPlayerVoices( INT ClassIndex )
     GXboxPlayerVoices.Empty();
 
     const FXboxPlayerClassOption& Player = XboxMenuPlayerClass( ClassIndex );
+
+#if TARGET_XBOX
+    FXboxDiscoveredOption& Option = *new(GXboxPlayerVoices)FXboxDiscoveredOption;
+    Option.Label = TEXT("DEFAULT");
+    Option.URLValue = Player.DefaultVoice.Len() ? Player.DefaultVoice : FString(TEXT("BotPack.VoiceMaleOne"));
+    GXboxLog.Write( "XMENU using fixed Xbox voices for player=%s",
+        TCHAR_TO_ANSI(*Player.URLValue) );
+    return;
+#endif
+
     UClass* VoiceMetaClass = FindObject<UClass>( ANY_PACKAGE, *Player.VoiceMetaClass );
     if( !VoiceMetaClass )
         VoiceMetaClass = UObject::StaticLoadClass( UObject::StaticClass(), NULL, *Player.VoiceMetaClass, NULL, LOAD_NoWarn | LOAD_Quiet, NULL );
@@ -2564,6 +2667,35 @@ static void XboxMenuOpen( UXboxViewport* Viewport )
     {
         Client->Engine->Audio->Exec( TEXT("XAUDIOSETMENUMODE 1") );
         Client->Engine->Audio->Exec( TEXT("XAUDIOSTOPFX") );
+    }
+}
+
+static void XboxMenuSmokeTick( UXboxViewport* Viewport )
+{
+    static INT SmokeStage = 0;
+    static DOUBLE SmokeStartTime = 0.0;
+
+    if( !XboxMenuSmokeEnabled() || !Viewport || !Viewport->Actor )
+        return;
+
+    if( SmokeStage == 0 )
+    {
+        XboxMenuOpen( Viewport );
+        GXboxMenu.Screen = XMS_Main;
+        SmokeStartTime = appSeconds();
+        SmokeStage = 1;
+        GXboxLog.Write( "XMENU SMOKE opened main menu" );
+    }
+    else if( SmokeStage == 1 && (appSeconds() - SmokeStartTime) > 2.0 )
+    {
+        GXboxMenu.Screen = XMS_InstantAction;
+        GXboxMenu.InstantGameType = Clamp<INT>( GXboxMenu.InstantGameType, 0, XboxMenuGameTypeCount()-1 );
+        XboxMenuLoadMapsForGameType( GXboxMenu.InstantGameType );
+        SmokeStage = 2;
+        GXboxLog.Write( "XMENU SMOKE opened Instant Action gameTypes=%d maps=%d mutators=%d",
+            XboxMenuGameTypeCount(),
+            XboxInstantMapList( GXboxMenu.InstantGameType ),
+            XboxMenuMutatorCount() );
     }
 }
 
@@ -4487,6 +4619,19 @@ void XboxMenuPostRender( UViewport* Viewport, UCanvas* Canvas )
     else
         XboxMenuDrawComingSoon( Canvas );
 
+    if( GetFileAttributesA( "D:\\XboxAudioToneSmoke.ini" ) != 0xFFFFFFFF )
+    {
+        TCHAR AudioState[32];
+        appSprintf( AudioState, TEXT("AUD%i"), (INT)GXboxAudioToneSmokeState );
+        XboxMenuText( Canvas, Canvas->SmallFont, 540, 18, 140, 210, 255, AudioState );
+        appSprintf( AudioState, TEXT("MUS%i"), (INT)GXboxAudioMusicStreamState );
+        XboxMenuText( Canvas, Canvas->SmallFont, 540, 38, 140, 210, 255, AudioState );
+        appSprintf( AudioState, TEXT("PKT%i"), (INT)GXboxAudioMusicPacketState );
+        XboxMenuText( Canvas, Canvas->SmallFont, 540, 58, 140, 210, 255, AudioState );
+        appSprintf( AudioState, TEXT("LOD%i"), (INT)GXboxAudioMusicLoadState );
+        XboxMenuText( Canvas, Canvas->SmallFont, 540, 78, 140, 210, 255, AudioState );
+    }
+
     unguard;
 }
 
@@ -4545,12 +4690,20 @@ void UXboxViewport::OpenWindow( DWORD ParentWindow, UBOOL Temporary,
     ViewHeight = SizeY = NewY > 0 ? NewY : XBOX_SCREEN_HEIGHT;
     ColorBytes = 4;
 
-    // Viewport index maps directly to physical controller port index.
-    ControllerPort      = XboxViewportControllerPort( this );
-    ControllerHandle    = NULL;
-    ControllerConnected = 0;
-    appMemzero( &ControllerState,     sizeof(ControllerState)     );
-    appMemzero( &PrevControllerState, sizeof(PrevControllerState) );
+    // Viewport index maps directly to physical controller port index. Input
+    // init can poll once before OpenWindow; keep that handle instead of
+    // reopening the same XInput device and losing controls on hardware.
+    INT WantedPort = XboxViewportControllerPort( this );
+    if( !ControllerHandle || ControllerPort != WantedPort )
+    {
+        if( ControllerHandle )
+            XInputClose( ControllerHandle );
+        ControllerPort      = WantedPort;
+        ControllerHandle    = NULL;
+        ControllerConnected = 0;
+        appMemzero( &ControllerState,     sizeof(ControllerState)     );
+        appMemzero( &PrevControllerState, sizeof(PrevControllerState) );
+    }
 
     DWORD DeviceMask = XGetDevices( XDEVICE_TYPE_GAMEPAD );
     if( !ControllerHandle )
@@ -4753,6 +4906,8 @@ void UXboxViewport::ProcessControllerInput( const XINPUT_GAMEPAD& Pad )
     UBOOL BlackNow = Pad.bAnalogButtons[XINPUT_GAMEPAD_BLACK] > AnalogThreshold;
     UBOOL BlackPrev = PrevControllerState.Gamepad.bAnalogButtons[XINPUT_GAMEPAD_BLACK] > AnalogThreshold;
     UBOOL bWheelInputActive = Player && !GXboxMenu.Active && (GXboxWeaponWheelActive[WheelViewportIndex] || WhiteNow || WhitePrev || BlackNow || BlackPrev);
+
+    XboxMenuSmokeTick( this );
 
     if( GXboxSplitActive && GXboxMenu.Active )
     {
@@ -5001,6 +5156,9 @@ UBOOL UXboxViewport::Lock( FPlane FlashScale, FPlane FlashFog, FPlane ScreenClea
                             DWORD RenderLockFlags, BYTE* HitData, INT* HitSize )
 {
     guard(UXboxViewport::Lock);
+    INT LockW = ViewWidth  > 0 ? ViewWidth  : SizeX;
+    INT LockH = ViewHeight > 0 ? ViewHeight : SizeY;
+    XboxRenderSetPendingViewRegion( ViewX, ViewY, Max<INT>( LockW, 1 ), Max<INT>( LockH, 1 ) );
     return Super::Lock( FlashScale, FlashFog, ScreenClear, RenderLockFlags, HitData, HitSize );
     unguard;
 }

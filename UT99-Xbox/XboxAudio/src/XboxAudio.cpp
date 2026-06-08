@@ -67,6 +67,59 @@ static const DSMIXBINS* XboxDefaultMixBinsForChannels( WORD Channels )
     return (Channels == 1) ? &DirectSoundDefaultMixBins_Mono : &DirectSoundDefaultMixBins_Stereo;
 }
 
+enum { XboxSoundMetaSlots = 1024 };
+
+struct FXboxSoundMeta
+{
+    USound* Sound;
+    DWORD   BaseRate;
+    DWORD   Bytes;
+};
+
+static FXboxSoundMeta GXboxSoundMeta[XboxSoundMetaSlots];
+
+static INT XboxSoundMetaFindSlot( USound* Sound, UBOOL bAllowEmpty )
+{
+    if( !Sound )
+        return -1;
+
+    DWORD Start = (((DWORD)Sound) >> 4) & (XboxSoundMetaSlots - 1);
+    INT FirstEmpty = -1;
+    for( INT Probe=0; Probe<XboxSoundMetaSlots; Probe++ )
+    {
+        INT Index = (Start + Probe) & (XboxSoundMetaSlots - 1);
+        if( GXboxSoundMeta[Index].Sound == Sound )
+            return Index;
+        if( !GXboxSoundMeta[Index].Sound && FirstEmpty < 0 )
+            FirstEmpty = Index;
+    }
+    return bAllowEmpty ? FirstEmpty : -1;
+}
+
+static void XboxSoundMetaSet( USound* Sound, DWORD BaseRate, DWORD Bytes )
+{
+    INT Index = XboxSoundMetaFindSlot( Sound, 1 );
+    if( Index >= 0 )
+    {
+        GXboxSoundMeta[Index].Sound    = Sound;
+        GXboxSoundMeta[Index].BaseRate = BaseRate ? BaseRate : 22050;
+        GXboxSoundMeta[Index].Bytes    = Bytes;
+    }
+}
+
+static DWORD XboxSoundMetaGetBaseRate( USound* Sound )
+{
+    INT Index = XboxSoundMetaFindSlot( Sound, 0 );
+    return (Index >= 0 && GXboxSoundMeta[Index].BaseRate) ? GXboxSoundMeta[Index].BaseRate : 22050;
+}
+
+static void XboxSoundMetaClear( USound* Sound )
+{
+    INT Index = XboxSoundMetaFindSlot( Sound, 0 );
+    if( Index >= 0 )
+        appMemzero( &GXboxSoundMeta[Index], sizeof(GXboxSoundMeta[Index]) );
+}
+
 static INT XboxAudioToneSmokeMode()
 {
     HANDLE File = CreateFileA( "D:\\XboxAudioToneSmoke.ini", GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL );
@@ -687,6 +740,8 @@ public:
             return;
 
         Sound->Data.Load();
+        if( Sound->Handle )
+            return;
         if( Sound->Data.Num() <= 0 )
             return;
 
@@ -696,6 +751,7 @@ public:
             if( FailedSounds < 32 )
                 GXboxLog.Write( "XboxAudio: RegisterSound rejected non-wave %s", TCHAR_TO_ANSI(Sound->GetName()) );
             FailedSounds++;
+            Sound->Data.Unload();
             return;
         }
 
@@ -714,6 +770,7 @@ public:
                 GXboxLog.Write( "XboxAudio: unsupported wave %s ch=%d bits=%d bytes=%d",
                     TCHAR_TO_ANSI(Sound->GetName()), wfx.nChannels, wfx.wBitsPerSample, WaveInfo.SampleDataSize );
             FailedSounds++;
+            Sound->Data.Unload();
             return;
         }
 
@@ -732,6 +789,7 @@ public:
                 GXboxLog.Write( "XboxAudio: CreateSoundBuffer failed %s hr=0x%08X bytes=%d rate=%d",
                     TCHAR_TO_ANSI(Sound->GetName()), (DWORD)hr, WaveInfo.SampleDataSize, wfx.nSamplesPerSec );
             FailedSounds++;
+            Sound->Data.Unload();
             return;
         }
 
@@ -746,6 +804,7 @@ public:
             if( FailedSounds < 32 )
                 GXboxLog.Write( "XboxAudio: Buffer Lock failed %s hr=0x%08X", TCHAR_TO_ANSI(Sound->GetName()), (DWORD)hr );
             FailedSounds++;
+            Sound->Data.Unload();
             return;
         }
 
@@ -755,6 +814,8 @@ public:
         Buffer->Unlock( Lock1, Size1, Lock2, Size2 );
 
         Sound->Handle = Buffer;
+        XboxSoundMetaSet( Sound, wfx.nSamplesPerSec, WaveInfo.SampleDataSize );
+        Sound->Data.Unload();
         RegisteredSounds++;
         if( RegisteredSounds <= 24 )
             GXboxLog.Write( "XboxAudio: registered #%d %s ch=%d bits=%d rate=%d bytes=%d",
@@ -774,6 +835,8 @@ public:
             Buffer->Stop();
             Buffer->Release();
             Sound->Handle = NULL;
+            XboxSoundMetaClear( Sound );
+            Sound->Data.Unload();
         }
 
         unguard;
@@ -813,11 +876,7 @@ public:
         if( !Buffer )
             return 0;
 
-        Sound->Data.Load();
-        FWaveModInfo WaveInfo;
-        DWORD BaseRate = 22050;
-        if( WaveInfo.ReadWaveInfo( Sound->Data ) && *WaveInfo.pSamplesPerSec )
-            BaseRate = (DWORD)*WaveInfo.pSamplesPerSec;
+        DWORD BaseRate = XboxSoundMetaGetBaseRate( Sound );
 
         FLOAT ClampedPitch = Clamp( Pitch, 0.25f, 4.0f );
         Buffer->Stop();

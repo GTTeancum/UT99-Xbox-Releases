@@ -70,7 +70,7 @@ public:
 protected:
     HANDLE Handle; FOutputDevice* Error;
     INT Size, Pos, BufferBase, BufferCount;
-    BYTE Buffer[1024];
+    BYTE Buffer[8192];
 };
 
 /*-----------------------------------------------------------------------------

@@ -20,6 +20,63 @@ IMPLEMENT_CLASS(UGameEngine);
 extern void XboxMenuPostRender( UViewport* Viewport, UCanvas* Canvas );
 extern "C" void XboxViewportApplyViewRegion( UViewport* Viewport, FSceneNode* Frame );
 extern "C" UBOOL XboxViewportShouldPostRenderPlayer( UViewport* Viewport );
+extern "C" void XboxMenuPreClientTravelCleanup();
+extern DWORD GXboxMallocLiveBytes;
+extern DWORD GXboxMallocPeakBytes;
+extern DWORD GXboxMallocTotalBytes;
+extern DWORD GXboxMallocLargestBytes;
+extern DWORD GXboxMallocLastLargeBytes;
+extern char  GXboxMallocLargestTag[64];
+extern char  GXboxMallocLastLargeTag[64];
+
+static void XboxMemMark( const TCHAR* Label )
+{
+	guard(XboxMemMark);
+	static DWORD LastAvail = 0;
+	static DWORD LastHeapLive = 0;
+	MEMORYSTATUS MemStatus;
+	appMemzero( &MemStatus, sizeof(MemStatus) );
+	MemStatus.dwLength = sizeof(MemStatus);
+	GlobalMemoryStatus( &MemStatus );
+	DWORD AvailKB = MemStatus.dwAvailPhys / 1024;
+	DWORD HeapLiveKB = GXboxMallocLiveBytes / 1024;
+	INT DeltaAvailKB = LastAvail ? (INT)AvailKB - (INT)LastAvail : 0;
+	INT DeltaHeapLiveKB = LastHeapLive ? (INT)HeapLiveKB - (INT)LastHeapLive : 0;
+	debugf
+	(
+		NAME_Init,
+		TEXT("XMEM %s availKB=%u dAvailKB=%i heapLiveKB=%u dHeapKB=%i heapPeakKB=%u heapTotalKB=%u largestKB=%u largestTag=%s lastLargeKB=%u lastLargeTag=%s"),
+		Label ? Label : TEXT("mark"),
+		(unsigned)AvailKB,
+		DeltaAvailKB,
+		(unsigned)HeapLiveKB,
+		DeltaHeapLiveKB,
+		(unsigned)(GXboxMallocPeakBytes / 1024),
+		(unsigned)(GXboxMallocTotalBytes / 1024),
+		(unsigned)(GXboxMallocLargestBytes / 1024),
+		GXboxMallocLargestTag,
+		(unsigned)(GXboxMallocLastLargeBytes / 1024),
+		GXboxMallocLastLargeTag
+	);
+	LastAvail = AvailKB;
+	LastHeapLive = HeapLiveKB;
+	unguard;
+}
+
+static void XboxReleaseEntryLevel( ULevel*& EntryLevel, ULevel* ActiveLevel )
+{
+	guard(XboxReleaseEntryLevel);
+	if( EntryLevel && EntryLevel != ActiveLevel )
+	{
+		debugf( NAME_Init, TEXT("Xbox: releasing retained Entry level for frontend memory headroom") );
+		XboxMemMark( TEXT("XboxReleaseEntry pre") );
+		UObject::ResetLoaders( EntryLevel->GetOuter(), 1, 0 );
+		EntryLevel = NULL;
+		UObject::CollectGarbage( RF_Native );
+		XboxMemMark( TEXT("XboxReleaseEntry post") );
+	}
+	unguard;
+}
 
 static UBOOL GetXboxStartURL( TCHAR* OutURL, INT MaxLen )
 {
@@ -88,9 +145,19 @@ static void SanitizeXboxDefaultPlayerURLConfig()
 	const TCHAR* Team  = GConfig->GetStr( TEXT("DefaultPlayer"), TEXT("Team"),  TEXT("User.ini") );
 
 	UBOOL bChanged = 0;
-	if( !Class || !Class[0] )
+	UBOOL bUnsupportedXboxClass =
+		Class
+	&&	(	appStricmp( Class, TEXT("MultiMesh.TSkaarj") ) == 0
+		||	appStricmp( Class, TEXT("MultiMesh.TNali") ) == 0
+		||	appStricmp( Class, TEXT("MultiMesh.TCow") ) == 0 );
+
+	if( !Class || !Class[0] || bUnsupportedXboxClass )
 	{
 		GConfig->SetString( TEXT("DefaultPlayer"), TEXT("Class"), TEXT("Botpack.TMale2"), TEXT("User.ini") );
+		GConfig->SetString( TEXT("DefaultPlayer"), TEXT("Skin"), TEXT("SoldierSkins.blkt"), TEXT("User.ini") );
+		GConfig->SetString( TEXT("DefaultPlayer"), TEXT("Face"), TEXT("SoldierSkins.Othello"), TEXT("User.ini") );
+		GConfig->SetString( TEXT("DefaultPlayer"), TEXT("Voice"), TEXT("BotPack.VoiceMaleTwo"), TEXT("User.ini") );
+		GConfig->SetString( TEXT("DefaultPlayer"), TEXT("Team"), TEXT("255"), TEXT("User.ini") );
 		bChanged = 1;
 	}
 	if( !Skin || !Skin[0] )
@@ -243,12 +310,21 @@ void UGameEngine::Init()
 {
 	guard(UGameEngine::Init);
 	debugf( NAME_Init, TEXT("[GE] Init: enter") );
+#if TARGET_XBOX
+	XboxMemMark( TEXT("GE.Init enter") );
+#endif
 	check(sizeof(*this)==GetClass()->GetPropertiesSize());
 
 	// Call base.
 	debugf( NAME_Init, TEXT("[GE] Init: pre UEngine::Init") );
+#if TARGET_XBOX
+	XboxMemMark( TEXT("GE.Init pre UEngine::Init") );
+#endif
 	UEngine::Init();
 	debugf( NAME_Init, TEXT("[GE] Init: post UEngine::Init") );
+#if TARGET_XBOX
+	XboxMemMark( TEXT("GE.Init post UEngine::Init") );
+#endif
 
 	// Init variables.
 	GLevel = NULL;
@@ -261,33 +337,63 @@ void UGameEngine::Init()
 	{
 		// Init client.
 		debugf( NAME_Init, TEXT("[GE] Init: pre Client StaticLoadClass") );
+#if TARGET_XBOX
+		XboxMemMark( TEXT("GE.Init pre Client StaticLoadClass") );
+#endif
 		UClass* ClientClass = StaticLoadClass( UClient::StaticClass(), NULL, TEXT("ini:Engine.Engine.ViewportManager"), NULL, LOAD_NoFail, NULL );
 		debugf( NAME_Init, TEXT("[GE] Init: pre Client ConstructObject") );
+#if TARGET_XBOX
+		XboxMemMark( TEXT("GE.Init post Client StaticLoadClass") );
+#endif
 		Client = ConstructObject<UClient>( ClientClass );
 		debugf( NAME_Init, TEXT("[GE] Init: pre Client->Init") );
+#if TARGET_XBOX
+		XboxMemMark( TEXT("GE.Init post Client ConstructObject") );
+#endif
 		Client->Init( this );
 		debugf( NAME_Init, TEXT("[GE] Init: post Client->Init") );
+#if TARGET_XBOX
+		XboxMemMark( TEXT("GE.Init post Client->Init") );
+#endif
 
 		// Init rendering.
 		debugf( NAME_Init, TEXT("[GE] Init: pre Render StaticLoadClass") );
+#if TARGET_XBOX
+		XboxMemMark( TEXT("GE.Init pre Render StaticLoadClass") );
+#endif
 		UClass* RenderClass = StaticLoadClass( URenderBase::StaticClass(), NULL, TEXT("ini:Engine.Engine.Render"), NULL, LOAD_NoFail, NULL );
 		debugf( NAME_Init, TEXT("[GE] Init: pre Render ConstructObject") );
+#if TARGET_XBOX
+		XboxMemMark( TEXT("GE.Init post Render StaticLoadClass") );
+#endif
 		Render = ConstructObject<URenderBase>( RenderClass );
 		debugf( NAME_Init, TEXT("[GE] Init: pre Render->Init") );
+#if TARGET_XBOX
+		XboxMemMark( TEXT("GE.Init post Render ConstructObject") );
+#endif
 		Render->Init( this );
 		debugf( NAME_Init, TEXT("[GE] Init: post Render->Init") );
+#if TARGET_XBOX
+		XboxMemMark( TEXT("GE.Init post Render->Init") );
+#endif
 	}
 
 	// Load the entry level.
 	FString Error;
 	if( Client )
 	{
+#if TARGET_XBOX
+		debugf( NAME_Init, TEXT("Xbox: skipping hidden Entry warm-up level for hardware memory headroom") );
+		GEntry = NULL;
+		XboxMemMark( TEXT("GE.Init skip LoadMap Entry") );
+#else
 		debugf( NAME_Init, TEXT("[GE] Init: pre LoadMap(Entry)") );
 		if( !LoadMap( FURL(TEXT("Entry")), NULL, NULL, Error ) )
 			appErrorf( LocalizeError("FailedBrowse"), TEXT("Entry"), *Error );
 		debugf( NAME_Init, TEXT("[GE] Init: post LoadMap(Entry)") );
 		Exchange( GLevel, GEntry );
 		debugf( NAME_Init, TEXT("[GE] Init: post Exchange GLevel/GEntry") );
+#endif
 	}
 
 	// Create default URL.
@@ -307,15 +413,34 @@ void UGameEngine::Init()
 		appStrcpy( Parm, *FURL::DefaultLocalMap );
 #if TARGET_XBOX
 	TCHAR XboxStartURL[4096]=TEXT("");
-	if( GetXboxStartURL( XboxStartURL, ARRAY_COUNT(XboxStartURL) ) )
+	UBOOL bXboxOverrideStartupURL = GetXboxStartURL( XboxStartURL, ARRAY_COUNT(XboxStartURL) );
+	if( bXboxOverrideStartupURL )
 		appStrcpy( Parm, XboxStartURL );
+	else if( appStricmp( Parm, *FURL::DefaultLocalMap ) == 0 )
+	{
+		DefaultURL.AddOption( TEXT("Game=Engine.GameInfo") );
+		DefaultURL.AddOption( TEXT("Class=Botpack.TMale2") );
+		DefaultURL.AddOption( TEXT("Skin=SoldierSkins.blkt") );
+		DefaultURL.AddOption( TEXT("Face=SoldierSkins.Othello") );
+		DefaultURL.AddOption( TEXT("Voice=BotPack.VoiceMaleTwo") );
+		DefaultURL.AddOption( TEXT("Team=255") );
+		debugf( NAME_Init, TEXT("Xbox: using lightweight frontend player URL for startup") );
+	}
 #endif
 	FURL URL( &DefaultURL, Parm, TRAVEL_Partial );
 	if( !URL.Valid )
 		appErrorf( LocalizeError("InvalidUrl"), Parm );
 	debugf( NAME_Init, TEXT("[GE] Init: pre Browse(%s)"), Parm );
+#if TARGET_XBOX
+	XboxMemMark( TEXT("GE.Init pre Browse startup") );
+#endif
 	UBOOL Success = Browse( URL, NULL, Error );
 	debugf( NAME_Init, TEXT("[GE] Init: post Browse Success=%d"), Success );
+#if TARGET_XBOX
+	XboxMemMark( TEXT("GE.Init post Browse startup") );
+	if( Success && !bXboxOverrideStartupURL && appStricmp( Parm, *FURL::DefaultLocalMap ) == 0 )
+		XboxReleaseEntryLevel( GEntry, GLevel );
+#endif
 
 	// If waiting for a network connection, go into the starting level.
 	if( !Success && Error==TEXT("") && appStricmp( Parm, *FURL::DefaultLocalMap )!=0 )
@@ -334,41 +459,89 @@ void UGameEngine::Init()
 	{
 		// Init input.!!Temporary
 		debugf( NAME_Init, TEXT("[GE] Init: pre StaticInitInput") );
+#if TARGET_XBOX
+		XboxMemMark( TEXT("GE.Init pre StaticInitInput") );
+#endif
 		UInput::StaticInitInput();
 		debugf( NAME_Init, TEXT("[GE] Init: post StaticInitInput") );
+#if TARGET_XBOX
+		XboxMemMark( TEXT("GE.Init post StaticInitInput") );
+#endif
 
 		// Create viewport.
 		debugf( NAME_Init, TEXT("[GE] Init: pre NewViewport") );
+#if TARGET_XBOX
+		XboxMemMark( TEXT("GE.Init pre NewViewport") );
+#endif
 		UViewport* Viewport = Client->NewViewport( NAME_None );
 		debugf( NAME_Init, TEXT("[GE] Init: post NewViewport ptr=0x%08X"), (DWORD)Viewport );
+#if TARGET_XBOX
+		XboxMemMark( TEXT("GE.Init post NewViewport") );
+#endif
 
 		// Create console.
 		debugf( NAME_Init, TEXT("[GE] Init: pre Console StaticLoadClass") );
+#if TARGET_XBOX
+		XboxMemMark( TEXT("GE.Init pre Console StaticLoadClass") );
+#endif
 		UClass* ConsoleClass = StaticLoadClass( UConsole::StaticClass(), NULL, TEXT("ini:Engine.Engine.Console"), NULL, LOAD_NoFail, NULL );
 		debugf( NAME_Init, TEXT("[GE] Init: pre Console ConstructObject") );
+#if TARGET_XBOX
+		XboxMemMark( TEXT("GE.Init post Console StaticLoadClass") );
+#endif
 		Viewport->Console = ConstructObject<UConsole>( ConsoleClass );
 		debugf( NAME_Init, TEXT("[GE] Init: pre Console->_Init") );
+#if TARGET_XBOX
+		XboxMemMark( TEXT("GE.Init post Console ConstructObject") );
+#endif
 		Viewport->Console->_Init( Viewport );
 		debugf( NAME_Init, TEXT("[GE] Init: post Console->_Init") );
+#if TARGET_XBOX
+		XboxMemMark( TEXT("GE.Init post Console Init") );
+#endif
 
 		// Spawn play actor.
 		FString Error;
 		debugf( NAME_Init, TEXT("[GE] Init: pre SpawnPlayActor") );
+#if TARGET_XBOX
+		XboxMemMark( TEXT("GE.Init pre SpawnPlayActor") );
+#endif
 		if( !GLevel->SpawnPlayActor( Viewport, ROLE_SimulatedProxy, URL, Error ) )
 			appErrorf( TEXT("%s"), *Error );
 		debugf( NAME_Init, TEXT("[GE] Init: post SpawnPlayActor") );
+#if TARGET_XBOX
+		XboxMemMark( TEXT("GE.Init post SpawnPlayActor") );
+#endif
 		debugf( NAME_Init, TEXT("[GE] Init: pre Viewport->Input->Init") );
 		Viewport->Input->Init( Viewport );
 		debugf( NAME_Init, TEXT("[GE] Init: post Viewport->Input->Init") );
+#if TARGET_XBOX
+		XboxMemMark( TEXT("GE.Init post Viewport Input Init") );
+#endif
 		debugf( NAME_Init, TEXT("[GE] Init: pre Viewport->OpenWindow") );
+#if TARGET_XBOX
+		XboxMemMark( TEXT("GE.Init pre Viewport OpenWindow") );
+#endif
 		Viewport->OpenWindow( 0, 0, (INT) INDEX_NONE, (INT) INDEX_NONE, (INT) INDEX_NONE, (INT) INDEX_NONE );
 		debugf( NAME_Init, TEXT("[GE] Init: post Viewport->OpenWindow") );
+#if TARGET_XBOX
+		XboxMemMark( TEXT("GE.Init post Viewport OpenWindow") );
+#endif
 		debugf( NAME_Init, TEXT("[GE] Init: pre DetailChange (RenDev=0x%08X)"), (DWORD)(Viewport ? Viewport->RenDev : NULL) );
 		GLevel->DetailChange( Viewport->RenDev->HighDetailActors );
 		debugf( NAME_Init, TEXT("[GE] Init: post DetailChange") );
+#if TARGET_XBOX
+		XboxMemMark( TEXT("GE.Init post DetailChange") );
+#endif
 		debugf( NAME_Init, TEXT("[GE] Init: pre InitAudio") );
+#if TARGET_XBOX
+		XboxMemMark( TEXT("GE.Init pre InitAudio") );
+#endif
 		InitAudio();
 		debugf( NAME_Init, TEXT("[GE] Init: post InitAudio") );
+#if TARGET_XBOX
+		XboxMemMark( TEXT("GE.Init post InitAudio") );
+#endif
 		if( Audio )
 			Audio->SetViewport( Viewport );
 	}
@@ -647,6 +820,14 @@ UBOOL UGameEngine::Browse( FURL URL, const TMap<FString,FString>* TravelInfo, FS
 	else if( URL.HasOption(TEXT("failed")) || URL.HasOption(TEXT("entry")) )
 	{
 		// Handle failure URL.
+#if TARGET_XBOX
+		if( !GEntry )
+		{
+			Error = TEXT("Entry level was released on Xbox");
+			debugf( NAME_Log, TEXT("Xbox: abort-to-entry requested after Entry release") );
+			return 0;
+		}
+#endif
 		guard(FailedURL);
 		debugf( NAME_Log, LocalizeError("AbortToEntry") );
 		if( GLevel && GLevel!=GEntry )
@@ -787,6 +968,9 @@ ULevel* UGameEngine::LoadMap( const FURL& URL, UPendingLevel* Pending, const TMa
 	guard(UGameEngine::LoadMap);
 	Error = TEXT("");
 	debugf( NAME_Log, TEXT("LoadMap: %s"), *URL.String() );
+#if TARGET_XBOX
+	XboxMemMark( *FString::Printf( TEXT("LoadMap enter %s"), *URL.String() ) );
+#endif
 	GInitRunaway();
 
 	// Remember current level's stack level.
@@ -807,6 +991,9 @@ ULevel* UGameEngine::LoadMap( const FURL& URL, UPendingLevel* Pending, const TMa
 		GLevel->GetLevelInfo()->LevelAction = LEVACT_None;
 	}
 	unguard;
+#if TARGET_XBOX
+	XboxMemMark( TEXT("LoadMap post LoadingScreen") );
+#endif
 
 	// Get network package map.
 	UPackageMap* PackageMap = NULL;
@@ -838,6 +1025,9 @@ ULevel* UGameEngine::LoadMap( const FURL& URL, UPendingLevel* Pending, const TMa
 		}
 		LoadObject<ULevel>( MapParent, TEXT("MyLevel"), *URL.Map, LOAD_Verify | LOAD_Throw | LOAD_NoWarn, NULL );
 		EndLoad();
+#if TARGET_XBOX
+		XboxMemMark( TEXT("LoadMap post VerifyPackages") );
+#endif
 
 #if DEMOVERSION
 		// If we area demo, prevent third party maps from being loaded.
@@ -869,6 +1059,9 @@ ULevel* UGameEngine::LoadMap( const FURL& URL, UPendingLevel* Pending, const TMa
 	{
 		// Safely failed loading.
 		EndLoad();
+#if TARGET_XBOX
+		XboxMemMark( TEXT("LoadMap VerifyPackages catch") );
+#endif
 		Error = CatchError;
 		SetProgress( LocalizeError(TEXT("UrlFailed"),TEXT("Core")), CatchError, 6.0 );
 		return NULL;
@@ -880,6 +1073,9 @@ ULevel* UGameEngine::LoadMap( const FURL& URL, UPendingLevel* Pending, const TMa
 	if( GLevel )
 		NotifyLevelChange();
 	unguard;
+#if TARGET_XBOX
+	XboxMemMark( TEXT("LoadMap post NotifyLevelChange") );
+#endif
 
 	// Dissociate Viewport actors.
 	guard(DissociateViewports);
@@ -895,6 +1091,9 @@ ULevel* UGameEngine::LoadMap( const FURL& URL, UPendingLevel* Pending, const TMa
 		}
 	}
 	unguard;
+#if TARGET_XBOX
+	XboxMemMark( TEXT("LoadMap post DissociateViewports") );
+#endif
 
 	// Clean up game state.
 	guard(ExitLevel);
@@ -928,11 +1127,17 @@ ULevel* UGameEngine::LoadMap( const FURL& URL, UPendingLevel* Pending, const TMa
 		GLevel = NULL;
 	}
 	unguard;
+#if TARGET_XBOX
+	XboxMemMark( TEXT("LoadMap post ExitLevel") );
+#endif
 
 	// Load the level and all objects under it, using the proper Guid.
 	guard(LoadLevel);
 	GLevel = LoadObject<ULevel>( MapParent, TEXT("MyLevel"), *URL.Map, LOAD_NoFail, NULL );
 	unguard;
+#if TARGET_XBOX
+	XboxMemMark( TEXT("LoadMap post LoadLevel") );
+#endif
 
 	// If pending network level.
 	if( Pending )
@@ -1003,6 +1208,9 @@ ULevel* UGameEngine::LoadMap( const FURL& URL, UPendingLevel* Pending, const TMa
 	if( TravelInfo )
 		GLevel->TravelInfo = *TravelInfo;
 	unguard;
+#if TARGET_XBOX
+	XboxMemMark( TEXT("LoadMap post InitLevel") );
+#endif
 
 	// Purge unused objects and flush caches.
 	guard(Cleanup);
@@ -1018,6 +1226,9 @@ ULevel* UGameEngine::LoadMap( const FURL& URL, UPendingLevel* Pending, const TMa
 		CollectGarbage( RF_Native );
 	}
 	unguard;
+#if TARGET_XBOX
+	XboxMemMark( TEXT("LoadMap post CleanupGC") );
+#endif
 
 	// Init collision.
 	GLevel->SetActorCollision( 1 );
@@ -1049,10 +1260,13 @@ ULevel* UGameEngine::LoadMap( const FURL& URL, UPendingLevel* Pending, const TMa
 			for( INT k=0; k<64; k++ )
 				if( (OldConvConn[j] & ((QWORD)1 << k)) != 0 )
 					ConvConn[j] = ConvConn[j] | OldConvConn[k];
-		for( j=0; j<64; j++ )
+	for( j=0; j<64; j++ )
 			OldConvConn[j] = ConvConn[j];
 	}
 	unguard;
+#if TARGET_XBOX
+	XboxMemMark( TEXT("LoadMap post SetupZoneTable") );
+#endif
 
 	// Update the LevelInfo's time.
 	GLevel->UpdateTime(Info);
@@ -1086,6 +1300,9 @@ ULevel* UGameEngine::LoadMap( const FURL& URL, UPendingLevel* Pending, const TMa
 		check(Info->Game!=NULL);
 	}
 	unguard;
+#if TARGET_XBOX
+	XboxMemMark( TEXT("LoadMap post InitGameInfo") );
+#endif
 
 	// Listen for clients.
 	guard(Listen);
@@ -1104,6 +1321,9 @@ ULevel* UGameEngine::LoadMap( const FURL& URL, UPendingLevel* Pending, const TMa
 			appErrorf( LocalizeError("ServerListen"), *Error );
 	}
 	unguard;
+#if TARGET_XBOX
+	XboxMemMark( TEXT("LoadMap post Listen") );
+#endif
 
 	// Init detail.
 	Info->bHighDetailMode = 1;
@@ -1215,6 +1435,9 @@ ULevel* UGameEngine::LoadMap( const FURL& URL, UPendingLevel* Pending, const TMa
 	}
 	else GLevel->TimeSeconds = GLevel->GetLevelInfo()->TimeSeconds;
 	unguard;
+#if TARGET_XBOX
+	XboxMemMark( TEXT("LoadMap post BeginPlay") );
+#endif
 
 	// Rearrange actors: static first, then others.
 	guard(Rearrange);
@@ -1233,6 +1456,9 @@ ULevel* UGameEngine::LoadMap( const FURL& URL, UPendingLevel* Pending, const TMa
 	for( i=0; i<Actors.Num(); i++ )
 		GLevel->Actors(i) = Actors(i);
 	unguard;
+#if TARGET_XBOX
+	XboxMemMark( TEXT("LoadMap post Rearrange") );
+#endif
 
 	// Cleanup profiling.
 #if DO_GUARD_SLOW
@@ -1268,9 +1494,15 @@ ULevel* UGameEngine::LoadMap( const FURL& URL, UPendingLevel* Pending, const TMa
 		}
 	}
 	unguard;
+#if TARGET_XBOX
+	XboxMemMark( TEXT("LoadMap post ClientInit") );
+#endif
 
 	// Init detail.
 	GLevel->DetailChange( Info->bHighDetailMode );
+#if TARGET_XBOX
+	XboxMemMark( TEXT("LoadMap post DetailChange") );
+#endif
 
 	// Remember the URL.
 	guard(RememberURL);
@@ -1278,7 +1510,13 @@ ULevel* UGameEngine::LoadMap( const FURL& URL, UPendingLevel* Pending, const TMa
 	unguard;
 
 	// Remember DefaultPlayer options.
-	if( GIsClient )
+	if( GIsClient
+#if TARGET_XBOX
+	&&	appStricmp( *URL.Map, *FURL::DefaultLocalMap ) != 0
+	&&	appStricmp( *URL.Map, TEXT("CityIntro") ) != 0
+	&&	appStricmp( *URL.Map, TEXT("CityIntro.unr") ) != 0
+#endif
+	)
 	{
 		URL.SaveURLConfig( TEXT("DefaultPlayer"), TEXT("Name" ), TEXT("User") );
 		URL.SaveURLConfig( TEXT("DefaultPlayer"), TEXT("Team" ), TEXT("User") );
@@ -1290,6 +1528,9 @@ ULevel* UGameEngine::LoadMap( const FURL& URL, UPendingLevel* Pending, const TMa
 	}
 
 	// Successfully started local level.
+#if TARGET_XBOX
+	XboxMemMark( TEXT("LoadMap return") );
+#endif
 	return GLevel;
 	unguard;
 }
@@ -1547,6 +1788,9 @@ void UGameEngine::SetClientTravel( UPlayer* Player, const TCHAR* NextURL, UBOOL 
 	guard(UGameEngine::SetClientTravel);
 	check(Player);
 
+#if TARGET_XBOX
+	XboxMenuPreClientTravelCleanup();
+#endif
 	UViewport* Viewport    = CastChecked<UViewport>( Player );
 	Viewport->TravelURL    = NextURL;
 	Viewport->TravelType   = TravelType;

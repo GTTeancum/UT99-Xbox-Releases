@@ -585,7 +585,18 @@ APlayerPawn* ULevel::SpawnPlayActor( UPlayer* Player, ENetRole RemoteRole, const
 
 	// Get PlayerClass.
 	UClass* PlayerClass=NULL;
-	const TCHAR* Str = URL.GetOption( TEXT("CLASS="), NULL );
+	const TCHAR* Str = NULL;
+#if TARGET_XBOX
+	UBOOL bXboxFrontendIntro =
+	(	(URL.Map.Len() && (appStricmp( *URL.Map, TEXT("CityIntro") ) == 0 || appStricmp( *URL.Map, TEXT("CityIntro.unr") ) == 0))
+	||	(GetLevelInfo()
+		&&	GetLevelInfo()->Game
+		&&	GetLevelInfo()->Game->GetClass()
+		&&	appStricmp( GetLevelInfo()->Game->GetClass()->GetName(), TEXT("UTIntro") ) == 0) );
+	if( !bXboxFrontendIntro )
+#endif
+	{
+	Str = URL.GetOption( TEXT("CLASS="), NULL );
 	if( Str )
 		PlayerClass = StaticLoadClass( APlayerPawn::StaticClass(), NULL, Str, NULL, LOAD_NoWarn, PackageMap );
 	if( !PlayerClass )
@@ -594,6 +605,7 @@ APlayerPawn* ULevel::SpawnPlayActor( UPlayer* Player, ENetRole RemoteRole, const
 		PlayerClass = StaticLoadClass( APlayerPawn::StaticClass(), NULL, TEXT("ini:URL.Class"), NULL, LOAD_NoWarn, PackageMap );
 	if( !PlayerClass )
 		appErrorf( TEXT("%s"), LocalizeError("LoadPlayerClass") );
+	}
 
 	// Make the option string.
 	TCHAR Options[1024]=TEXT("");
@@ -605,7 +617,91 @@ APlayerPawn* ULevel::SpawnPlayActor( UPlayer* Player, ENetRole RemoteRole, const
 
 	// Tell UnrealScript to log in.
 	INT SavedActorCount = Actors.Num();//oldver: Login should say whether to accept inventory.
-	APlayerPawn* Actor = GetLevelInfo()->Game->eventLogin( *URL.Portal, Options, Error, PlayerClass );
+	APlayerPawn* Actor = NULL;
+#if TARGET_XBOX
+	AInterpolationPoint* XboxFrontendPathStart = NULL;
+	if( bXboxFrontendIntro )
+	{
+		UClass* IntroSpectatorClass = StaticLoadClass( APlayerPawn::StaticClass(), NULL, TEXT("Botpack.CHSpectator"), NULL, LOAD_NoWarn, PackageMap );
+		if( !IntroSpectatorClass )
+			IntroSpectatorClass = StaticLoadClass( APlayerPawn::StaticClass(), NULL, TEXT("Engine.Spectator"), NULL, LOAD_NoWarn, PackageMap );
+		if( IntroSpectatorClass )
+		{
+			UClass* SpectatorCamClass = StaticLoadClass( AActor::StaticClass(), NULL, TEXT("Botpack.SpectatorCam"), NULL, LOAD_NoWarn, PackageMap );
+			AActor* IntroViewTarget = NULL;
+			AInterpolationPoint* IntroPathStart = NULL;
+			INT IntroCamCount = 0;
+			INT IntroPathCount = 0;
+			if( SpectatorCamClass )
+			{
+				for( INT ViewIndex=0; ViewIndex<Actors.Num(); ViewIndex++ )
+				{
+					AActor* ViewActor = Actors(ViewIndex);
+					if( ViewActor && ViewActor->IsA(SpectatorCamClass) )
+					{
+						IntroViewTarget = ViewActor;
+						IntroCamCount++;
+					}
+				}
+			}
+			for( INT PathIndex=0; PathIndex<Actors.Num(); PathIndex++ )
+			{
+				AInterpolationPoint* PathActor = Cast<AInterpolationPoint>( Actors(PathIndex) );
+					if( PathActor )
+					{
+						IntroPathCount++;
+						if( PathActor->Position == 0 && (PathActor->Tag == FName(TEXT("Path")) || !IntroPathStart) )
+							IntroPathStart = PathActor;
+					}
+				}
+			XboxFrontendPathStart = IntroPathStart;
+			FVector IntroSpawnLocation = IntroViewTarget ? IntroViewTarget->Location : (IntroPathStart ? IntroPathStart->Location : FVector(0,0,0));
+			FRotator IntroSpawnRotation = IntroViewTarget ? IntroViewTarget->Rotation : (IntroPathStart ? IntroPathStart->Rotation : FRotator(0,0,0));
+			Actor = (APlayerPawn*)SpawnActor( IntroSpectatorClass, NAME_None, NULL, NULL, IntroSpawnLocation, IntroSpawnRotation, NULL, 1 );
+			if( Actor )
+			{
+				Actor->bHidden = 1;
+				Actor->ViewTarget = IntroViewTarget;
+				Actor->ViewRotation = IntroSpawnRotation;
+				if( IntroPathStart && !IntroViewTarget )
+				{
+					Actor->SetCollision( 0, 0, 0 );
+					Actor->Target = IntroPathStart;
+					Actor->setPhysics( PHYS_Interpolating );
+					Actor->PhysRate = 1.0f;
+					Actor->PhysAlpha = 0.0f;
+					Actor->bInterpolating = 1;
+				}
+				debugf( NAME_Init, TEXT("Xbox: UTIntro spawned lightweight frontend spectator cams=%i interp=%i path=%s pos=%i tag=%s viewTarget=%s physics=%i"),
+					IntroCamCount,
+					IntroPathCount,
+					IntroPathStart ? IntroPathStart->GetName() : TEXT("None"),
+					IntroPathStart ? IntroPathStart->Position : -1,
+					IntroPathStart ? *IntroPathStart->Tag : TEXT("None"),
+					Actor->ViewTarget ? Actor->ViewTarget->GetName() : TEXT("None"),
+					(INT)Actor->Physics );
+			}
+		}
+	}
+	if( !Actor )
+#endif
+	{
+#if TARGET_XBOX
+		if( !PlayerClass )
+		{
+			Str = URL.GetOption( TEXT("CLASS="), NULL );
+			if( Str )
+				PlayerClass = StaticLoadClass( APlayerPawn::StaticClass(), NULL, Str, NULL, LOAD_NoWarn, PackageMap );
+			if( !PlayerClass )
+				PlayerClass = StaticLoadClass( APlayerPawn::StaticClass(), NULL, TEXT("usr:DefaultPlayer.Class"), NULL, LOAD_NoWarn, PackageMap );
+			if( !PlayerClass )
+				PlayerClass = StaticLoadClass( APlayerPawn::StaticClass(), NULL, TEXT("ini:URL.Class"), NULL, LOAD_NoWarn, PackageMap );
+			if( !PlayerClass )
+				appErrorf( TEXT("%s"), LocalizeError("LoadPlayerClass") );
+		}
+#endif
+	Actor = GetLevelInfo()->Game->eventLogin( *URL.Portal, Options, Error, PlayerClass );
+	}
 	if( !Actor )
 	{
 		debugf( NAME_Warning, TEXT("Login failed: %s"), *Error);
@@ -622,6 +718,27 @@ APlayerPawn* ULevel::SpawnPlayActor( UPlayer* Player, ENetRole RemoteRole, const
 	if( ParseParam(appCmdLine(),TEXT("alladmin")) || !NetDriver )
 		Actor->bAdmin = 1;
 	Actor->eventTravelPreAccept();
+#if TARGET_XBOX
+	if( bXboxFrontendIntro && XboxFrontendPathStart && !Actor->ViewTarget )
+	{
+		Actor->SetCollision( 0, 0, 0 );
+		Actor->bCollideWorld = 0;
+		Actor->Target = XboxFrontendPathStart;
+		Actor->setPhysics( PHYS_Interpolating );
+		Actor->PhysRate = 1.0f;
+		Actor->PhysAlpha = 0.0f;
+		Actor->bInterpolating = 1;
+		Actor->Velocity = FVector(0,0,0);
+		Actor->Acceleration = FVector(0,0,0);
+		Actor->ViewRotation = XboxFrontendPathStart->Rotation;
+		debugf( NAME_Init, TEXT("Xbox: UTIntro activated frontend path after possess path=%s next=%s physics=%i interp=%u collideWorld=%u"),
+			XboxFrontendPathStart->GetName(),
+			XboxFrontendPathStart->Next ? XboxFrontendPathStart->Next->GetName() : TEXT("None"),
+			(INT)Actor->Physics,
+			(DWORD)Actor->bInterpolating,
+			(DWORD)Actor->bCollideWorld );
+	}
+#endif
 
 	// Any saved items?
 	Str = NULL;

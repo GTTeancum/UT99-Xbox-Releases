@@ -8,6 +8,7 @@ extern "C" void  XboxRenderEndMenuMeshSlot( FSceneNode* Frame );
 extern "C" void  XboxRenderPrepareMenuText( FSceneNode* Frame, const char* Label );
 extern "C" void  XboxRenderFinishMenuText( FSceneNode* Frame );
 extern "C" void  XboxRenderSetPendingViewRegion( INT X, INT Y, INT W, INT H );
+extern "C" void  XboxRenderReleaseMenuTexture( const char* Name );
 extern "C" void  XboxRenderReleaseMenuTextures();
 extern "C" volatile LONG GXboxAudioToneSmokeState;
 extern "C" volatile LONG GXboxAudioMusicLoadState;
@@ -247,6 +248,10 @@ struct FXboxPlayerClassOption
     FString DefaultVoice;
     FString DefaultPackage;
     FString DefaultSkinName;
+    FString SkinValue;
+    FString FaceValue;
+    char    PortraitName[64];
+    INT     DefaultTeam;
     INT     FixedSkin;
     INT     FaceSkin;
     INT     TeamSkin1;
@@ -254,12 +259,14 @@ struct FXboxPlayerClassOption
     UBOOL bMultiSkinned;
 
     FXboxPlayerClassOption()
-    : FixedSkin(2)
+    : DefaultTeam(255)
+    , FixedSkin(2)
     , FaceSkin(3)
     , TeamSkin1(0)
     , TeamSkin2(1)
     , bMultiSkinned(1)
     {
+        PortraitName[0] = 0;
     }
 };
 
@@ -361,6 +368,8 @@ static const TCHAR* GXboxPlayerTeams[] =
     TEXT("GREEN"),
     TEXT("GOLD")
 };
+
+static const INT GXboxPlayerSetupRowCount = 2;
 
 static INT GXboxSettingsMusicVolume = 255;
 static INT GXboxSettingsSoundVolume = 255;
@@ -2013,6 +2022,56 @@ static INT XboxMenuFindPlayerClass( const FString& Value )
     return 0;
 }
 
+static INT XboxMenuFindPlayerCharacter( const FString& ClassValue, const FString& SkinValue, const FString& FaceValue, const FString& CharacterValue )
+{
+    INT ClassFallback = 0;
+    UBOOL bHaveClassFallback = 0;
+
+#if TARGET_XBOX
+    if( CharacterValue.Len() > 0 )
+    {
+        for( INT i=0; i<GXboxPlayerClasses.Num(); i++ )
+        {
+            const FXboxPlayerClassOption& Player = GXboxPlayerClasses(i);
+            if( appStricmp( *Player.Label, *CharacterValue ) != 0 )
+                continue;
+
+            UBOOL bClassMatches = (ClassValue.Len() == 0)
+                || (appStricmp( *Player.URLValue, *ClassValue ) == 0);
+            UBOOL bSkinMatches = (SkinValue.Len() == 0)
+                || (appStricmp( *Player.SkinValue, *SkinValue ) == 0);
+            UBOOL bFaceMatches = (FaceValue.Len() == 0)
+                || (appStricmp( *Player.FaceValue, *FaceValue ) == 0);
+            if( bClassMatches && bSkinMatches && bFaceMatches )
+                return i;
+        }
+    }
+#endif
+
+    for( INT i=0; i<GXboxPlayerClasses.Num(); i++ )
+    {
+        const FXboxPlayerClassOption& Player = GXboxPlayerClasses(i);
+        if( appStricmp( *Player.URLValue, *ClassValue ) != 0 )
+            continue;
+
+        if( !bHaveClassFallback )
+        {
+            ClassFallback = i;
+            bHaveClassFallback = 1;
+        }
+
+        UBOOL bSkinMatches = (SkinValue.Len() == 0 && Player.SkinValue.Len() == 0)
+            || (SkinValue.Len() > 0 && appStricmp( *Player.SkinValue, *SkinValue ) == 0);
+        UBOOL bFaceMatches = (FaceValue.Len() == 0 && Player.FaceValue.Len() == 0)
+            || (FaceValue.Len() > 0 && appStricmp( *Player.FaceValue, *FaceValue ) == 0);
+
+        if( bSkinMatches && bFaceMatches )
+            return i;
+    }
+
+    return bHaveClassFallback ? ClassFallback : 0;
+}
+
 static UBOOL XboxMenuHasPlayerClass( const FString& Value )
 {
     for( INT i=0; i<GXboxPlayerClasses.Num(); i++ )
@@ -2080,6 +2139,293 @@ static void XboxMenuAddKnownPlayerClasses()
 }
 
 #if TARGET_XBOX
+struct FXboxKnownPlayerCharacter
+{
+    const TCHAR* Label;
+    const TCHAR* ClassName;
+    const TCHAR* SkinName;
+    const TCHAR* FaceName;
+    const TCHAR* VoiceName;
+    INT Team;
+    const char* PortraitName;
+};
+
+static void XboxMenuSetKnownClassDefaults( FXboxPlayerClassOption& Option )
+{
+    if( appStricmp( *Option.URLValue, TEXT("Botpack.TMale1") ) == 0 )
+    {
+        Option.MeshName = TEXT("Commando");
+        Option.MeshPath = TEXT("Botpack.Commando");
+        Option.SelectionMesh = TEXT("Botpack.SelectionMale1");
+        Option.VoiceMetaClass = TEXT("BotPack.VoiceMale");
+        Option.DefaultVoice = TEXT("BotPack.VoiceMaleOne");
+        Option.DefaultPackage = TEXT("CommandoSkins.");
+        Option.DefaultSkinName = TEXT("CommandoSkins.cmdo");
+        Option.FixedSkin = 0; Option.FaceSkin = 1; Option.TeamSkin1 = 2; Option.TeamSkin2 = 3; Option.bMultiSkinned = 1;
+        return;
+    }
+    if( appStricmp( *Option.URLValue, TEXT("Botpack.TMale2") ) == 0 )
+    {
+        Option.MeshName = TEXT("Soldier");
+        Option.MeshPath = TEXT("Botpack.Soldier");
+        Option.SelectionMesh = TEXT("Botpack.SelectionMale2");
+        Option.VoiceMetaClass = TEXT("BotPack.VoiceMale");
+        Option.DefaultVoice = TEXT("BotPack.VoiceMaleTwo");
+        Option.DefaultPackage = TEXT("SoldierSkins.");
+        Option.DefaultSkinName = TEXT("SoldierSkins.blkt");
+        Option.FixedSkin = 2; Option.FaceSkin = 3; Option.TeamSkin1 = 0; Option.TeamSkin2 = 1; Option.bMultiSkinned = 1;
+        return;
+    }
+    if( appStricmp( *Option.URLValue, TEXT("Botpack.TFemale1") ) == 0 )
+    {
+        Option.MeshName = TEXT("FCommando");
+        Option.MeshPath = TEXT("Botpack.FCommando");
+        Option.SelectionMesh = TEXT("Botpack.SelectionFemale1");
+        Option.VoiceMetaClass = TEXT("BotPack.VoiceFemale");
+        Option.DefaultVoice = TEXT("BotPack.VoiceFemaleOne");
+        Option.DefaultPackage = TEXT("FCommandoSkins.");
+        Option.DefaultSkinName = TEXT("FCommandoSkins.cmdo");
+        Option.FixedSkin = 0; Option.FaceSkin = 3; Option.TeamSkin1 = 0; Option.TeamSkin2 = 1; Option.bMultiSkinned = 1;
+        return;
+    }
+    if( appStricmp( *Option.URLValue, TEXT("Botpack.TFemale2") ) == 0 )
+    {
+        Option.MeshName = TEXT("SGirl");
+        Option.MeshPath = TEXT("Botpack.SGirl");
+        Option.SelectionMesh = TEXT("Botpack.SelectionFemale2");
+        Option.VoiceMetaClass = TEXT("BotPack.VoiceFemale");
+        Option.DefaultVoice = TEXT("BotPack.VoiceFemaleTwo");
+        Option.DefaultPackage = TEXT("SGirlSkins.");
+        Option.DefaultSkinName = TEXT("SGirlSkins.army");
+        Option.FixedSkin = 2; Option.FaceSkin = 3; Option.TeamSkin1 = 0; Option.TeamSkin2 = 1; Option.bMultiSkinned = 1;
+        return;
+    }
+    if( appStricmp( *Option.URLValue, TEXT("Botpack.TBoss") ) == 0 )
+    {
+        Option.MeshName = TEXT("Boss");
+        Option.MeshPath = TEXT("Botpack.Boss");
+        Option.SelectionMesh = TEXT("Botpack.SelectionBoss");
+        Option.VoiceMetaClass = TEXT("BotPack.VoiceMale");
+        Option.DefaultVoice = TEXT("BotPack.VoiceBoss");
+        Option.DefaultPackage = TEXT("BossSkins.");
+        Option.DefaultSkinName = TEXT("BossSkins.Boss");
+        Option.FixedSkin = 0; Option.FaceSkin = 1; Option.TeamSkin1 = 2; Option.TeamSkin2 = 3; Option.bMultiSkinned = 1;
+        return;
+    }
+    if( appStricmp( *Option.URLValue, TEXT("MultiMesh.TSkaarj") ) == 0 )
+    {
+        Option.MeshName = TEXT("TSkaarj");
+        Option.MeshPath = TEXT("EpicCustomModels.TSkM");
+        Option.SelectionMesh = TEXT("EpicCustomModels.TSkM");
+        Option.VoiceMetaClass = TEXT("BotPack.VoiceMale");
+        Option.DefaultVoice = TEXT("MultiMesh.SkaarjVoice");
+        Option.DefaultPackage = TEXT("TSkMSkins.");
+        Option.DefaultSkinName = TEXT("TSkMSkins.Warr");
+        Option.FixedSkin = 0; Option.FaceSkin = 1; Option.TeamSkin1 = 2; Option.TeamSkin2 = 3; Option.bMultiSkinned = 1;
+        return;
+    }
+    if( appStricmp( *Option.URLValue, TEXT("MultiMesh.TNali") ) == 0 )
+    {
+        Option.MeshName = TEXT("TNali");
+        Option.MeshPath = TEXT("EpicCustomModels.TNaliMesh");
+        Option.SelectionMesh = TEXT("EpicCustomModels.TNaliMesh");
+        Option.VoiceMetaClass = TEXT("BotPack.VoiceMale");
+        Option.DefaultVoice = TEXT("MultiMesh.NaliVoice");
+        Option.DefaultPackage = TEXT("TNaliMeshSkins.");
+        Option.DefaultSkinName = TEXT("TNaliMeshSkins.Ouboudah");
+        Option.FixedSkin = 0; Option.FaceSkin = 1; Option.TeamSkin1 = 2; Option.TeamSkin2 = 3; Option.bMultiSkinned = 0;
+        return;
+    }
+    if( appStricmp( *Option.URLValue, TEXT("MultiMesh.TCow") ) == 0 )
+    {
+        Option.MeshName = TEXT("TCow");
+        Option.MeshPath = TEXT("EpicCustomModels.TCowMesh");
+        Option.SelectionMesh = TEXT("EpicCustomModels.TCowMesh");
+        Option.VoiceMetaClass = TEXT("BotPack.VoiceMale");
+        Option.DefaultVoice = TEXT("MultiMesh.CowVoice");
+        Option.DefaultPackage = TEXT("TCowMeshSkins.");
+        Option.DefaultSkinName = TEXT("TCowMeshSkins.WarCow");
+        Option.FixedSkin = 0; Option.FaceSkin = 1; Option.TeamSkin1 = 2; Option.TeamSkin2 = 3; Option.bMultiSkinned = 0;
+        return;
+    }
+    if( appStricmp( *Option.URLValue, TEXT("UTPS2Characters.DamienPS2M") ) == 0 )
+    {
+        Option.MeshName = TEXT("DamienPS2");
+        Option.MeshPath = TEXT("UTPS2Characters.DamienPS2");
+        Option.SelectionMesh = TEXT("UTPS2Characters.DamienPS2");
+        Option.VoiceMetaClass = TEXT("BotPack.VoiceMale");
+        Option.DefaultVoice = TEXT("BotPack.VoiceMaleTwo");
+        Option.DefaultPackage = TEXT("DamienPS2Skins.");
+        Option.DefaultSkinName = TEXT("DamienPS2Skins.Kane1");
+        Option.FixedSkin = 0; Option.FaceSkin = 1; Option.TeamSkin1 = 2; Option.TeamSkin2 = 3; Option.bMultiSkinned = 1;
+        return;
+    }
+    if( appStricmp( *Option.URLValue, TEXT("UTPS2Characters.DominatorPS2M") ) == 0 )
+    {
+        Option.MeshName = TEXT("DominatorPS2");
+        Option.MeshPath = TEXT("UTPS2Characters.DominatorPS2");
+        Option.SelectionMesh = TEXT("UTPS2Characters.DominatorPS2");
+        Option.VoiceMetaClass = TEXT("BotPack.VoiceMale");
+        Option.DefaultVoice = TEXT("UTPS2Characters.DominatorVoice");
+        Option.DefaultPackage = TEXT("DominatorPS2Skins.");
+        Option.DefaultSkinName = TEXT("DominatorPS2Skins.domi1");
+        Option.FixedSkin = 0; Option.FaceSkin = 1; Option.TeamSkin1 = 2; Option.TeamSkin2 = 3; Option.bMultiSkinned = 1;
+        return;
+    }
+    if( appStricmp( *Option.URLValue, TEXT("UTPS2Characters.WarbossPS2") ) == 0 )
+    {
+        Option.MeshName = TEXT("WarbossPS2");
+        Option.MeshPath = TEXT("UTPS2Characters.WarbossPS2");
+        Option.SelectionMesh = TEXT("UTPS2Characters.WarbossPS2");
+        Option.VoiceMetaClass = TEXT("BotPack.VoiceMale");
+        Option.DefaultVoice = TEXT("BotPack.VoiceBoss");
+        Option.DefaultPackage = TEXT("WarbossPS2Skins_PS2Purple.");
+        Option.DefaultSkinName = TEXT("WarbossPS2Skins_PS2Purple.WarP1");
+        Option.FixedSkin = 0; Option.FaceSkin = 1; Option.TeamSkin1 = 2; Option.TeamSkin2 = 3; Option.bMultiSkinned = 1;
+        return;
+    }
+    if( appStricmp( *Option.URLValue, TEXT("UTPS2Characters.XanPS2") ) == 0 )
+    {
+        Option.MeshName = TEXT("XanPS2");
+        Option.MeshPath = TEXT("UTPS2Characters.XanPS2");
+        Option.SelectionMesh = TEXT("UTPS2Characters.XanPS2");
+        Option.VoiceMetaClass = TEXT("BotPack.VoiceMale");
+        Option.DefaultVoice = TEXT("BotPack.VoiceBoss");
+        Option.DefaultPackage = TEXT("XanPS2Skins_PS2Lighter.");
+        Option.DefaultSkinName = TEXT("XanPS2Skins_PS2Lighter.XnPS1");
+        Option.FixedSkin = 0; Option.FaceSkin = 1; Option.TeamSkin1 = 2; Option.TeamSkin2 = 3; Option.bMultiSkinned = 1;
+        return;
+    }
+    if( appStricmp( *Option.URLValue, TEXT("UTPS2Characters.SkaarjHybridPS2") ) == 0 )
+    {
+        Option.MeshName = TEXT("SkaarjHybridPS2");
+        Option.MeshPath = TEXT("UTPS2Characters.SkaarjHybridPS2");
+        Option.SelectionMesh = TEXT("UTPS2Characters.SkaarjHybridPS2");
+        Option.VoiceMetaClass = TEXT("BotPack.VoiceMale");
+        Option.DefaultVoice = TEXT("UTPS2Characters.SkaarjHybridPS2Voice");
+        Option.DefaultPackage = TEXT("SkaarjHybridPS2Skins.");
+        Option.DefaultSkinName = TEXT("SkaarjHybridPS2Skins.Warr");
+        Option.FixedSkin = 0; Option.FaceSkin = 1; Option.TeamSkin1 = 2; Option.TeamSkin2 = 3; Option.bMultiSkinned = 1;
+        return;
+    }
+    if( appStricmp( *Option.URLValue, TEXT("UTPS2Characters.SkaarjBossPS2") ) == 0 )
+    {
+        Option.MeshName = TEXT("SkaarjBossPS2");
+        Option.MeshPath = TEXT("UTPS2Characters.SkaarjBossPS2");
+        Option.SelectionMesh = TEXT("UTPS2Characters.SkaarjBossPS2");
+        Option.VoiceMetaClass = TEXT("BotPack.VoiceMale");
+        Option.DefaultVoice = TEXT("UTPS2Characters.SkaarjHybridPS2Voice");
+        Option.DefaultPackage = TEXT("SkaarjBPS2Skins.");
+        Option.DefaultSkinName = TEXT("SkaarjBPS2Skins.Warr");
+        Option.FixedSkin = 0; Option.FaceSkin = 1; Option.TeamSkin1 = 2; Option.TeamSkin2 = 3; Option.bMultiSkinned = 1;
+        return;
+    }
+}
+
+static FXboxPlayerClassOption& XboxMenuAddPlayerCharacterOption( const FXboxKnownPlayerCharacter& Character )
+{
+    FXboxPlayerClassOption& Option = XboxMenuAddPlayerClassOption(
+        Character.Label,
+        Character.ClassName,
+        TEXT(""),
+        TEXT(""),
+        TEXT(""),
+        TEXT(""),
+        TEXT(""),
+        TEXT(""),
+        TEXT(""),
+        2, 3, 0, 1, 1 );
+
+    XboxMenuSetKnownClassDefaults( Option );
+    Option.SkinValue = Character.SkinName ? Character.SkinName : TEXT("");
+    Option.FaceValue = Character.FaceName ? Character.FaceName : TEXT("");
+    if( Option.SkinValue.Len() )
+        Option.DefaultSkinName = Option.SkinValue;
+    if( Character.VoiceName && Character.VoiceName[0] )
+        Option.DefaultVoice = Character.VoiceName;
+    Option.DefaultTeam = Clamp<INT>( Character.Team, 0, 255 );
+    if( Character.PortraitName && Character.PortraitName[0] )
+    {
+        appStrncpy( Option.PortraitName, Character.PortraitName, ARRAY_COUNT(Option.PortraitName) );
+        Option.PortraitName[ARRAY_COUNT(Option.PortraitName)-1] = 0;
+    }
+    return Option;
+}
+
+static const FXboxKnownPlayerCharacter GXboxKnownPlayerCharacters[] =
+{
+    { TEXT("ARCHON"), TEXT("Botpack.TMale1"), TEXT("CommandoSkins.cmdo"), TEXT("CommandoSkins.Blake"), TEXT("BotPack.VoiceMaleOne"), 255, "char_archon.xui" },
+    { TEXT("ARYSS"), TEXT("Botpack.TFemale2"), TEXT("SGirlSkins.fbth"), TEXT("SGirlSkins.Aryss"), TEXT("BotPack.VoiceFemaleTwo"), 0, "char_aryss.xui" },
+    { TEXT("ALARIK"), TEXT("Botpack.TMale2"), TEXT("SoldierSkins.blkt"), TEXT("SoldierSkins.Malcom"), TEXT("BotPack.VoiceMaleTwo"), 255, "char_alarik.xui" },
+    { TEXT("DESSLOCH"), TEXT("Botpack.TMale1"), TEXT("CommandoSkins.daco"), TEXT("CommandoSkins.Luthor"), TEXT("BotPack.VoiceMaleOne"), 1, "char_dessloch.xui" },
+    { TEXT("CRYSS"), TEXT("Botpack.TFemale1"), TEXT("FCommandoSkins.goth"), TEXT("FCommandoSkins.Cryss"), TEXT("BotPack.VoiceFemaleOne"), 255, "char_cryss.xui" },
+    { TEXT("NIKITA"), TEXT("Botpack.TFemale1"), TEXT("FCommandoSkins.goth"), TEXT("FCommandoSkins.Visse"), TEXT("BotPack.VoiceFemaleOne"), 2, "char_nikita.xui" },
+    { TEXT("DRIMACUS"), TEXT("Botpack.TMale2"), TEXT("SoldierSkins.RawS"), TEXT("SoldierSkins.Kregore"), TEXT("BotPack.VoiceMaleTwo"), 255, "char_drimacus.xui" },
+    { TEXT("RHEA"), TEXT("Botpack.TFemale2"), TEXT("SGirlSkins.Venm"), TEXT("SGirlSkins.Cilia"), TEXT("BotPack.VoiceFemaleTwo"), 3, "char_rhea.xui" },
+    { TEXT("RAYNOR"), TEXT("Botpack.TMale1"), TEXT("CommandoSkins.goth"), TEXT("CommandoSkins.Kragoth"), TEXT("BotPack.VoiceMaleOne"), 255, "char_raynor.xui" },
+    { TEXT("KIRA"), TEXT("Botpack.TFemale1"), TEXT("FCommandoSkins.daco"), TEXT("FCommandoSkins.Tanya"), TEXT("BotPack.VoiceFemaleOne"), 0, "char_kira.xui" },
+    { TEXT("KARAG"), TEXT("Botpack.TMale2"), TEXT("SoldierSkins.sldr"), TEXT("SoldierSkins.Johnson"), TEXT("BotPack.VoiceMaleTwo"), 255, "char_karag.xui" },
+    { TEXT("ZENITH"), TEXT("Botpack.TMale1"), TEXT("CommandoSkins.daco"), TEXT("CommandoSkins.Boris"), TEXT("BotPack.VoiceMaleOne"), 1, "char_zenith.xui" },
+    { TEXT("CALI"), TEXT("Botpack.TFemale2"), TEXT("SGirlSkins.Garf"), TEXT("SGirlSkins.Vixen"), TEXT("BotPack.VoiceFemaleTwo"), 255, "char_cali.xui" },
+    { TEXT("ALYS"), TEXT("Botpack.TFemale2"), TEXT("SGirlSkins.army"), TEXT("SGirlSkins.Sara"), TEXT("BotPack.VoiceFemaleTwo"), 2, "char_alys.xui" },
+    { TEXT("KOSAK"), TEXT("Botpack.TMale2"), TEXT("SoldierSkins.blkt"), TEXT("SoldierSkins.Othello"), TEXT("BotPack.VoiceMaleTwo"), 255, "char_kosak.xui" },
+    { TEXT("ILLANA"), TEXT("Botpack.TFemale1"), TEXT("FCommandoSkins.daco"), TEXT("FCommandoSkins.Kyla"), TEXT("BotPack.VoiceFemaleOne"), 3, "char_illana.xui" },
+    { TEXT("BARAK"), TEXT("Botpack.TMale1"), TEXT("CommandoSkins.cmdo"), TEXT("CommandoSkins.Gorn"), TEXT("BotPack.VoiceMaleOne"), 255, "char_barak.xui" },
+    { TEXT("KARA"), TEXT("Botpack.TFemale2"), TEXT("SGirlSkins.fbth"), TEXT("SGirlSkins.Annaka"), TEXT("BotPack.VoiceFemaleTwo"), 0, "char_kara.xui" },
+    { TEXT("TAMERLANE"), TEXT("Botpack.TMale2"), TEXT("SoldierSkins.blkt"), TEXT("SoldierSkins.Riker"), TEXT("BotPack.VoiceMaleTwo"), 255, "char_tamerlane.xui" },
+    { TEXT("ARACHNE"), TEXT("Botpack.TFemale1"), TEXT("FCommandoSkins.goth"), TEXT("FCommandoSkins.Malise"), TEXT("BotPack.VoiceFemaleOne"), 1, "char_arachne.xui" },
+    { TEXT("LICHE"), TEXT("Botpack.TMale1"), TEXT("CommandoSkins.daco"), TEXT("CommandoSkins.Ramirez"), TEXT("BotPack.VoiceMaleOne"), 255, "char_liche.xui" },
+    { TEXT("JARED"), TEXT("Botpack.TFemale1"), TEXT("FCommandoSkins.goth"), TEXT("FCommandoSkins.Freylis"), TEXT("BotPack.VoiceFemaleOne"), 2, "char_jared.xui" },
+    { TEXT("ICHTHYS"), TEXT("Botpack.TMale2"), TEXT("SoldierSkins.RawS"), TEXT("SoldierSkins.Arkon"), TEXT("BotPack.VoiceMaleTwo"), 255, "char_ichthys.xui" },
+    { TEXT("TAMARA"), TEXT("Botpack.TFemale2"), TEXT("SGirlSkins.Venm"), TEXT("SGirlSkins.Sarena"), TEXT("BotPack.VoiceFemaleTwo"), 3, "char_tamara.xui" },
+    { TEXT("LOQUE"), TEXT("Botpack.TMale1"), TEXT("CommandoSkins.goth"), TEXT("CommandoSkins.Grail"), TEXT("BotPack.VoiceMaleOne"), 255, "char_loque.xui" },
+    { TEXT("ATHENA"), TEXT("Botpack.TFemale1"), TEXT("FCommandoSkins.daco"), TEXT("FCommandoSkins.Mariana"), TEXT("BotPack.VoiceFemaleOne"), 0, "char_athena.xui" },
+    { TEXT("CILIA"), TEXT("Botpack.TMale2"), TEXT("SoldierSkins.sldr"), TEXT("SoldierSkins.Rankin"), TEXT("BotPack.VoiceMaleTwo"), 255, "char_cilia.xui" },
+    { TEXT("SARENA"), TEXT("Botpack.TFemale2"), TEXT("SGirlSkins.Garf"), TEXT("SGirlSkins.Isis"), TEXT("BotPack.VoiceFemaleTwo"), 1, "char_sarena.xui" },
+    { TEXT("MALAKAI"), TEXT("Botpack.TMale1"), TEXT("CommandoSkins.daco"), TEXT("CommandoSkins.Graves"), TEXT("BotPack.VoiceMaleOne"), 255, "char_malakai.xui" },
+    { TEXT("VISSE"), TEXT("Botpack.TFemale2"), TEXT("SGirlSkins.army"), TEXT("SGirlSkins.Lauren"), TEXT("BotPack.VoiceFemaleTwo"), 2, "char_visse.xui" },
+    { TEXT("NECROTH"), TEXT("Botpack.TMale2"), TEXT("SoldierSkins.blkt"), TEXT("SoldierSkins.Malcom"), TEXT("BotPack.VoiceMaleTwo"), 255, "char_necroth.xui" },
+    { TEXT("KRAGOTH"), TEXT("Botpack.TFemale1"), TEXT("FCommandoSkins.daco"), TEXT("FCommandoSkins.Jayce"), TEXT("BotPack.VoiceFemaleOne"), 3, "char_kragoth.xui" },
+    { TEXT("OUBOUDAH"), TEXT("MultiMesh.TNali"), TEXT("TNaliMeshSkins.Ouboudah"), TEXT("TNaliMeshSkins.nali-Face"), TEXT("MultiMesh.NaliVoice"), 255, "char_ouboudah.xui" },
+    { TEXT("PRIEST"), TEXT("MultiMesh.TNali"), TEXT("TNaliMeshSkins.Priest"), TEXT("TNaliMeshSkins.nali-Face"), TEXT("MultiMesh.NaliVoice"), 255, "char_priest.xui" },
+    { TEXT("ATOMIC COW"), TEXT("MultiMesh.TCow"), TEXT("TCowMeshSkins.AtomicCow"), TEXT("TCowMeshSkins.WarCowFace"), TEXT("MultiMesh.CowVoice"), 255, "char_atomiccow.xui" },
+    { TEXT("WARCOW"), TEXT("MultiMesh.TCow"), TEXT("TCowMeshSkins.WarCow"), TEXT("TCowMeshSkins.WarCowFace"), TEXT("MultiMesh.CowVoice"), 255, "char_warcow.xui" },
+    { TEXT("CATHODE"), TEXT("Botpack.TFemale2"), TEXT("SGirlSkins.fwar"), TEXT("SGirlSkins.Cathode"), TEXT("BotPack.VoiceFemaleTwo"), 0, "char_cathode.xui" },
+    { TEXT("DIVISOR"), TEXT("Botpack.TFemale2"), TEXT("SGirlSkins.fwar"), TEXT("SGirlSkins.Fury"), TEXT("BotPack.VoiceFemaleTwo"), 255, "char_divisor.xui" },
+    { TEXT("MATRIX"), TEXT("Botpack.TMale2"), TEXT("SoldierSkins.hkil"), TEXT("SoldierSkins.Matrix"), TEXT("BotPack.VoiceMaleTwo"), 1, "char_matrix.xui" },
+    { TEXT("SILICON"), TEXT("Botpack.TFemale2"), TEXT("SGirlSkins.fwar"), TEXT("SGirlSkins.Lilith"), TEXT("BotPack.VoiceFemaleTwo"), 255, "char_silicon.xui" },
+    { TEXT("VECTOR"), TEXT("Botpack.TMale2"), TEXT("SoldierSkins.hkil"), TEXT("SoldierSkins.Vector"), TEXT("BotPack.VoiceMaleTwo"), 255, "char_vector.xui" },
+    { TEXT("FUNCTION"), TEXT("Botpack.TFemale2"), TEXT("SGirlSkins.fwar"), TEXT("SGirlSkins.Lilith"), TEXT("BotPack.VoiceFemaleTwo"), 255, "char_silicon.xui" },
+    { TEXT("TENSOR"), TEXT("Botpack.TMale2"), TEXT("SoldierSkins.hkil"), TEXT("SoldierSkins.Tensor"), TEXT("BotPack.VoiceMaleTwo"), 1, "char_tensor.xui" },
+    { TEXT("ENIGMA"), TEXT("Botpack.TFemale2"), TEXT("SGirlSkins.fwar"), TEXT("SGirlSkins.Fury"), TEXT("BotPack.VoiceFemaleTwo"), 1, "char_divisor.xui" },
+    { TEXT("XAN"), TEXT("Botpack.TBoss"), TEXT("BossSkins.Boss"), TEXT(""), TEXT("BotPack.VoiceBoss"), 255, "char_xan.xui" },
+    { TEXT("BERSERKER"), TEXT("MultiMesh.TSkaarj"), TEXT("TSkMSkins.Warr"), TEXT("TSkMSkins.Berserker"), TEXT("MultiMesh.SkaarjVoice"), 255, "char_skaarj_berserker.xui" },
+    { TEXT("DOMINATOR HYBRID"), TEXT("MultiMesh.TSkaarj"), TEXT("TSkMSkins.Warr"), TEXT("TSkMSkins.Dominator"), TEXT("MultiMesh.SkaarjVoice"), 255, "char_skaarj_dominator.xui" },
+    { TEXT("GUARDIAN"), TEXT("MultiMesh.TSkaarj"), TEXT("TSkMSkins.Warr"), TEXT("TSkMSkins.Guardian"), TEXT("MultiMesh.SkaarjVoice"), 255, "char_skaarj_guardian.xui" },
+    { TEXT("DEVASTATOR"), TEXT("MultiMesh.TSkaarj"), TEXT("TSkMSkins.Warr"), TEXT("TSkMSkins.Dominator"), TEXT("MultiMesh.SkaarjVoice"), 255, "char_skaarj_dominator.xui" },
+    { TEXT("PESTILENCE"), TEXT("MultiMesh.TSkaarj"), TEXT("TSkMSkins.Warr"), TEXT("TSkMSkins.Berserker"), TEXT("MultiMesh.SkaarjVoice"), 255, "char_skaarj_berserker.xui" },
+    { TEXT("PLAGUE"), TEXT("MultiMesh.TSkaarj"), TEXT("TSkMSkins.Warr"), TEXT("TSkMSkins.Guardian"), TEXT("MultiMesh.SkaarjVoice"), 255, "char_skaarj_guardian.xui" },
+    { TEXT("BAETAL"), TEXT("MultiMesh.TSkaarj"), TEXT("TSkMSkins.PitF"), TEXT("TSkMSkins.Baetal"), TEXT("MultiMesh.SkaarjVoice"), 255, "char_skaarj_baetal.xui" },
+    { TEXT("PHAROH"), TEXT("MultiMesh.TSkaarj"), TEXT("TSkMSkins.PitF"), TEXT("TSkMSkins.Pharoh"), TEXT("MultiMesh.SkaarjVoice"), 255, "char_skaarj_pharoh.xui" },
+    { TEXT("SKRILAX"), TEXT("MultiMesh.TSkaarj"), TEXT("TSkMSkins.PitF"), TEXT("TSkMSkins.Skrilax"), TEXT("MultiMesh.SkaarjVoice"), 255, "char_skaarj_skrilax.xui" },
+    { TEXT("ANTHRAX"), TEXT("MultiMesh.TSkaarj"), TEXT("TSkMSkins.PitF"), TEXT("TSkMSkins.Baetal"), TEXT("MultiMesh.SkaarjVoice"), 255, "char_skaarj_baetal.xui" },
+    { TEXT("ENTROPY"), TEXT("MultiMesh.TSkaarj"), TEXT("TSkMSkins.PitF"), TEXT("TSkMSkins.Pharoh"), TEXT("MultiMesh.SkaarjVoice"), 255, "char_skaarj_pharoh.xui" },
+    { TEXT("FIREWALL"), TEXT("MultiMesh.TSkaarj"), TEXT("TSkMSkins.MekS"), TEXT("TSkMSkins.Firewall"), TEXT("MultiMesh.SkaarjVoice"), 255, "char_skaarj_firewall.xui" },
+    { TEXT("REAPER"), TEXT("MultiMesh.TSkaarj"), TEXT("TSkMSkins.MekS"), TEXT("TSkMSkins.Disconnect"), TEXT("MultiMesh.SkaarjVoice"), 255, "char_skaarj_disconnect.xui" },
+    { TEXT("DISCONNECT"), TEXT("MultiMesh.TSkaarj"), TEXT("TSkMSkins.MekS"), TEXT("TSkMSkins.Disconnect"), TEXT("MultiMesh.SkaarjVoice"), 255, "char_skaarj_disconnect.xui" },
+    { TEXT("DAMIEN"), TEXT("UTPS2Characters.DamienPS2M"), TEXT("DamienPS2Skins.Kane1"), TEXT(""), TEXT("BotPack.VoiceMaleTwo"), 255, "char_damien.xui" },
+    { TEXT("RAMPAGE"), TEXT("UTPS2Characters.WarbossPS2"), TEXT("WarbossPS2Skins_PS2Purple.WarP1"), TEXT(""), TEXT("BotPack.VoiceBoss"), 255, "char_rampage.xui" },
+    { TEXT("DOMINATOR PS2"), TEXT("UTPS2Characters.DominatorPS2M"), TEXT("DominatorPS2Skins.domi1"), TEXT(""), TEXT("UTPS2Characters.DominatorVoice"), 255, "char_dominator.xui" },
+    { TEXT("XAN PS2"), TEXT("UTPS2Characters.XanPS2"), TEXT("XanPS2Skins_PS2Lighter.XnPS1"), TEXT(""), TEXT("BotPack.VoiceBoss"), 255, "char_ps2_xan.xui" },
+    { TEXT("SKAARJ BOSS"), TEXT("UTPS2Characters.SkaarjBossPS2"), TEXT("SkaarjBPS2Skins.Warr"), TEXT(""), TEXT("UTPS2Characters.SkaarjHybridPS2Voice"), 255, "char_skaarj_boss.xui" }
+};
+
+static void XboxMenuAddKnownPlayerCharacters()
+{
+    for( INT i=0; i<ARRAY_COUNT(GXboxKnownPlayerCharacters); i++ )
+        XboxMenuAddPlayerCharacterOption( GXboxKnownPlayerCharacters[i] );
+}
+
 static void XboxMenuAddKnownBonusPlayerClass( const FRegistryObjectInfo& Info )
 {
     if( XboxMenuHasPlayerClass( Info.Object ) )
@@ -2124,10 +2470,9 @@ static void XboxMenuLoadPlayerClasses()
     GXboxPlayerClasses.Empty();
 
 #if TARGET_XBOX
-    XboxMenuAddKnownPlayerClasses();
-    XboxMenuDiscoverKnownBonusPlayerClasses();
+    XboxMenuAddKnownPlayerCharacters();
 
-    GXboxLog.Write( "XMENU using Xbox player class metadata=%d", GXboxPlayerClasses.Num() );
+    GXboxLog.Write( "XMENU using Xbox lightweight player character metadata=%d", GXboxPlayerClasses.Num() );
     return;
 #endif
 
@@ -2272,16 +2617,25 @@ static void XboxMenuLoadPlayerSkins( INT ClassIndex )
 
     const FXboxPlayerClassOption& Player = XboxMenuPlayerClass( ClassIndex );
 
+#if TARGET_XBOX
+    FXboxDiscoveredOption& XboxSkin = *new(GXboxPlayerSkins)FXboxDiscoveredOption;
+    XboxSkin.Label = TEXT("DEFAULT");
+    XboxSkin.URLValue = Player.SkinValue.Len() ? Player.SkinValue : Player.DefaultSkinName;
+    if( XboxSkin.URLValue.Len() == 0 )
+        XboxSkin.URLValue = TEXT("SoldierSkins.blkt");
+    XboxSkin.bMultiSkinGroup = Player.bMultiSkinned;
+    GXboxLog.Write( "XMENU using fixed Xbox skin for character=%s skin=%s",
+        TCHAR_TO_ANSI(*Player.Label),
+        TCHAR_TO_ANSI(*XboxSkin.URLValue) );
+    return;
+#endif
+
     if( Player.DefaultPackage.Len() > 0 )
     {
         TArray<FRegistryObjectInfo> Textures;
-#if TARGET_XBOX
-        XboxMenuCollectIntObjects( Textures, TEXT("Texture"), NULL, *Player.DefaultPackage );
-#else
         UObject::GetRegistryObjects( Textures, UTexture::StaticClass(), NULL, 0 );
         if( Textures.Num() <= 1 )
             XboxMenuCollectIntObjects( Textures, TEXT("Texture"), NULL, *Player.DefaultPackage );
-#endif
 
         for( INT i=0; i<Textures.Num(); i++ )
         {
@@ -2303,14 +2657,9 @@ static void XboxMenuLoadPlayerSkins( INT ClassIndex )
     {
         FXboxDiscoveredOption& Option = *new(GXboxPlayerSkins)FXboxDiscoveredOption;
         Option.Label = TEXT("DEFAULT");
-#if TARGET_XBOX
-        Option.URLValue = Player.DefaultSkinName.Len() ? Player.DefaultSkinName : FString(TEXT("SoldierSkins.blkt"));
-        Option.bMultiSkinGroup = Player.bMultiSkinned;
-#else
         XboxMenuClassDefaultString( FindObject<UClass>( ANY_PACKAGE, *Player.URLValue ), TEXT("DefaultSkinName"), Option.URLValue );
         if( Option.URLValue.Len() == 0 )
             Option.URLValue = TEXT("SoldierSkins.blkt");
-#endif
     }
 
     GXboxLog.Write( "XMENU discovered %d skins for player=%s package=%s",
@@ -2331,19 +2680,25 @@ static void XboxMenuLoadPlayerFaces( INT ClassIndex, INT SkinIndex )
 
     const FXboxPlayerClassOption& Player = XboxMenuPlayerClass( ClassIndex );
 
+#if TARGET_XBOX
+    FXboxDiscoveredOption& XboxFace = *new(GXboxPlayerFaces)FXboxDiscoveredOption;
+    XboxFace.Label = TEXT("DEFAULT");
+    XboxFace.URLValue = Player.FaceValue;
+    GXboxLog.Write( "XMENU using fixed Xbox face for character=%s face=%s",
+        TCHAR_TO_ANSI(*Player.Label),
+        XboxFace.URLValue.Len() ? TCHAR_TO_ANSI(*XboxFace.URLValue) : "" );
+    return;
+#endif
+
     if( Player.bMultiSkinned && GXboxPlayerSkins(SkinIndex).bMultiSkinGroup )
     {
         FString SkinItem;
         XboxMenuItemName( GXboxPlayerSkins(SkinIndex).URLValue, SkinItem );
 
         TArray<FRegistryObjectInfo> Textures;
-#if TARGET_XBOX
-        XboxMenuCollectIntObjects( Textures, TEXT("Texture"), NULL, *Player.DefaultPackage );
-#else
         UObject::GetRegistryObjects( Textures, UTexture::StaticClass(), NULL, 0 );
         if( Textures.Num() <= 1 )
             XboxMenuCollectIntObjects( Textures, TEXT("Texture"), NULL, *Player.DefaultPackage );
-#endif
 
         FString FacePrefix = SkinItem;
         XboxMenuAppendInt( FacePrefix, Player.FaceSkin + 1 );
@@ -2462,6 +2817,7 @@ static void XboxMenuSaveDefaultPlayer()
 
     TCHAR TeamValue[16];
     appSprintf( TeamValue, TEXT("%i"), Clamp<INT>(GXboxMenu.PlayerTeam, 0, 255) );
+    XboxMenuSaveDefaultPlayerString( TEXT("Character"), *GXboxPlayerClasses(GXboxMenu.PlayerClass).Label );
     XboxMenuSaveDefaultPlayerString( TEXT("Class"), *GXboxPlayerClasses(GXboxMenu.PlayerClass).URLValue );
     XboxMenuSaveDefaultPlayerString( TEXT("Skin"), *GXboxPlayerSkins(GXboxMenu.PlayerSkin).URLValue );
     XboxMenuSaveDefaultPlayerString( TEXT("Face"), *GXboxPlayerFaces(GXboxMenu.PlayerFace).URLValue );
@@ -2482,15 +2838,16 @@ static void XboxMenuLoadPlayerState()
     GXboxPlayerStateLoaded = 1;
 
     XboxMenuLoadPlayerClasses();
-    FString ClassValue = XboxMenuUserString( TEXT("DefaultPlayer"), TEXT("Class"), TEXT("Botpack.TMale2") );
-    GXboxMenu.PlayerClass = XboxMenuFindPlayerClass( ClassValue );
+    FString CharacterValue = XboxMenuUserString( TEXT("DefaultPlayer"), TEXT("Character"), TEXT("") );
+    FString ClassValue = XboxMenuUserString( TEXT("DefaultPlayer"), TEXT("Class"), TEXT("Botpack.TMale1") );
+    FString SkinValue = XboxMenuUserString( TEXT("DefaultPlayer"), TEXT("Skin"), TEXT("CommandoSkins.cmdo") );
+    FString FaceValue = XboxMenuUserString( TEXT("DefaultPlayer"), TEXT("Face"), TEXT("CommandoSkins.Blake") );
+    GXboxMenu.PlayerClass = XboxMenuFindPlayerCharacter( ClassValue, SkinValue, FaceValue, CharacterValue );
 
     XboxMenuLoadPlayerSkins( GXboxMenu.PlayerClass );
-    FString SkinValue = XboxMenuUserString( TEXT("DefaultPlayer"), TEXT("Skin"), TEXT("SoldierSkins.blkt") );
     GXboxMenu.PlayerSkin = XboxMenuFindURLValue( GXboxPlayerSkins, SkinValue );
 
     XboxMenuLoadPlayerFaces( GXboxMenu.PlayerClass, GXboxMenu.PlayerSkin );
-    FString FaceValue = XboxMenuUserString( TEXT("DefaultPlayer"), TEXT("Face"), TEXT("SoldierSkins.Othello") );
     GXboxMenu.PlayerFace = XboxMenuFindURLValue( GXboxPlayerFaces, FaceValue );
 
     XboxMenuLoadPlayerVoices( GXboxMenu.PlayerClass );
@@ -2961,25 +3318,43 @@ static UTexture* XboxMenuResolvePlayerPreviewPlaceholder()
     return Texture;
 }
 
+static const char* XboxMenuCurrentPlayerPortraitName()
+{
+    XboxMenuNormalizePlayerSetupState();
+    const FXboxPlayerClassOption& Player = XboxMenuPlayerClass( GXboxMenu.PlayerClass );
+    return Player.PortraitName[0] ? Player.PortraitName : "char_missing.xui";
+}
+
+static void XboxMenuReleaseCurrentPlayerPortrait()
+{
+#if TARGET_XBOX
+    XboxRenderReleaseMenuTexture( XboxMenuCurrentPlayerPortraitName() );
+#endif
+}
+
 static UBOOL XboxMenuDrawPlayerPreviewActor( UXboxViewport* Viewport, UCanvas* Canvas, FLOAT X, FLOAT Y, FLOAT W, FLOAT H )
 {
     if( !Viewport || !Canvas || !Canvas->Frame || !Canvas->Render || !Viewport->Actor || !Viewport->RenDev )
         return 0;
 
 #if TARGET_XBOX
-    UTexture* Placeholder = XboxMenuResolvePlayerPreviewPlaceholder();
-    if( !Placeholder )
+    const char* PortraitName = XboxMenuCurrentPlayerPortraitName();
+    if( !PortraitName || !PortraitName[0] )
         return 0;
 
-    FLOAT DrawW = Min<FLOAT>( W, (FLOAT)Placeholder->USize * 2.0f );
-    FLOAT DrawH = Min<FLOAT>( H, (FLOAT)Placeholder->VSize * 2.0f );
+    FLOAT DrawH = H;
+    FLOAT DrawW = DrawH * 0.5f;
+    if( DrawW > W )
+    {
+        DrawW = W;
+        DrawH = DrawW * 2.0f;
+    }
     if( DrawW <= 0.0f || DrawH <= 0.0f )
         return 0;
 
     FLOAT DrawX = X + (W - DrawW) * 0.5f;
     FLOAT DrawY = Y + (H - DrawH) * 0.5f;
-    XboxMenuDrawTexture( Canvas, Placeholder, DrawX, DrawY, DrawW, DrawH );
-    return 1;
+    return XboxRenderDrawMenuTexture( Canvas->Frame, PortraitName, DrawX, DrawY, DrawW, DrawH, 1.0f );
 #endif
 
     XboxMenuUpdatePlayerPreviewActor( Viewport );
@@ -3291,11 +3666,20 @@ static void XboxMenuSmokeTick( UXboxViewport* Viewport )
         XboxMenuLoadPlayerState();
         SmokeStage = 3;
         SmokeStartTime = appSeconds();
-        GXboxLog.Write( "XMENU SMOKE opened Player Setup class=%d skin=%d face=%d",
-            GXboxMenu.PlayerClass, GXboxMenu.PlayerSkin, GXboxMenu.PlayerFace );
+        const FXboxPlayerClassOption& Player = XboxMenuPlayerClass( GXboxMenu.PlayerClass );
+        GXboxLog.Write( "XMENU SMOKE opened Player Setup character=%d %s portrait=%s",
+            GXboxMenu.PlayerClass, TCHAR_TO_ANSI(*Player.Label), Player.PortraitName );
     }
     else if( SmokeStage >= 3 && SmokeStage < 11 && (appSeconds() - SmokeStartTime) > 1.0 )
     {
+        char OldPortraitName[64];
+        appMemzero( OldPortraitName, sizeof(OldPortraitName) );
+        const char* CurrentPortraitName = XboxMenuCurrentPlayerPortraitName();
+        if( CurrentPortraitName && CurrentPortraitName[0] )
+        {
+            appStrncpy( OldPortraitName, CurrentPortraitName, ARRAY_COUNT(OldPortraitName) );
+            OldPortraitName[ARRAY_COUNT(OldPortraitName)-1] = 0;
+        }
         XboxMenuLoadPlayerClasses();
         GXboxMenu.PlayerClass = XboxMenuWrapInt( GXboxMenu.PlayerClass, 1, GXboxPlayerClasses.Num() );
         GXboxPlayerSkinsClass = -1;
@@ -3303,12 +3687,19 @@ static void XboxMenuSmokeTick( UXboxViewport* Viewport )
         GXboxMenu.PlayerSkin = 0;
         GXboxMenu.PlayerFace = 0;
         GXboxMenu.PlayerVoice = 0;
+        GXboxMenu.PlayerTeam = GXboxPlayerClasses(GXboxMenu.PlayerClass).DefaultTeam;
         XboxMenuLoadPlayerSkins( GXboxMenu.PlayerClass );
         XboxMenuLoadPlayerFaces( GXboxMenu.PlayerClass, GXboxMenu.PlayerSkin );
         XboxMenuLoadPlayerVoices( GXboxMenu.PlayerClass );
+        if( OldPortraitName[0] )
+            XboxRenderReleaseMenuTexture( OldPortraitName );
         const FXboxPlayerClassOption& Player = XboxMenuPlayerClass( GXboxMenu.PlayerClass );
-        GXboxLog.Write( "XMENU SMOKE cycled Player Setup stage=%d class=%d %s skin=%d face=%d",
-            SmokeStage, GXboxMenu.PlayerClass, TCHAR_TO_ANSI(*Player.URLValue), GXboxMenu.PlayerSkin, GXboxMenu.PlayerFace );
+        GXboxLog.Write( "XMENU SMOKE cycled Player Setup stage=%d character=%d %s url=%s portrait=%s",
+            SmokeStage,
+            GXboxMenu.PlayerClass,
+            TCHAR_TO_ANSI(*Player.Label),
+            TCHAR_TO_ANSI(*Player.URLValue),
+            Player.PortraitName );
         GXboxLog.Flush();
         SmokeStage++;
         SmokeStartTime = appSeconds();
@@ -3320,6 +3711,7 @@ static void XboxMenuClose( UXboxViewport* Viewport )
     if( GXboxMenu.Active )
         GXboxLog.Write( "XMENU closed" );
     GXboxMenu.Active = 0;
+    XboxMenuReleaseCurrentPlayerPortrait();
     XboxMenuDestroyPlayerPreview();
     XboxMenuReleaseMapPreviewTexture();
 
@@ -3364,6 +3756,8 @@ static void XboxMenuBack( UXboxViewport* Viewport )
     }
     else
     {
+        if( GXboxMenu.Screen == XMS_PlayerSetup )
+            XboxMenuReleaseCurrentPlayerPortrait();
         GXboxMenu.Screen = XMS_Main;
         GXboxLog.Write( "XMENU back to main" );
     }
@@ -3631,43 +4025,40 @@ static void XboxMenuAdjustPlayerSetup( UXboxViewport* Viewport, INT Delta )
     switch( GXboxMenu.PlayerFocus )
     {
         case 0:
+        {
+            char OldPortraitName[64];
+            appMemzero( OldPortraitName, sizeof(OldPortraitName) );
+            const char* CurrentPortraitName = XboxMenuCurrentPlayerPortraitName();
+            if( CurrentPortraitName && CurrentPortraitName[0] )
+            {
+                appStrncpy( OldPortraitName, CurrentPortraitName, ARRAY_COUNT(OldPortraitName) );
+                OldPortraitName[ARRAY_COUNT(OldPortraitName)-1] = 0;
+            }
             GXboxMenu.PlayerClass = XboxMenuWrapInt( GXboxMenu.PlayerClass, Delta, GXboxPlayerClasses.Num() );
             GXboxPlayerSkinsClass = -1;
             GXboxPlayerVoicesClass = -1;
             GXboxMenu.PlayerSkin = 0;
             GXboxMenu.PlayerFace = 0;
             GXboxMenu.PlayerVoice = 0;
+            GXboxMenu.PlayerTeam = GXboxPlayerClasses(GXboxMenu.PlayerClass).DefaultTeam;
             XboxMenuLoadPlayerSkins( GXboxMenu.PlayerClass );
             XboxMenuLoadPlayerFaces( GXboxMenu.PlayerClass, GXboxMenu.PlayerSkin );
             XboxMenuLoadPlayerVoices( GXboxMenu.PlayerClass );
             if( GXboxPlayerClasses(GXboxMenu.PlayerClass).DefaultVoice.Len() )
                 GXboxMenu.PlayerVoice = XboxMenuFindURLValue( GXboxPlayerVoices, GXboxPlayerClasses(GXboxMenu.PlayerClass).DefaultVoice );
-            GXboxLog.Write( "XMENU player class selected class=%d url=%s mesh=%s skinCount=%d faceCount=%d voiceCount=%d",
+            if( OldPortraitName[0] )
+                XboxRenderReleaseMenuTexture( OldPortraitName );
+            GXboxLog.Write( "XMENU player character selected index=%d label=%s url=%s skin=%s face=%s portrait=%s",
                 GXboxMenu.PlayerClass,
+                TCHAR_TO_ANSI(*GXboxPlayerClasses(GXboxMenu.PlayerClass).Label),
                 TCHAR_TO_ANSI(*GXboxPlayerClasses(GXboxMenu.PlayerClass).URLValue),
-                TCHAR_TO_ANSI(*GXboxPlayerClasses(GXboxMenu.PlayerClass).MeshPath),
-                GXboxPlayerSkins.Num(),
-                GXboxPlayerFaces.Num(),
-                GXboxPlayerVoices.Num() );
+                TCHAR_TO_ANSI(*GXboxPlayerSkins(GXboxMenu.PlayerSkin).URLValue),
+                GXboxPlayerFaces(GXboxMenu.PlayerFace).URLValue.Len() ? TCHAR_TO_ANSI(*GXboxPlayerFaces(GXboxMenu.PlayerFace).URLValue) : "",
+                GXboxPlayerClasses(GXboxMenu.PlayerClass).PortraitName );
             GXboxLog.Flush();
             break;
+        }
         case 1:
-            XboxMenuLoadPlayerSkins( GXboxMenu.PlayerClass );
-            GXboxMenu.PlayerSkin = XboxMenuWrapInt( GXboxMenu.PlayerSkin, Delta, GXboxPlayerSkins.Num() );
-            GXboxPlayerFacesClass = -1;
-            GXboxMenu.PlayerFace = 0;
-            XboxMenuLoadPlayerFaces( GXboxMenu.PlayerClass, GXboxMenu.PlayerSkin );
-            break;
-        case 2:
-            XboxMenuLoadPlayerFaces( GXboxMenu.PlayerClass, GXboxMenu.PlayerSkin );
-            GXboxMenu.PlayerFace = XboxMenuWrapInt( GXboxMenu.PlayerFace, Delta, GXboxPlayerFaces.Num() );
-            break;
-        case 3:
-            XboxMenuLoadPlayerVoices( GXboxMenu.PlayerClass );
-            GXboxMenu.PlayerVoice = XboxMenuWrapInt( GXboxMenu.PlayerVoice, Delta, GXboxPlayerVoices.Num() );
-            XboxMenuPlayVoiceSample( Viewport );
-            break;
-        case 4:
             if( GXboxMenu.PlayerTeam == 255 )
                 GXboxMenu.PlayerTeam = Delta > 0 ? 0 : 3;
             else
@@ -3815,7 +4206,7 @@ static void XboxMenuMove( INT Delta )
     }
     else if( GXboxMenu.Screen == XMS_PlayerSetup )
     {
-        GXboxMenu.PlayerFocus = XboxMenuWrapInt( GXboxMenu.PlayerFocus, Delta, 5 );
+        GXboxMenu.PlayerFocus = XboxMenuWrapInt( GXboxMenu.PlayerFocus, Delta, GXboxPlayerSetupRowCount );
         GXboxLog.Write( "XMENU player focus=%d", GXboxMenu.PlayerFocus );
     }
     else if( GXboxMenu.Screen == XMS_Settings )
@@ -4965,10 +5356,7 @@ static void XboxMenuDrawPlayerSetup( UXboxViewport* Viewport, UCanvas* Canvas )
 {
     static const TCHAR* Labels[] =
     {
-        TEXT("CLASS"),
-        TEXT("SKIN"),
-        TEXT("FACE"),
-        TEXT("VOICE"),
+        TEXT("CHARACTER"),
         TEXT("TEAM")
     };
 
@@ -4982,9 +5370,6 @@ static void XboxMenuDrawPlayerSetup( UXboxViewport* Viewport, UCanvas* Canvas )
     const TCHAR* Values[] =
     {
         *GXboxPlayerClasses(GXboxMenu.PlayerClass).Label,
-        *GXboxPlayerSkins(GXboxMenu.PlayerSkin).Label,
-        *GXboxPlayerFaces(GXboxMenu.PlayerFace).Label,
-        *GXboxPlayerVoices(GXboxMenu.PlayerVoice).Label,
         TeamValue
     };
 
@@ -4992,30 +5377,30 @@ static void XboxMenuDrawPlayerSetup( UXboxViewport* Viewport, UCanvas* Canvas )
     UFont* MenuFont = Canvas->MedFont;
     XboxMenuText( Canvas, MenuFont, 46, 70, 255, 255, 255, TEXT("PLAYER SETUP") );
 
-    XboxMenuDrawRect( Canvas, 350, 58, 626, 422, 25, 34, 48, 0.72f );
-    XboxMenuDrawRect( Canvas, 360, 68, 616, 412, 0, 0, 0, 0.52f );
-    if( !XboxMenuDrawPlayerPreviewActor( Viewport, Canvas, 360.0f, 68.0f, 256.0f, 344.0f ) )
-        XboxMenuText( Canvas, MenuFont, 430, 210, 135, 170, 205, TEXT("NO PREVIEW") );
+    XboxMenuDrawRect( Canvas, 394, 82, 594, 402, 25, 34, 48, 0.72f );
+    XboxMenuDrawRect( Canvas, 404, 92, 584, 392, 0, 0, 0, 0.52f );
+    if( !XboxMenuDrawPlayerPreviewActor( Viewport, Canvas, 404.0f, 54.0f, 180.0f, 344.0f ) )
+        XboxMenuText( Canvas, MenuFont, 438, 210, 135, 170, 205, TEXT("NO PREVIEW") );
 
     for( INT i=0; i<ARRAY_COUNT(Labels); i++ )
     {
-        FLOAT Y = 150.0f + i * 34.0f;
+        FLOAT Y = 178.0f + i * 46.0f;
         if( i == GXboxMenu.PlayerFocus )
         {
             XboxMenuDrawRect( Canvas, 42, Y-6, 342, Y+20, 12, 82, 166, 0.55f );
-            XboxMenuText( Canvas, MenuFont, 178, Y, 180, 215, 245, TEXT("<") );
+            XboxMenuText( Canvas, MenuFont, 186, Y, 180, 215, 245, TEXT("<") );
             XboxMenuText( Canvas, MenuFont, 326, Y, 180, 215, 245, TEXT(">") );
             XboxMenuText( Canvas, MenuFont, 58, Y, 255, 255, 255, Labels[i] );
-            XboxMenuText( Canvas, MenuFont, 202, Y, 255, 255, 255, Values[i] );
+            XboxMenuText( Canvas, MenuFont, 212, Y, 255, 255, 255, Values[i] );
         }
         else
         {
             XboxMenuText( Canvas, MenuFont, 58, Y, 140, 178, 212, Labels[i] );
-            XboxMenuText( Canvas, MenuFont, 202, Y, 180, 205, 230, Values[i] );
+            XboxMenuText( Canvas, MenuFont, 212, Y, 180, 205, 230, Values[i] );
         }
     }
 
-    XboxMenuText( Canvas, MenuFont, 58, 402, 135, 170, 205, TEXT("DPAD LEFT/RIGHT CHANGES PLAYER") );
+    XboxMenuText( Canvas, MenuFont, 58, 402, 135, 170, 205, TEXT("DPAD LEFT/RIGHT CHANGES SELECTION") );
 }
 
 static void XboxMenuDrawSettings( UXboxViewport* Viewport, UCanvas* Canvas )

@@ -3275,6 +3275,24 @@ struct FXboxMenuTexture
 static FXboxMenuTexture GXboxMenuTextures[32];
 static char GXboxMenuTextureFailures[16][64];
 
+extern "C" void XboxRenderReleaseMenuTexture( const char* Name )
+{
+    if( !Name || !Name[0] )
+        return;
+
+    for( INT i=0; i<ARRAY_COUNT(GXboxMenuTextures); i++ )
+    {
+        if( GXboxMenuTextures[i].Texture && appStricmp(GXboxMenuTextures[i].Name, Name)==0 )
+        {
+            INT ReleasedKB = (INT)((GXboxMenuTextures[i].Width * GXboxMenuTextures[i].Height * 4) / 1024);
+            RenderBlockAndReleaseTexture( GXboxMenuTextures[i].Texture );
+            appMemzero( &GXboxMenuTextures[i], sizeof(GXboxMenuTextures[i]) );
+            GXboxLog.Write( "XMENU render texture released %s approxKB=%d", Name, ReleasedKB );
+            return;
+        }
+    }
+}
+
 extern "C" void XboxRenderReleaseMenuTextures()
 {
     INT Released = 0;

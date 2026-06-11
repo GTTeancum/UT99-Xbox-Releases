@@ -72,6 +72,7 @@ static INT   GRD_TallTexLogCount = 0;
 static INT   GRD_ClampPadLogCount = 0;
 static INT   GRD_Rgba7MaxLogCount = 0;
 static INT   GRD_DxtUnexpectedLogCount = 0;
+static INT   GRD_SourceUnloadLogCount = 0;
 static INT   GRD_MaxPolyVerts    = 0;
 static DWORD GRD_LastPolyFlags   = 0;
 static DWORD GRD_LastTextureIDLo = 0;
@@ -82,6 +83,7 @@ static const UBOOL GUseXboxBspMultitexture = 1;
 static const UBOOL GVerboseRenderPerfLog = 0;
 static const UBOOL GDeferMidSceneRealtimeTextureUpdates = 1;
 static const UBOOL GUseDrawPrimitiveUP = 1;
+static const UBOOL GShowXboxPerfOverlay = 0;
 static DOUBLE GRD_FrameStartSeconds = 0.0;
 static DOUBLE GRD_LastFrameStartSeconds = 0.0;
 static DOUBLE GRD_LastPerfLogSeconds = 0.0;
@@ -113,6 +115,10 @@ static INT   GRD_DTBatchTiles = 0;
 static QWORD GRD_DTBatchCacheID = 0;
 static DWORD GRD_DTBatchPolyFlags = 0;
 static UBOOL GRD_DTBatchActive = 0;
+enum { XBOX_MENU_RECT_BATCH_VERTS = XBOX_SAFE_TRI_BATCH_VERTS };
+static FXboxTLVertex GRD_MenuRectBatch[XBOX_MENU_RECT_BATCH_VERTS];
+static INT   GRD_MenuRectBatchVerts = 0;
+static UBOOL GRD_MenuRectBatchActive = 0;
 static UBOOL GRD_MenuTextMode = 0;
 static INT   GRD_MenuTextSerial = 0;
 static INT   GRD_MenuTextTiles = 0;
@@ -120,6 +126,10 @@ static INT   GRD_MenuTextLogBudget = 0;
 static char  GRD_MenuTextLabel[64] = {0};
 static UBOOL GRD_DrawVBStreamBound = 0;
 static UINT  GRD_DrawVBStreamStride = 0;
+enum { XBOX_UPLOAD_CHUNK_BYTES = 32 * 1024 };
+static BYTE GRD_UploadChunk[XBOX_UPLOAD_CHUNK_BYTES];
+
+static void XboxRenderFlushMenuRectBatch( UXboxRenderDevice* Ren, const char* Reason );
 
 static HRESULT XboxRenderApplyViewport( IDirect3DDevice8* InDevice, INT X, INT Y, INT W, INT H, UINT BackBufferW, UINT BackBufferH )
 {
@@ -435,7 +445,7 @@ void UXboxRenderDevice::StaticConstructor()
     ShinySurfaces        = 0;
     Coronas              = 1;
     HighDetailActors     = 0;
-    SupportsTC           = 0;
+    SupportsTC           = 1;
     PrecacheOnFlip       = 0;
     SupportsLazyTextures = 0;
     PrefersDeferredLoad  = 0;
@@ -463,7 +473,7 @@ UBOOL UXboxRenderDevice::Init( UViewport* InViewport, INT NewX, INT NewY, INT Ne
     GXboxLog.Write( "XboxRender::Init: entered (%dx%d, %dbpp) sizeof(D3DPP)=%d",
         NewX, NewY, NewColorBytes, (int)sizeof(D3DPRESENT_PARAMETERS) );
     GXboxLog.Write( "XboxRender::Init: render-audit build marker %s %s", __DATE__, __TIME__ );
-    GXboxLog.Write( "XboxRender::Init: fog maps disabled; DXT/S3TC disabled until compressed upload is verified safe" );
+    GXboxLog.Write( "XboxRender::Init: fog maps disabled; DXT/S3TC compressed texture upload enabled" );
     if( GWireframeNoTextureProbe )
         GXboxLog.Write( "RWIRE probe active: no Info.Load, no texture create/lock/upload/bind, no light/detail/fog/macro passes, forced white wireframe" );
 
@@ -507,6 +517,7 @@ UBOOL UXboxRenderDevice::Init( UViewport* InViewport, INT NewX, INT NewY, INT Ne
     GRD_ClampPadLogCount = 0;
     GRD_Rgba7MaxLogCount = 0;
     GRD_DxtUnexpectedLogCount = 0;
+    GRD_SourceUnloadLogCount = 0;
     GRD_LastOp          = "Init";
 
     // Z-buffer formula: SZ = ProjZRatio + ProjZOffset * RHW
@@ -548,8 +559,8 @@ UBOOL UXboxRenderDevice::Init( UViewport* InViewport, INT NewX, INT NewY, INT Ne
     PP.FullScreen_PresentationInterval = D3DPRESENT_INTERVAL_IMMEDIATE;
 
     // May 15 hardware-oriented path configured push buffers before CreateDevice.
-    Direct3D_SetPushBufferSize( 768 * 1024, 128 * 1024 );
-    GXboxLog.Write( "XboxRender::Init: SetPushBufferSize(768K, 128K) called" );
+    Direct3D_SetPushBufferSize( 512 * 1024, 64 * 1024 );
+    GXboxLog.Write( "XboxRender::Init: SetPushBufferSize(512K, 64K) called" );
 
     // Create device. Real hardware must not let D3D's create path escape to
     // main() as an unknown exception; retry once without PUREDEVICE.
@@ -624,6 +635,9 @@ UBOOL UXboxRenderDevice::Init( UViewport* InViewport, INT NewX, INT NewY, INT Ne
     }
     BackBuffer  = NULL;  // We don't hold long-lived surface refs.
     DepthBuffer = NULL;
+
+    GXboxLog.Write( "XboxRender::Init: upload chunk bytes=%d availKB=%u",
+        XBOX_UPLOAD_CHUNK_BYTES, (unsigned)RenderAvailPhysKB() );
 
     // NOTE: render/texture-stage state is deliberately NOT set here. State
     // setup is performed inside Lock(), after the first depth/target clear.
@@ -738,7 +752,8 @@ void UXboxRenderDevice::ReleaseTexCacheEntry( FXboxTexCacheEntry* Entry )
 
 void UXboxRenderDevice::EvictTexCacheForUpload( INT NeededBytes )
 {
-    const DWORD WantedKB = (DWORD)(Max(NeededBytes, 0) / 1024 + 768);
+    const DWORD UploadKB = (DWORD)(Max(NeededBytes, 0) / 1024 + 768);
+    const DWORD WantedKB = Max<DWORD>( UploadKB, 3072 );
     INT Released = 0;
     INT ReleasedKB = 0;
     while( (RenderAvailPhysKB() < WantedKB || TexLiveBytes > XBOX_TEX_LIVE_BUDGET) && Released < 48 )
@@ -770,9 +785,15 @@ void UXboxRenderDevice::EvictTexCacheForUpload( INT NeededBytes )
         Released++;
     }
 
-    if( Released && (GRD_TotalTexCreates <= 16 || (GRD_TotalTexCreates % 64) == 0 || RenderAvailPhysKB() < 512) )
-        GXboxLog.Write( "RTEX evict f=%d count=%d freedKB=%d liveKB=%d availKB=%u needKB=%d",
-            FrameCounter, Released, ReleasedKB, TexLiveBytes / 1024, (unsigned)RenderAvailPhysKB(), NeededBytes / 1024 );
+    if( Released && (GRD_TotalTexCreates <= 24 || (GRD_TotalTexCreates % 64) == 0 || RenderAvailPhysKB() < WantedKB) )
+    {
+        static INT EvictLogCount = 0;
+        EvictLogCount++;
+        DWORD AvailKB = RenderAvailPhysKB();
+        if( EvictLogCount <= 48 || (EvictLogCount % 256) == 0 || AvailKB < 1024 )
+            GXboxLog.Write( "RTEX evict #%d f=%d count=%d freedKB=%d liveKB=%d availKB=%u needKB=%d wantKB=%u",
+                EvictLogCount, FrameCounter, Released, ReleasedKB, TexLiveBytes / 1024, (unsigned)AvailKB, NeededBytes / 1024, (unsigned)WantedKB );
+    }
 }
 
 void UXboxRenderDevice::ReleaseDrawVertexBuffer()
@@ -1296,6 +1317,7 @@ void UXboxRenderDevice::Unlock( UBOOL Blit )
     if( !Device )
         return;
 
+    XboxRenderFlushMenuRectBatch( this, "Unlock" );
     FlushDGPBatch( "Unlock" );
     FlushDTBatch( "Unlock" );
 
@@ -1312,7 +1334,7 @@ void UXboxRenderDevice::Unlock( UBOOL Blit )
 
     if( !SceneOpen )
         ResumeSceneAfterTextureUpload( "perf-overlay" );
-    if( SceneOpen )
+    if( SceneOpen && GShowXboxPerfOverlay )
         DrawPerfOverlay();
 
     HRESULT hrEnd = S_OK;
@@ -1723,7 +1745,7 @@ UBOOL UXboxRenderDevice::SetTextureD3D( INT Stage, FTextureInfo& Info, DWORD Pol
         if( Info.Format == TEXF_DXT1 && GRD_DxtUnexpectedLogCount < 8 )
         {
             GRD_DxtUnexpectedLogCount++;
-            GXboxLog.Write( "RTEX unexpected-dxt #%d f=%d stage=%d id=%08X:%08X size=%dx%d SupportsTC=0",
+            GXboxLog.Write( "RTEX dxt #%d f=%d stage=%d id=%08X:%08X size=%dx%d",
                 GRD_DxtUnexpectedLogCount, FrameCounter, Stage,
                 GRD_LastTextureIDHi, GRD_LastTextureIDLo, SrcUSize, SrcVSize );
         }
@@ -1739,10 +1761,10 @@ UBOOL UXboxRenderDevice::SetTextureD3D( INT Stage, FTextureInfo& Info, DWORD Pol
         Entry->UIndex = bSwapUV ? 1 : 0;
         Entry->VIndex = bSwapUV ? 0 : 1;
 
-        // Ensure mipmap data is loaded. Because this renderer advertises no
-        // lazy/deferred loading, do not unload here; stock D3D only unloads
-        // when its lazy texture cache marks that entry as unloaded.
+        // Ensure mipmap data is loaded for the upload, then drop static source
+        // bytes once the D3D texture owns its copy.
         Info.Load();
+        UBOOL bUnloadSourceAfterUpload = !Info.bRealtime && !Info.bParametric;
         if( Info.Format == TEXF_RGBA7 && Info.MaxColor )
         {
             DWORD BeforeMaxColor = GET_COLOR_DWORD(*Info.MaxColor);
@@ -1803,6 +1825,8 @@ UBOOL UXboxRenderDevice::SetTextureD3D( INT Stage, FTextureInfo& Info, DWORD Pol
                 StageUIndex[Stage] = Entry->UIndex;
                 StageVIndex[Stage] = Entry->VIndex;
                 Info.bRealtimeChanged = 0;
+                if( bUnloadSourceAfterUpload )
+                    Info.Unload();
                 ResumeSceneAfterTextureUpload( "tex-create-retry-skip" );
                 return 0;
             }
@@ -1991,9 +2015,6 @@ UBOOL UXboxRenderDevice::SetTextureD3D( INT Stage, FTextureInfo& Info, DWORD Pol
 
             if( Entry->pTexture )
             {
-                static BYTE* ScratchP8 = NULL;
-                static INT   ScratchP8Size = 0;
-
                 for( INT m = FirstMip; m < Info.NumMips; m++ )
                 {
                     if( !Info.Mips[m] || !Info.Mips[m]->DataPtr )
@@ -2012,62 +2033,58 @@ UBOOL UXboxRenderDevice::SetTextureD3D( INT Stage, FTextureInfo& Info, DWORD Pol
                             FrameCounter, UploadSeq, m - FirstMip, MipW, MipH, DestW, DestH, Need );
                         continue;
                     }
-                    if( Need > ScratchP8Size )
-                    {
-                        appFree( ScratchP8 );
-                        ScratchP8 = (BYTE*)appMalloc( Need, TEXT("XboxRenderP8SwizzleScratch") );
-                        ScratchP8Size = Need;
-                    }
-                    if( !ScratchP8 )
+                    INT RowBytes = DestW;
+                    INT RowsPerChunk = RowBytes > 0 ? (XBOX_UPLOAD_CHUNK_BYTES / RowBytes) : 0;
+                    if( RowsPerChunk < 1 )
                     {
                         GRD_FrameTexSkipped++;
                         GRD_TotalTexSkipped++;
-                        GXboxLog.Write( "RTEXUP P8 scratch-failed f=%d seq=%d mip=%d need=%d",
-                            FrameCounter, UploadSeq, m - FirstMip, Need );
+                        GXboxLog.Write( "RTEXUP P8 row-too-wide f=%d seq=%d mip=%d rowBytes=%d chunk=%d",
+                            FrameCounter, UploadSeq, m - FirstMip, RowBytes, XBOX_UPLOAD_CHUNK_BYTES );
                         continue;
                     }
 
                     BYTE* Src = (BYTE*)Info.Mips[m]->DataPtr;
                     INT CopyW = RenderMipClampSize( Info.UClamp, m, MipW );
                     INT CopyH = RenderMipClampSize( Info.VClamp, m, MipH );
-                    for( INT y = 0; y < DestH; y++ )
-                    {
-                        INT sy = bSwapUV ? Min( y, CopyW - 1 ) : Min( y, CopyH - 1 );
-                        for( INT x = 0; x < DestW; x++ )
-                        {
-                            INT sx = bSwapUV ? Min( x, CopyH - 1 ) : Min( x, CopyW - 1 );
-                            ScratchP8[y * DestW + x] = Src[sy * MipW + sx];
-                        }
-                    }
-
                     D3DLOCKED_RECT lr;
                     HRESULT hrLock = Entry->pTexture->LockRect( m - FirstMip, &lr, NULL, 0 );
                     if( SUCCEEDED(hrLock) )
                     {
-                        RECT  srcRect = { 0, 0, DestW, DestH };
-                        POINT dstPoint = { 0, 0 };
-                        XGSwizzleRect(
-                            ScratchP8,
-                            DestW,
-                            &srcRect,
-                            lr.pBits,
-                            DestW,
-                            DestH,
-                            &dstPoint,
-                            1
-                        );
+                        for( INT y0 = 0; y0 < DestH; y0 += RowsPerChunk )
+                        {
+                            INT ChunkH = Min( RowsPerChunk, DestH - y0 );
+                            BYTE* ScratchP8 = GRD_UploadChunk;
+                            for( INT y = 0; y < ChunkH; y++ )
+                            {
+                                INT dy = y0 + y;
+                                INT sy = bSwapUV ? Min( dy, CopyW - 1 ) : Min( dy, CopyH - 1 );
+                                for( INT x = 0; x < DestW; x++ )
+                                {
+                                    INT sx = bSwapUV ? Min( x, CopyH - 1 ) : Min( x, CopyW - 1 );
+                                    ScratchP8[y * DestW + x] = Src[sy * MipW + sx];
+                                }
+                            }
+
+                            RECT  srcRect = { 0, 0, DestW, ChunkH };
+                            POINT dstPoint = { 0, y0 };
+                            XGSwizzleRect(
+                                ScratchP8,
+                                DestW,
+                                &srcRect,
+                                lr.pBits,
+                                DestW,
+                                DestH,
+                                &dstPoint,
+                                1
+                            );
+                        }
                         Entry->pTexture->UnlockRect( m - FirstMip );
                     }
                     else
                     {
                         GXboxLog.Write( "RTEX P8 LockRect FAILED frame=%d stage=%d id=%08X:%08X mip=%d hr=0x%08X",
                             FrameCounter, Stage, GRD_LastTextureIDHi, GRD_LastTextureIDLo, m - FirstMip, (DWORD)hrLock );
-                    }
-                    if( ScratchP8Size > (256 * 1024) )
-                    {
-                        appFree( ScratchP8 );
-                        ScratchP8 = NULL;
-                        ScratchP8Size = 0;
                     }
                 }
             }
@@ -2130,12 +2147,6 @@ UBOOL UXboxRenderDevice::SetTextureD3D( INT Stage, FTextureInfo& Info, DWORD Pol
             }
             if( Entry->pTexture )
             {
-                // Scratch buffer for linear pixel composition before swizzling.
-                // Worst case is one mip at 1024??1024??4 = 4 MB. Static-local so
-                // we don't re-allocate per upload; single-render-thread Xbox.
-                static DWORD* Scratch = NULL;
-                static INT    ScratchSize = 0;
-
                 for( INT m = FirstMip; m < Info.NumMips; m++ )
                 {
                     if( !Info.Mips[m] || !Info.Mips[m]->DataPtr )
@@ -2156,25 +2167,17 @@ UBOOL UXboxRenderDevice::SetTextureD3D( INT Stage, FTextureInfo& Info, DWORD Pol
                     }
                     if( bHotUpload && RenderHotTrace() )
                         GXboxLog.Write( "RTEXUP conv f=%d seq=%d mip=%d fmt=%d mipSize=%dx%d need=%d scratch=%d data=0x%08X",
-                            FrameCounter, UploadSeq, m - FirstMip, Info.Format, MipW, MipH, Need, ScratchSize, (DWORD)Info.Mips[m]->DataPtr );
-                    if( Need > ScratchSize )
-                    {
-                        appFree( Scratch );
-                        Scratch = (DWORD*)appMalloc( Need, TEXT("XboxRenderSwizzleScratch") );
-                        ScratchSize = Need;
-                        if( bHotUpload && RenderHotTrace() )
-                            GXboxLog.Write( "RTEXUP scratch f=%d seq=%d size=%d ptr=0x%08X",
-                                FrameCounter, UploadSeq, ScratchSize, (DWORD)Scratch );
-                    }
-                    if( !Scratch )
+                            FrameCounter, UploadSeq, m - FirstMip, Info.Format, MipW, MipH, Need, XBOX_UPLOAD_CHUNK_BYTES, (DWORD)Info.Mips[m]->DataPtr );
+                    INT RowBytes = DestW * 4;
+                    INT RowsPerChunk = RowBytes > 0 ? (XBOX_UPLOAD_CHUNK_BYTES / RowBytes) : 0;
+                    if( RowsPerChunk < 1 )
                     {
                         GRD_FrameTexSkipped++;
                         GRD_TotalTexSkipped++;
-                        GXboxLog.Write( "RTEXUP scratch-failed f=%d seq=%d mip=%d need=%d",
-                            FrameCounter, UploadSeq, m - FirstMip, Need );
+                        GXboxLog.Write( "RTEXUP row-too-wide f=%d seq=%d mip=%d rowBytes=%d chunk=%d",
+                            FrameCounter, UploadSeq, m - FirstMip, RowBytes, XBOX_UPLOAD_CHUNK_BYTES );
                         continue;
                     }
-                    DWORD* Dst = Scratch;
                     INT CopyW = RenderMipClampSize( Info.UClamp, m, MipW );
                     INT CopyH = RenderMipClampSize( Info.VClamp, m, MipH );
                     if( GVerboseRenderPerfLog && (CopyW != MipW || CopyH != MipH) && GRD_ClampPadLogCount < 32 )
@@ -2183,65 +2186,6 @@ UBOOL UXboxRenderDevice::SetTextureD3D( INT Stage, FTextureInfo& Info, DWORD Pol
                         GXboxLog.Write( "RTEX clamp-pad #%d f=%d seq=%d stage=%d fmt=%d mip=%d tex=%dx%d clamp=%dx%d dest=%dx%d",
                             GRD_ClampPadLogCount, FrameCounter, UploadSeq, Stage, Info.Format, m - FirstMip,
                             MipW, MipH, CopyW, CopyH, DestW, DestH );
-                    }
-
-                    if( Info.Format == TEXF_P8 )
-                    {
-                        BYTE* Src = (BYTE*)Info.Mips[m]->DataPtr;
-                        FColor* Pal = Info.Palette;
-                        for( INT y = 0; y < DestH; y++ )
-                        {
-                            INT sy = bSwapUV ? Min( y, CopyW - 1 ) : Min( y, CopyH - 1 );
-                            for( INT x = 0; x < DestW; x++ )
-                            {
-                                INT sx = bSwapUV ? Min( x, CopyH - 1 ) : Min( x, CopyW - 1 );
-                                BYTE Idx = Src[sy * MipW + sx];
-                                if( Idx == 0 && (PolyFlags & PF_Masked) )
-                                    Dst[y * DestW + x] = 0x00000000;
-                                else if( Pal )
-                                {
-                                    FColor& C = Pal[Idx];
-                                    Dst[y * DestW + x] = D3DCOLOR_ARGB( C.A, C.R, C.G, C.B );
-                                }
-                                else
-                                    Dst[y * DestW + x] = 0xFFFF00FF;
-                            }
-                        }
-                    }
-                    else if( Info.Format == TEXF_RGBA7 )
-                    {
-                        DWORD* Src = (DWORD*)Info.Mips[m]->DataPtr;
-                        if( bHotUpload && RenderHotTrace() )
-                            GXboxLog.Write( "RTEXUP rgba7-copy f=%d seq=%d mip=%d tex=%dx%d clamp=%dx%d",
-                                FrameCounter, UploadSeq, m - FirstMip, MipW, MipH, CopyW, CopyH );
-                        INT SrcStride = MipW;
-                        for( INT y = 0; y < DestH; y++ )
-                        {
-                            INT sy = bSwapUV ? Min( y, CopyW - 1 ) : Min( y, CopyH - 1 );
-                            DWORD* SrcRow = Src + sy * SrcStride;
-                            for( INT x = 0; x < DestW; x++ )
-                            {
-                                INT sx = bSwapUV ? Min( x, CopyH - 1 ) : Min( x, CopyW - 1 );
-                                Dst[y * DestW + x] = SrcRow[sx] * 2;
-                            }
-                        }
-                        if( bHotUpload && RenderHotTrace() )
-                            GXboxLog.Write( "RTEXUP rgba7-done f=%d seq=%d mip=%d",
-                                FrameCounter, UploadSeq, m - FirstMip );
-                    }
-                    else
-                    {
-                        FColor* Src = (FColor*)Info.Mips[m]->DataPtr;
-                        for( INT y = 0; y < DestH; y++ )
-                        {
-                            INT sy = bSwapUV ? Min( y, CopyW - 1 ) : Min( y, CopyH - 1 );
-                            for( INT x = 0; x < DestW; x++ )
-                            {
-                                INT sx = bSwapUV ? Min( x, CopyH - 1 ) : Min( x, CopyW - 1 );
-                                FColor& C = Src[sy * MipW + sx];
-                                Dst[y * DestW + x] = D3DCOLOR_ARGB( C.A, C.R, C.G, C.B );
-                            }
-                        }
                     }
 
                     // Lock the swizzled destination and swizzle our linear scratch
@@ -2255,21 +2199,83 @@ UBOOL UXboxRenderDevice::SetTextureD3D( INT Stage, FTextureInfo& Info, DWORD Pol
                             FrameCounter, UploadSeq, m - FirstMip, (DWORD)hrLock, (DWORD)(SUCCEEDED(hrLock) ? lr.pBits : NULL) );
                     if( SUCCEEDED(hrLock) )
                     {
-                        RECT  srcRect = { 0, 0, DestW, DestH };
-                        POINT dstPoint = { 0, 0 };
-                        if( bHotUpload && RenderHotTrace() )
-                            GXboxLog.Write( "RTEXUP swizzle-begin f=%d seq=%d mip=%d src=0x%08X dst=0x%08X size=%dx%d",
-                                FrameCounter, UploadSeq, m - FirstMip, (DWORD)Dst, (DWORD)lr.pBits, DestW, DestH );
-                        XGSwizzleRect(
-                            Dst,            // linear source
-                            DestW * 4,      // source pitch
-                            &srcRect,
-                            lr.pBits,       // swizzled destination
-                            DestW,          // dest width (this mip)
-                            DestH,          // dest height (this mip)
-                            &dstPoint,
-                            4               // bytes per pixel
-                        );
+                        for( INT y0 = 0; y0 < DestH; y0 += RowsPerChunk )
+                        {
+                            INT ChunkH = Min( RowsPerChunk, DestH - y0 );
+                            DWORD* Dst = (DWORD*)GRD_UploadChunk;
+
+                            if( Info.Format == TEXF_P8 )
+                            {
+                                BYTE* Src = (BYTE*)Info.Mips[m]->DataPtr;
+                                FColor* Pal = Info.Palette;
+                                for( INT y = 0; y < ChunkH; y++ )
+                                {
+                                    INT dy = y0 + y;
+                                    INT sy = bSwapUV ? Min( dy, CopyW - 1 ) : Min( dy, CopyH - 1 );
+                                    for( INT x = 0; x < DestW; x++ )
+                                    {
+                                        INT sx = bSwapUV ? Min( x, CopyH - 1 ) : Min( x, CopyW - 1 );
+                                        BYTE Idx = Src[sy * MipW + sx];
+                                        if( Idx == 0 && (PolyFlags & PF_Masked) )
+                                            Dst[y * DestW + x] = 0x00000000;
+                                        else if( Pal )
+                                        {
+                                            FColor& C = Pal[Idx];
+                                            Dst[y * DestW + x] = D3DCOLOR_ARGB( C.A, C.R, C.G, C.B );
+                                        }
+                                        else
+                                            Dst[y * DestW + x] = 0xFFFF00FF;
+                                    }
+                                }
+                            }
+                            else if( Info.Format == TEXF_RGBA7 )
+                            {
+                                DWORD* Src = (DWORD*)Info.Mips[m]->DataPtr;
+                                INT SrcStride = MipW;
+                                for( INT y = 0; y < ChunkH; y++ )
+                                {
+                                    INT dy = y0 + y;
+                                    INT sy = bSwapUV ? Min( dy, CopyW - 1 ) : Min( dy, CopyH - 1 );
+                                    DWORD* SrcRow = Src + sy * SrcStride;
+                                    for( INT x = 0; x < DestW; x++ )
+                                    {
+                                        INT sx = bSwapUV ? Min( x, CopyH - 1 ) : Min( x, CopyW - 1 );
+                                        Dst[y * DestW + x] = SrcRow[sx] * 2;
+                                    }
+                                }
+                            }
+                            else
+                            {
+                                FColor* Src = (FColor*)Info.Mips[m]->DataPtr;
+                                for( INT y = 0; y < ChunkH; y++ )
+                                {
+                                    INT dy = y0 + y;
+                                    INT sy = bSwapUV ? Min( dy, CopyW - 1 ) : Min( dy, CopyH - 1 );
+                                    for( INT x = 0; x < DestW; x++ )
+                                    {
+                                        INT sx = bSwapUV ? Min( x, CopyH - 1 ) : Min( x, CopyW - 1 );
+                                        FColor& C = Src[sy * MipW + sx];
+                                        Dst[y * DestW + x] = D3DCOLOR_ARGB( C.A, C.R, C.G, C.B );
+                                    }
+                                }
+                            }
+
+                            RECT  srcRect = { 0, 0, DestW, ChunkH };
+                            POINT dstPoint = { 0, y0 };
+                            if( bHotUpload && RenderHotTrace() )
+                                GXboxLog.Write( "RTEXUP swizzle-begin f=%d seq=%d mip=%d src=0x%08X dst=0x%08X size=%dx%d y=%d h=%d",
+                                    FrameCounter, UploadSeq, m - FirstMip, (DWORD)Dst, (DWORD)lr.pBits, DestW, DestH, y0, ChunkH );
+                            XGSwizzleRect(
+                                Dst,            // linear source
+                                DestW * 4,      // source pitch
+                                &srcRect,
+                                lr.pBits,       // swizzled destination
+                                DestW,          // dest width (this mip)
+                                DestH,          // dest height (this mip)
+                                &dstPoint,
+                                4               // bytes per pixel
+                            );
+                        }
                         if( bHotUpload && RenderHotTrace() )
                             GXboxLog.Write( "RTEXUP swizzle-end f=%d seq=%d mip=%d",
                                 FrameCounter, UploadSeq, m - FirstMip );
@@ -2283,13 +2289,20 @@ UBOOL UXboxRenderDevice::SetTextureD3D( INT Stage, FTextureInfo& Info, DWORD Pol
                         GXboxLog.Write( "RTEX LockRect FAILED frame=%d stage=%d id=%08X:%08X mip=%d hr=0x%08X",
                             FrameCounter, Stage, GRD_LastTextureIDHi, GRD_LastTextureIDLo, m - FirstMip, (DWORD)hrLock );
                     }
-                    if( ScratchSize > (256 * 1024) )
-                    {
-                        appFree( Scratch );
-                        Scratch = NULL;
-                        ScratchSize = 0;
-                    }
                 }
+            }
+        }
+        if( bUnloadSourceAfterUpload )
+        {
+            Info.Unload();
+            DWORD UnloadAvailKB = RenderAvailPhysKB();
+            GRD_SourceUnloadLogCount++;
+            if( GRD_SourceUnloadLogCount <= 24 || ( UnloadAvailKB < 8192 && ( GRD_SourceUnloadLogCount & 0xFF ) == 0 ) )
+            {
+                GXboxLog.Write( "RTEX source-unload #%d f=%d stage=%d id=%08X:%08X fmt=%d mips=%d availKB=%u",
+                    GRD_SourceUnloadLogCount, FrameCounter, Stage,
+                    GRD_LastTextureIDHi, GRD_LastTextureIDLo, Info.Format, Info.NumMips,
+                    (unsigned)UnloadAvailKB );
             }
         }
         ResumeSceneAfterTextureUpload( "tex-upload" );
@@ -2965,6 +2978,7 @@ extern "C" void XboxRenderPrepareMenuText( FSceneNode* Frame, const char* Label 
     if( !Ren || !Ren->Device || !Frame )
         return;
 
+    XboxRenderFlushMenuRectBatch( Ren, "menu-text-pre" );
     Ren->FlushDGPBatch( "menu-text-pre" );
     Ren->FlushDTBatch( "menu-text-pre" );
     GRD_MenuTextMode = 1;
@@ -3003,6 +3017,7 @@ extern "C" void XboxRenderFinishMenuText( FSceneNode* Frame )
     if( !Ren || !Ren->Device || !Frame )
         return;
 
+    XboxRenderFlushMenuRectBatch( Ren, "menu-text-post" );
     Ren->FlushDTBatch( "menu-text-post" );
     Ren->FlushDGPBatch( "menu-text-post" );
     if( GRD_MenuTextLogBudget > 0 )
@@ -3022,6 +3037,54 @@ extern "C" void XboxRenderFinishMenuText( FSceneNode* Frame )
     unguard;
 }
 
+static void XboxRenderFlushMenuRectBatch( UXboxRenderDevice* Ren, const char* Reason )
+{
+    guard(XboxRenderFlushMenuRectBatch);
+
+    if( !GRD_MenuRectBatchActive || GRD_MenuRectBatchVerts <= 0 )
+    {
+        GRD_MenuRectBatchActive = 0;
+        GRD_MenuRectBatchVerts = 0;
+        return;
+    }
+
+    if( Ren && Ren->Device )
+    {
+        Ren->FlushDGPBatch( Reason ? Reason : "menu-rect" );
+        Ren->FlushDTBatch( Reason ? Reason : "menu-rect" );
+        Ren->DisableStage1();
+
+        Ren->SetCachedRenderState( D3DRS_SHADEMODE, D3DSHADE_FLAT );
+        Ren->SetCachedTextureStageState( 0, D3DTSS_COLOROP, D3DTOP_SELECTARG1 );
+        Ren->SetCachedTextureStageState( 0, D3DTSS_COLORARG1, D3DTA_DIFFUSE );
+        Ren->SetCachedTextureStageState( 0, D3DTSS_ALPHAOP, D3DTOP_SELECTARG1 );
+        Ren->SetCachedTextureStageState( 0, D3DTSS_ALPHAARG1, D3DTA_DIFFUSE );
+        Ren->Device->SetTexture( 0, NULL );
+        Ren->BoundCacheID[0] = 0;
+        Ren->SetCachedRenderState( D3DRS_ZENABLE, D3DZB_FALSE );
+        Ren->SetCachedRenderState( D3DRS_ZWRITEENABLE, FALSE );
+        Ren->SetCachedRenderState( D3DRS_ZFUNC, D3DCMP_ALWAYS );
+        Ren->SetCachedRenderState( D3DRS_ALPHATESTENABLE, FALSE );
+        Ren->SetCachedRenderState( D3DRS_ALPHABLENDENABLE, TRUE );
+        Ren->SetCachedRenderState( D3DRS_SRCBLEND, D3DBLEND_SRCALPHA );
+        Ren->SetCachedRenderState( D3DRS_DESTBLEND, D3DBLEND_INVSRCALPHA );
+        Ren->SetCachedVertexShader( XBOX_FVF_TLVERTEX );
+
+        Ren->DrawPrimitiveVB( D3DPT_TRIANGLELIST, GRD_MenuRectBatchVerts / 3, GRD_MenuRectBatch, sizeof(FXboxTLVertex), "menu-rect-batch" );
+
+        Ren->RestoreDefaultTextureStages();
+        Ren->SetCachedRenderState( D3DRS_ALPHABLENDENABLE, FALSE );
+        Ren->SetCachedRenderState( D3DRS_ALPHATESTENABLE, FALSE );
+        Ren->SetCachedRenderState( D3DRS_SHADEMODE, D3DSHADE_GOURAUD );
+        Ren->CurrentPolyFlags = 0xFFFFFFFF;
+    }
+
+    GRD_MenuRectBatchActive = 0;
+    GRD_MenuRectBatchVerts = 0;
+
+    unguard;
+}
+
 extern "C" void XboxRenderDrawMenuRect( FSceneNode* Frame, FLOAT X1, FLOAT Y1, FLOAT X2, FLOAT Y2, BYTE R, BYTE G, BYTE B, BYTE A )
 {
     guard(XboxRenderDrawMenuRect);
@@ -3030,9 +3093,8 @@ extern "C" void XboxRenderDrawMenuRect( FSceneNode* Frame, FLOAT X1, FLOAT Y1, F
     if( !Ren || !Ren->Device || !Frame )
         return;
 
-    Ren->FlushDGPBatch( "menu-rect" );
-    Ren->FlushDTBatch( "menu-rect" );
-    Ren->DisableStage1();
+    if( GRD_MenuRectBatchVerts + 6 > XBOX_MENU_RECT_BATCH_VERTS )
+        XboxRenderFlushMenuRectBatch( Ren, "menu-rect-full" );
 
     DWORD Clr = ((DWORD)A << 24) | ((DWORD)R << 16) | ((DWORD)G << 8) | (DWORD)B;
     FLOAT RHW = 1.0f;
@@ -3044,38 +3106,13 @@ extern "C" void XboxRenderDrawMenuRect( FSceneNode* Frame, FLOAT X1, FLOAT Y1, F
     Verts[2].x = X2 - 0.5f; Verts[2].y = Y2 - 0.5f; Verts[2].rhw = RHW; Verts[2].z = SZ; Verts[2].color = Clr; Verts[2].u = 0; Verts[2].v = 0;
     Verts[3].x = X1 - 0.5f; Verts[3].y = Y2 - 0.5f; Verts[3].rhw = RHW; Verts[3].z = SZ; Verts[3].color = Clr; Verts[3].u = 0; Verts[3].v = 0;
 
-    Ren->SetCachedRenderState( D3DRS_SHADEMODE, D3DSHADE_FLAT );
-    Ren->SetCachedTextureStageState( 0, D3DTSS_COLOROP, D3DTOP_SELECTARG1 );
-    Ren->SetCachedTextureStageState( 0, D3DTSS_COLORARG1, D3DTA_DIFFUSE );
-    Ren->SetCachedTextureStageState( 0, D3DTSS_ALPHAOP, D3DTOP_SELECTARG1 );
-    Ren->SetCachedTextureStageState( 0, D3DTSS_ALPHAARG1, D3DTA_DIFFUSE );
-    Ren->Device->SetTexture( 0, NULL );
-    Ren->BoundCacheID[0] = 0;
-    Ren->SetCachedRenderState( D3DRS_ZENABLE, D3DZB_FALSE );
-    Ren->SetCachedRenderState( D3DRS_ZWRITEENABLE, FALSE );
-    Ren->SetCachedRenderState( D3DRS_ZFUNC, D3DCMP_ALWAYS );
-    Ren->SetCachedRenderState( D3DRS_ALPHATESTENABLE, FALSE );
-
-    if( A < 255 )
-    {
-        Ren->SetCachedRenderState( D3DRS_ALPHABLENDENABLE, TRUE );
-        Ren->SetCachedRenderState( D3DRS_SRCBLEND, D3DBLEND_SRCALPHA );
-        Ren->SetCachedRenderState( D3DRS_DESTBLEND, D3DBLEND_INVSRCALPHA );
-    }
-    else
-    {
-        Ren->SetCachedRenderState( D3DRS_ALPHABLENDENABLE, FALSE );
-    }
-
-    Ren->SetCachedVertexShader( XBOX_FVF_TLVERTEX );
-    Ren->DrawPrimitiveVB( D3DPT_TRIANGLEFAN, 2, Verts, sizeof(FXboxTLVertex), "menu-rect" );
-
-    Ren->RestoreDefaultTextureStages();
-    if( A < 255 )
-        Ren->SetCachedRenderState( D3DRS_ALPHABLENDENABLE, FALSE );
-    Ren->SetCachedRenderState( D3DRS_ALPHATESTENABLE, FALSE );
-    Ren->SetCachedRenderState( D3DRS_SHADEMODE, D3DSHADE_GOURAUD );
-    Ren->CurrentPolyFlags = 0xFFFFFFFF;
+    GRD_MenuRectBatch[GRD_MenuRectBatchVerts++] = Verts[0];
+    GRD_MenuRectBatch[GRD_MenuRectBatchVerts++] = Verts[1];
+    GRD_MenuRectBatch[GRD_MenuRectBatchVerts++] = Verts[2];
+    GRD_MenuRectBatch[GRD_MenuRectBatchVerts++] = Verts[0];
+    GRD_MenuRectBatch[GRD_MenuRectBatchVerts++] = Verts[2];
+    GRD_MenuRectBatch[GRD_MenuRectBatchVerts++] = Verts[3];
+    GRD_MenuRectBatchActive = 1;
 
     unguard;
 }
@@ -3180,6 +3217,7 @@ extern "C" void XboxRenderBeginMenuMeshSlot( FSceneNode* Frame, FLOAT X, FLOAT Y
     if( !Ren || !Ren->Device || !Frame || W < 1.0f || H < 1.0f )
         return;
 
+    XboxRenderFlushMenuRectBatch( Ren, "menu-mesh-slot-begin" );
     Ren->FlushDGPBatch( "menu-mesh-slot-begin" );
     Ren->FlushDTBatch( "menu-mesh-slot-begin" );
 
@@ -3215,6 +3253,7 @@ extern "C" void XboxRenderEndMenuMeshSlot( FSceneNode* Frame )
     if( !Ren || !Ren->Device || !GRD_MenuMeshSlotActive )
         return;
 
+    XboxRenderFlushMenuRectBatch( Ren, "menu-mesh-slot-end" );
     Ren->FlushDGPBatch( "menu-mesh-slot-end" );
     Ren->FlushDTBatch( "menu-mesh-slot-end" );
     Ren->Device->SetScissors( GRD_MenuMeshSlotOldScissorCount, GRD_MenuMeshSlotOldScissorExclusive, GRD_MenuMeshSlotOldScissors );
@@ -3234,6 +3273,50 @@ struct FXboxMenuTexture
 };
 
 static FXboxMenuTexture GXboxMenuTextures[32];
+static char GXboxMenuTextureFailures[16][64];
+
+extern "C" void XboxRenderReleaseMenuTextures()
+{
+    INT Released = 0;
+    INT ReleasedKB = 0;
+    for( INT i=0; i<ARRAY_COUNT(GXboxMenuTextures); i++ )
+    {
+        if( GXboxMenuTextures[i].Texture )
+        {
+            Released++;
+            ReleasedKB += (INT)((GXboxMenuTextures[i].Width * GXboxMenuTextures[i].Height * 4) / 1024);
+            RenderBlockAndReleaseTexture( GXboxMenuTextures[i].Texture );
+        }
+        appMemzero( &GXboxMenuTextures[i], sizeof(GXboxMenuTextures[i]) );
+    }
+    appMemzero( GXboxMenuTextureFailures, sizeof(GXboxMenuTextureFailures) );
+    if( Released )
+        GXboxLog.Write( "XMENU render textures released count=%d approxKB=%d", Released, ReleasedKB );
+}
+
+static UBOOL XboxMenuTextureFailedBefore( const char* Name )
+{
+    for( INT i=0; i<ARRAY_COUNT(GXboxMenuTextureFailures); i++ )
+        if( GXboxMenuTextureFailures[i][0] && appStricmp(GXboxMenuTextureFailures[i], Name)==0 )
+            return 1;
+    return 0;
+}
+
+static void XboxRememberMenuTextureFailure( const char* Name )
+{
+    if( !Name || XboxMenuTextureFailedBefore( Name ) )
+        return;
+
+    for( INT i=0; i<ARRAY_COUNT(GXboxMenuTextureFailures); i++ )
+    {
+        if( !GXboxMenuTextureFailures[i][0] )
+        {
+            appStrncpy( GXboxMenuTextureFailures[i], Name, ARRAY_COUNT(GXboxMenuTextureFailures[i]) );
+            GXboxMenuTextureFailures[i][ARRAY_COUNT(GXboxMenuTextureFailures[i])-1] = 0;
+            return;
+        }
+    }
+}
 
 static FXboxMenuTexture* XboxFindMenuTexture( const char* Name )
 {
@@ -3251,6 +3334,8 @@ static FXboxMenuTexture* XboxLoadMenuTexture( UXboxRenderDevice* Ren, const char
     FXboxMenuTexture* Existing = XboxFindMenuTexture( Name );
     if( Existing )
         return Existing;
+    if( XboxMenuTextureFailedBefore( Name ) )
+        return NULL;
 
     FXboxMenuTexture* Slot = NULL;
     for( INT i=0; i<ARRAY_COUNT(GXboxMenuTextures); i++ )
@@ -3264,6 +3349,7 @@ static FXboxMenuTexture* XboxLoadMenuTexture( UXboxRenderDevice* Ren, const char
     if( !Slot )
     {
         GXboxLog.Write( "XMENU tex cache full loading %s slots=%d", Name, ARRAY_COUNT(GXboxMenuTextures) );
+        XboxRememberMenuTextureFailure( Name );
         return NULL;
     }
 
@@ -3273,6 +3359,7 @@ static FXboxMenuTexture* XboxLoadMenuTexture( UXboxRenderDevice* Ren, const char
     if( File == INVALID_HANDLE_VALUE )
     {
         GXboxLog.Write( "XMENU tex missing %s err=%lu", Path, GetLastError() );
+        XboxRememberMenuTextureFailure( Name );
         return NULL;
     }
 
@@ -3282,6 +3369,7 @@ static FXboxMenuTexture* XboxLoadMenuTexture( UXboxRenderDevice* Ren, const char
     {
         CloseHandle( File );
         GXboxLog.Write( "XMENU tex bad header %s", Path );
+        XboxRememberMenuTextureFailure( Name );
         return NULL;
     }
 
@@ -3291,6 +3379,7 @@ static FXboxMenuTexture* XboxLoadMenuTexture( UXboxRenderDevice* Ren, const char
     {
         CloseHandle( File );
         GXboxLog.Write( "XMENU tex bad size %s %lux%lu", Path, Width, Height );
+        XboxRememberMenuTextureFailure( Name );
         return NULL;
     }
 
@@ -3303,6 +3392,7 @@ static FXboxMenuTexture* XboxLoadMenuTexture( UXboxRenderDevice* Ren, const char
     {
         CloseHandle( File );
         GXboxLog.Write( "XMENU tex create failed %s %lux%lu hr=0x%08X", Path, TexWidth, TexHeight, (DWORD)hr );
+        XboxRememberMenuTextureFailure( Name );
         return NULL;
     }
 
@@ -3313,6 +3403,7 @@ static FXboxMenuTexture* XboxLoadMenuTexture( UXboxRenderDevice* Ren, const char
         Texture->Release();
         CloseHandle( File );
         GXboxLog.Write( "XMENU tex lock failed %s hr=0x%08X", Path, (DWORD)hr );
+        XboxRememberMenuTextureFailure( Name );
         return NULL;
     }
 
@@ -3349,6 +3440,7 @@ static FXboxMenuTexture* XboxLoadMenuTexture( UXboxRenderDevice* Ren, const char
     {
         Texture->Release();
         GXboxLog.Write( "XMENU tex short read %s", Path );
+        XboxRememberMenuTextureFailure( Name );
         return NULL;
     }
 
@@ -3373,6 +3465,7 @@ extern "C" UBOOL XboxRenderDrawMenuTexture( FSceneNode* Frame, const char* Name,
     if( !Tex || !Tex->Texture )
         return 0;
 
+    XboxRenderFlushMenuRectBatch( Ren, "menu-tex" );
     Ren->FlushDGPBatch( "menu-tex" );
     Ren->FlushDTBatch( "menu-tex" );
     Ren->DisableStage1();

@@ -17,6 +17,16 @@ inline INT HashNames( FName A, FName B, FName C )
 	return A.GetIndex() + 7 * B.GetIndex() + 31*C.GetIndex();
 }
 
+#if TARGET_XBOX
+extern DWORD GXboxMallocLiveBytes;
+extern DWORD GXboxMallocPeakBytes;
+extern DWORD GXboxMallocTotalBytes;
+extern DWORD GXboxMallocLargestBytes;
+extern DWORD GXboxMallocLastLargeBytes;
+extern char  GXboxMallocLargestTag[64];
+extern char  GXboxMallocLastLargeTag[64];
+#endif
+
 /*-----------------------------------------------------------------------------
 	FObjectExport.
 -----------------------------------------------------------------------------*/
@@ -336,6 +346,22 @@ class ULinkerLoad : public ULinker, public FArchive
 	{
 		guard(ULinkerLoad::ULinkerLoad);
 		const UBOOL bVerbosePackageLoad = 0;
+#if TARGET_XBOX
+		extern DWORD GXboxMallocLiveBytes;
+		extern DWORD GXboxMallocPeakBytes;
+		extern DWORD GXboxMallocTotalBytes;
+		extern DWORD GXboxMallocLargestBytes;
+		extern DWORD GXboxMallocLastLargeBytes;
+		extern char  GXboxMallocLargestTag[64];
+		extern char  GXboxMallocLastLargeTag[64];
+		MEMORYSTATUS XboxLinkerMemStart;
+		appMemzero( &XboxLinkerMemStart, sizeof(XboxLinkerMemStart) );
+		XboxLinkerMemStart.dwLength = sizeof(XboxLinkerMemStart);
+		GlobalMemoryStatus( &XboxLinkerMemStart );
+		DWORD XboxLinkerAvailStartKB = XboxLinkerMemStart.dwAvailPhys / 1024;
+		DWORD XboxLinkerHeapStartKB = GXboxMallocLiveBytes / 1024;
+		DWORD XboxLinkerTotalStartKB = GXboxMallocTotalBytes / 1024;
+#endif
 		if( bVerbosePackageLoad )
 			debugf( TEXT("Loading: %s"), InParent->GetFullName() );
 		if( bVerbosePackageLoad )
@@ -484,6 +510,41 @@ class ULinkerLoad : public ULinker, public FArchive
 		Success = 1;
 		if( bVerbosePackageLoad )
 			debugf( TEXT("ULinkerLoad: success '%s'"), *Filename );
+#if TARGET_XBOX
+		MEMORYSTATUS XboxLinkerMemEnd;
+		appMemzero( &XboxLinkerMemEnd, sizeof(XboxLinkerMemEnd) );
+		XboxLinkerMemEnd.dwLength = sizeof(XboxLinkerMemEnd);
+		GlobalMemoryStatus( &XboxLinkerMemEnd );
+		DWORD XboxLinkerAvailEndKB = XboxLinkerMemEnd.dwAvailPhys / 1024;
+		DWORD XboxLinkerHeapEndKB = GXboxMallocLiveBytes / 1024;
+		DWORD XboxLinkerTotalEndKB = GXboxMallocTotalBytes / 1024;
+		INT XboxLinkerDeltaAvailKB = (INT)XboxLinkerAvailEndKB - (INT)XboxLinkerAvailStartKB;
+		INT XboxLinkerDeltaHeapKB = (INT)XboxLinkerHeapEndKB - (INT)XboxLinkerHeapStartKB;
+		INT XboxLinkerDeltaTotalKB = (INT)XboxLinkerTotalEndKB - (INT)XboxLinkerTotalStartKB;
+		if( Abs(XboxLinkerDeltaHeapKB) >= 128 || Abs(XboxLinkerDeltaAvailKB) >= 128 || Loader->TotalSize() >= 1024 * 1024 )
+		{
+			debugf
+			(
+				NAME_Init,
+				TEXT("XPKG linker file=%s root=%s fileKB=%i names=%i imports=%i exports=%i availKB=%u dAvailKB=%i heapLiveKB=%u dHeapKB=%i dTotalKB=%i largestKB=%u largestTag=%s lastLargeKB=%u lastLargeTag=%s"),
+				*Filename,
+				LinkerRoot ? LinkerRoot->GetName() : TEXT("NULL"),
+				Loader ? Loader->TotalSize() / 1024 : 0,
+				Summary.NameCount,
+				Summary.ImportCount,
+				Summary.ExportCount,
+				(unsigned)XboxLinkerAvailEndKB,
+				XboxLinkerDeltaAvailKB,
+				(unsigned)XboxLinkerHeapEndKB,
+				XboxLinkerDeltaHeapKB,
+				XboxLinkerDeltaTotalKB,
+				(unsigned)(GXboxMallocLargestBytes / 1024),
+				GXboxMallocLargestTag,
+				(unsigned)(GXboxMallocLastLargeBytes / 1024),
+				GXboxMallocLastLargeTag
+			);
+		}
+#endif
 
 		unguard;
 	}
@@ -904,7 +965,51 @@ class ULinkerLoad : public ULinker, public FArchive
 				// Load the object.
 				Object->ClearFlags ( RF_NeedLoad );
 				Object->SetFlags   ( RF_Preloading );
+#if TARGET_XBOX
+				MEMORYSTATUS XboxPreloadMemStart;
+				appMemzero( &XboxPreloadMemStart, sizeof(XboxPreloadMemStart) );
+				XboxPreloadMemStart.dwLength = sizeof(XboxPreloadMemStart);
+				GlobalMemoryStatus( &XboxPreloadMemStart );
+				DWORD XboxPreloadAvailStartKB = XboxPreloadMemStart.dwAvailPhys / 1024;
+				DWORD XboxPreloadHeapStartKB = GXboxMallocLiveBytes / 1024;
+#endif
 				Object->Serialize  ( *this );
+#if TARGET_XBOX
+				MEMORYSTATUS XboxPreloadMemEnd;
+				appMemzero( &XboxPreloadMemEnd, sizeof(XboxPreloadMemEnd) );
+				XboxPreloadMemEnd.dwLength = sizeof(XboxPreloadMemEnd);
+				GlobalMemoryStatus( &XboxPreloadMemEnd );
+				DWORD XboxPreloadAvailEndKB = XboxPreloadMemEnd.dwAvailPhys / 1024;
+				DWORD XboxPreloadHeapEndKB = GXboxMallocLiveBytes / 1024;
+				INT XboxPreloadDeltaAvailKB = (INT)XboxPreloadAvailEndKB - (INT)XboxPreloadAvailStartKB;
+				INT XboxPreloadDeltaHeapKB = (INT)XboxPreloadHeapEndKB - (INT)XboxPreloadHeapStartKB;
+				if
+				(
+					XboxPreloadDeltaHeapKB >= 256 ||
+					XboxPreloadDeltaHeapKB <= -256 ||
+					XboxPreloadDeltaAvailKB >= 256 ||
+					XboxPreloadDeltaAvailKB <= -256 ||
+					Export.SerialSize >= 512 * 1024
+				)
+				{
+					debugf
+					(
+						NAME_Init,
+						TEXT("XLOADOBJ %s serialKB=%i pkg=%s availKB=%u dAvailKB=%i heapLiveKB=%u dHeapKB=%i largestKB=%u largestTag=%s lastLargeKB=%u lastLargeTag=%s"),
+						Object->GetFullName(),
+						Export.SerialSize / 1024,
+						LinkerRoot ? LinkerRoot->GetName() : TEXT("NULL"),
+						(unsigned)XboxPreloadAvailEndKB,
+						XboxPreloadDeltaAvailKB,
+						(unsigned)XboxPreloadHeapEndKB,
+						XboxPreloadDeltaHeapKB,
+						(unsigned)(GXboxMallocLargestBytes / 1024),
+						GXboxMallocLargestTag ? GXboxMallocLargestTag : "NULL",
+						(unsigned)(GXboxMallocLastLargeBytes / 1024),
+						GXboxMallocLastLargeTag ? GXboxMallocLastLargeTag : "NULL"
+					);
+				}
+#endif
 				Object->ClearFlags ( RF_Preloading );
 				//debugf(NAME_Log,"    %s: %i", Object->GetFullName(), Export.SerialSize );
 
@@ -966,6 +1071,14 @@ private:
 			}*/
 
 			// Create the export object.
+#if TARGET_XBOX
+			MEMORYSTATUS XboxCreateMemStart;
+			appMemzero( &XboxCreateMemStart, sizeof(XboxCreateMemStart) );
+			XboxCreateMemStart.dwLength = sizeof(XboxCreateMemStart);
+			GlobalMemoryStatus( &XboxCreateMemStart );
+			DWORD XboxCreateAvailStartKB = XboxCreateMemStart.dwAvailPhys / 1024;
+			DWORD XboxCreateHeapStartKB = GXboxMallocLiveBytes / 1024;
+#endif
 			Export._Object = StaticConstructObject
 			(
 				LoadClass,
@@ -973,6 +1086,41 @@ private:
 				Export.ObjectName,
 				(Export.ObjectFlags & RF_Load) | RF_NeedLoad | RF_NeedPostLoad
 			);
+#if TARGET_XBOX
+			MEMORYSTATUS XboxCreateMemEnd;
+			appMemzero( &XboxCreateMemEnd, sizeof(XboxCreateMemEnd) );
+			XboxCreateMemEnd.dwLength = sizeof(XboxCreateMemEnd);
+			GlobalMemoryStatus( &XboxCreateMemEnd );
+			DWORD XboxCreateAvailEndKB = XboxCreateMemEnd.dwAvailPhys / 1024;
+			DWORD XboxCreateHeapEndKB = GXboxMallocLiveBytes / 1024;
+			INT XboxCreateDeltaAvailKB = (INT)XboxCreateAvailEndKB - (INT)XboxCreateAvailStartKB;
+			INT XboxCreateDeltaHeapKB = (INT)XboxCreateHeapEndKB - (INT)XboxCreateHeapStartKB;
+			if
+			(
+				XboxCreateDeltaHeapKB >= 128 ||
+				XboxCreateDeltaHeapKB <= -128 ||
+				XboxCreateDeltaAvailKB >= 128 ||
+				XboxCreateDeltaAvailKB <= -128
+			)
+			{
+				debugf
+				(
+					NAME_Init,
+					TEXT("XCREATE %s class=%s pkg=%s availKB=%u dAvailKB=%i heapLiveKB=%u dHeapKB=%i largestKB=%u largestTag=%s lastLargeKB=%u lastLargeTag=%s"),
+					Export._Object ? Export._Object->GetFullName() : TEXT("NULL"),
+					LoadClass ? LoadClass->GetName() : TEXT("NULL"),
+					LinkerRoot ? LinkerRoot->GetName() : TEXT("NULL"),
+					(unsigned)XboxCreateAvailEndKB,
+					XboxCreateDeltaAvailKB,
+					(unsigned)XboxCreateHeapEndKB,
+					XboxCreateDeltaHeapKB,
+					(unsigned)(GXboxMallocLargestBytes / 1024),
+					GXboxMallocLargestTag ? GXboxMallocLargestTag : "NULL",
+					(unsigned)(GXboxMallocLastLargeBytes / 1024),
+					GXboxMallocLastLargeTag ? GXboxMallocLastLargeTag : "NULL"
+				);
+			}
+#endif
 			Export._Object->SetLinker( this, Index );
 			GObjLoaded.AddItem( Export._Object );
 			debugfSlow( NAME_DevLoad, TEXT("Created %s"), Export._Object->GetFullName() );

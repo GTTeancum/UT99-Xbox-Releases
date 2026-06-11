@@ -451,6 +451,48 @@ def build_launch(vcproj, config_name, build_root, built_libs):
     return out_exe, out_xbe
 
 
+def copy_runtime_assets(build_root):
+    system_src = os.path.join(ROOT_DIR, "System")
+    system_dst = os.path.join(build_root, "System")
+    default_ini = os.path.join(system_src, "Default.ini")
+    if os.path.isfile(default_ini):
+        if not os.path.isdir(system_dst):
+            os.makedirs(system_dst)
+        shutil.copy2(default_ini, os.path.join(system_dst, "Default.ini"))
+        shutil.copy2(default_ini, os.path.join(system_dst, "UnrealTournament.ini"))
+        print("Copied Xbox System ini files to " + system_dst)
+
+    menu_src = os.path.join(XBOX_DIR, "MenuAssets")
+    menu_dst = os.path.join(build_root, "MenuAssets")
+    if os.path.isdir(menu_src):
+        if not os.path.isdir(menu_dst):
+            os.makedirs(menu_dst)
+        for name in os.listdir(menu_src):
+            src = os.path.join(menu_src, name)
+            dst = os.path.join(menu_dst, name)
+            if os.path.isfile(src):
+                shutil.copy2(src, dst)
+        print("Copied MenuAssets to " + menu_dst)
+
+    music_src = os.path.join(XBOX_DIR, "MusicXbox")
+    music_dst = os.path.join(build_root, "MusicXbox")
+    if os.path.isdir(music_src):
+        if not os.path.isdir(music_dst):
+            os.makedirs(music_dst)
+        for name in os.listdir(music_src):
+            src = os.path.join(music_src, name)
+            dst = os.path.join(music_dst, name)
+            if os.path.isfile(src):
+                shutil.copy2(src, dst)
+        print("Copied MusicXbox to " + music_dst)
+
+    cityintro = os.path.join(build_root, "Maps", "CityIntro.unr")
+    if os.path.isfile(cityintro):
+        patcher = os.path.join(SCRIPT_DIR, "patch_cityintro_frontend.py")
+        if run_command([sys.executable, patcher, cityintro], ROOT_DIR) != 0:
+            fail("CityIntro frontend patch failed: " + cityintro)
+
+
 def main():
     parser = argparse.ArgumentParser(description="Build UT99 Xbox from the command line.")
     parser.add_argument("--config", default="Release", choices=("Release", "Debug"))
@@ -488,6 +530,7 @@ def main():
     for name, vcproj, kind in PROJECTS:
         if kind == "exe":
             out_exe, out_xbe = build_launch(vcproj, args.config, build_root, built_libs)
+    copy_runtime_assets(build_root)
 
     print("")
     print("BUILD SUCCEEDED")

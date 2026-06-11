@@ -8,10 +8,12 @@ extern "C" void  XboxRenderEndMenuMeshSlot( FSceneNode* Frame );
 extern "C" void  XboxRenderPrepareMenuText( FSceneNode* Frame, const char* Label );
 extern "C" void  XboxRenderFinishMenuText( FSceneNode* Frame );
 extern "C" void  XboxRenderSetPendingViewRegion( INT X, INT Y, INT W, INT H );
+extern "C" void  XboxRenderReleaseMenuTextures();
 extern "C" volatile LONG GXboxAudioToneSmokeState;
 extern "C" volatile LONG GXboxAudioMusicLoadState;
 extern "C" volatile LONG GXboxAudioMusicPacketState;
 extern "C" volatile LONG GXboxAudioMusicStreamState;
+extern "C" UBOOL XboxEnsureConsoleClass( UViewport* Viewport, const TCHAR* ConsoleClassName, const char* Reason );
 
 static FLOAT XboxStickAxis( SHORT Raw, FLOAT DeadZone )
 {
@@ -161,6 +163,38 @@ static INT   GXboxWeaponWheelSpriteFailLogCount = 0;
 static AActor* GXboxWeaponWheelPreviewActor = NULL;
 static ULevel* GXboxWeaponWheelPreviewLevel = NULL;
 static INT   GXboxMenuVoiceSampleBypass = 0;
+
+static DWORD XboxMenuAvailPhysKB()
+{
+    MEMORYSTATUS MemStatus;
+    appMemzero( &MemStatus, sizeof(MemStatus) );
+    MemStatus.dwLength = sizeof(MemStatus);
+    GlobalMemoryStatus( &MemStatus );
+    return MemStatus.dwAvailPhys / 1024;
+}
+
+static void XboxWeaponWheelReleaseCache()
+{
+    INT ReleasedIcons = 0;
+    INT ReleasedMeshes = 0;
+    for( INT i=0; i<ARRAY_COUNT(GXboxWeaponWheelSlots); i++ )
+    {
+        if( GXboxWeaponWheelSlots[i].Icon )
+            ReleasedIcons++;
+        if( GXboxWeaponWheelSlots[i].PickupMesh )
+            ReleasedMeshes++;
+        GXboxWeaponWheelSlots[i].Icon = NULL;
+        GXboxWeaponWheelSlots[i].PickupMesh = NULL;
+        GXboxWeaponWheelSlots[i].PickupScale = 1.0f;
+        GXboxWeaponWheelSlots[i].PickupRotation = FRotator(0,0,0);
+    }
+    if( GXboxWeaponWheelPreviewActor )
+        GXboxWeaponWheelPreviewActor->Destroy();
+    GXboxWeaponWheelPreviewActor = NULL;
+    GXboxWeaponWheelPreviewLevel = NULL;
+    if( ReleasedIcons || ReleasedMeshes )
+        GXboxLog.Write( "XWHEEL cache released icons=%d meshes=%d availKB=%u", ReleasedIcons, ReleasedMeshes, (unsigned)XboxMenuAvailPhysKB() );
+}
 
 static FXboxMenuState GXboxMenu =
 {
@@ -339,7 +373,9 @@ static UBOOL GXboxSettingsLoaded = 0;
 static TArray<FXboxDiscoveredOption> GXboxDiscoveredGameTypes;
 static TArray<FXboxDiscoveredOption> GXboxDiscoveredMutators;
 static TArray<FXboxDiscoveredOption> GXboxDiscoveredMaps;
+static TArray<FRegistryObjectInfo> GXboxMenuIntObjectCache;
 static UBOOL GXboxMenuRegistryCacheRefreshed = 0;
+static UBOOL GXboxMenuIntObjectCacheLoaded = 0;
 static UBOOL GXboxDiscoveredListsLoaded = 0;
 static INT GXboxDiscoveredMapsGameType = -1;
 
@@ -379,6 +415,7 @@ struct FXboxPlayerPreviewRootRef
     INT Count;
 };
 static FXboxPlayerPreviewRootRef GXboxPlayerPreviewRootRefs[64];
+static INT GXboxPlayerPreviewChangesSinceGC = 0;
 
 static const INT GXboxSystemLinkBasePort = 9777;
 static const INT GXboxSystemLinkPortCount = 4;
@@ -1272,14 +1309,14 @@ static UBOOL XboxMenuPreviewAssetsMatch( const FXboxPlayerPreviewAssets& Assets,
         && Assets.TeamIndex  == TeamIndex;
 }
 
-static void XboxMenuTrackPlayerPreviewAssets( AActor* Actor, INT ClassIndex, INT SkinIndex, INT FaceIndex, INT TeamIndex )
+static UBOOL XboxMenuTrackPlayerPreviewAssets( AActor* Actor, INT ClassIndex, INT SkinIndex, INT FaceIndex, INT TeamIndex )
 {
     if( !Actor )
-        return;
+        return 0;
 
     XboxMenuInitPlayerPreviewAssets();
     if( XboxMenuPreviewAssetsMatch( GXboxPlayerPreviewCurrent, ClassIndex, SkinIndex, FaceIndex, TeamIndex ) )
-        return;
+        return 0;
 
     XboxMenuUnrootPlayerPreviewAssets( GXboxPlayerPreviewPrevious );
     GXboxPlayerPreviewPrevious = GXboxPlayerPreviewCurrent;
@@ -1299,6 +1336,22 @@ static void XboxMenuTrackPlayerPreviewAssets( AActor* Actor, INT ClassIndex, INT
         GXboxPlayerPreviewCurrent.FaceIndex, GXboxPlayerPreviewCurrent.TeamIndex,
         GXboxPlayerPreviewPrevious.ClassIndex, GXboxPlayerPreviewPrevious.SkinIndex,
         GXboxPlayerPreviewPrevious.FaceIndex, GXboxPlayerPreviewPrevious.TeamIndex );
+    return 1;
+}
+
+static void XboxMenuMaybeCollectPlayerPreviewGarbage( UXboxViewport* Viewport, const char* Reason )
+{
+    GXboxPlayerPreviewChangesSinceGC++;
+    DWORD BeforeKB = XboxMenuAvailPhysKB();
+    if( GXboxPlayerPreviewChangesSinceGC < 4 && BeforeKB >= 12288 )
+        return;
+
+    GXboxLog.Write( "XMENU preview gc begin reason=%s changes=%d availKB=%u", Reason ? Reason : "preview", GXboxPlayerPreviewChangesSinceGC, (unsigned)BeforeKB );
+    if( Viewport && Viewport->RenDev )
+        Viewport->RenDev->Flush( 0 );
+    UObject::CollectGarbage( RF_Native );
+    GXboxPlayerPreviewChangesSinceGC = 0;
+    GXboxLog.Write( "XMENU preview gc end availKB=%u", (unsigned)XboxMenuAvailPhysKB() );
 }
 
 static void XboxMenuReleasePlayerPreviewAssets()
@@ -1306,6 +1359,7 @@ static void XboxMenuReleasePlayerPreviewAssets()
     XboxMenuInitPlayerPreviewAssets();
     XboxMenuUnrootPlayerPreviewAssets( GXboxPlayerPreviewCurrent );
     XboxMenuUnrootPlayerPreviewAssets( GXboxPlayerPreviewPrevious );
+    GXboxPlayerPreviewChangesSinceGC = 0;
 }
 
 static void XboxMenuClearPlayerPreviewActorRefs( AActor* Actor )
@@ -1343,13 +1397,29 @@ static void XboxMenuDestroyPlayerPreview()
     XboxMenuResetPlayerPreviewCache();
 }
 
+static void XboxMenuReleaseMapPreviewTexture();
+
 extern "C" void XboxMenuPreClientTravelCleanup()
 {
     XboxMenuDestroyPlayerPreview();
+    XboxMenuReleaseMapPreviewTexture();
+    XboxWeaponWheelReleaseCache();
+    XboxRenderReleaseMenuTextures();
 }
 
 static UTexture* GXboxMenuPreviewTexture = NULL;
 static TCHAR     GXboxMenuPreviewMap[64] = TEXT("");
+
+static void XboxMenuReleaseMapPreviewTexture()
+{
+    if( GXboxMenuPreviewTexture )
+    {
+        GXboxLog.Write( "XMENU map preview released %s availKB=%u", TCHAR_TO_ANSI(GXboxMenuPreviewMap), (unsigned)XboxMenuAvailPhysKB() );
+        GXboxMenuPreviewTexture->RemoveFromRoot();
+    }
+    GXboxMenuPreviewTexture = NULL;
+    GXboxMenuPreviewMap[0] = 0;
+}
 
 static void XboxMenuStripDescriptionLabel( const FString& Description, FString& OutLabel )
 {
@@ -1395,9 +1465,13 @@ static UBOOL XboxMenuObjectHasPrefix( const FString& Candidate, const TCHAR* Wan
     return appStrnicmp( *Candidate, WantedPrefix, appStrlen(WantedPrefix) ) == 0;
 }
 
-static void XboxMenuCollectIntObjects( TArray<FRegistryObjectInfo>& Out, const TCHAR* WantedClass, const TCHAR* WantedMetaClass, const TCHAR* WantedObjectPrefix=NULL )
+static void XboxMenuLoadIntObjectCache()
 {
-    Out.Empty();
+    if( GXboxMenuIntObjectCacheLoaded )
+        return;
+
+    GXboxMenuIntObjectCacheLoaded = 1;
+    GXboxMenuIntObjectCache.Empty();
     if( !GSys || !GConfig )
         return;
 
@@ -1405,9 +1479,6 @@ static void XboxMenuCollectIntObjects( TArray<FRegistryObjectInfo>& Out, const T
     INT LoggedSearches = 0;
     INT LoggedFiles = 0;
     INT ParsedObjects = 0;
-    INT ClassFiltered = 0;
-    INT MetaFiltered = 0;
-    INT PrefixFiltered = 0;
     for( INT i=0; i<GSys->Paths.Num(); i++ )
     {
         TCHAR Filename[256];
@@ -1457,37 +1528,62 @@ static void XboxMenuCollectIntObjects( TArray<FRegistryObjectInfo>& Out, const T
                 Parse( Value, TEXT("MetaClass="), Info.MetaClass );
                 Parse( Value, TEXT("Description="), Info.Description );
                 ParsedObjects++;
-                if( !XboxMenuNameMatches( Info.Class, WantedClass ) )
-                {
-                    ClassFiltered++;
+                if( Info.Object.Len() == 0 || Info.Class.Len() == 0 )
                     continue;
-                }
-                if( WantedMetaClass && WantedMetaClass[0] && !XboxMenuNameMatches( Info.MetaClass, WantedMetaClass ) )
-                {
-                    MetaFiltered++;
-                    continue;
-                }
-                if( !XboxMenuObjectHasPrefix( Info.Object, WantedObjectPrefix ) )
-                {
-                    PrefixFiltered++;
-                    continue;
-                }
 
                 UBOOL bDuplicate = 0;
-                for( INT Existing=0; Existing<Out.Num(); Existing++ )
-                    if( appStricmp( *Out(Existing).Object, *Info.Object ) == 0 )
+                for( INT Existing=0; Existing<GXboxMenuIntObjectCache.Num(); Existing++ )
+                    if( appStricmp( *GXboxMenuIntObjectCache(Existing).Object, *Info.Object ) == 0 )
                         bDuplicate = 1;
                 if( !bDuplicate )
-                    new(Out)FRegistryObjectInfo(Info);
+                    new(GXboxMenuIntObjectCache)FRegistryObjectInfo(Info);
             }
         }
     }
 
-    GXboxLog.Write( "XMENU direct .int scan class=%s meta=%s prefix=%s parsed=%d classFiltered=%d metaFiltered=%d prefixFiltered=%d count=%d",
+    GXboxLog.Write( "XMENU .int cache parsed=%d cached=%d", ParsedObjects, GXboxMenuIntObjectCache.Num() );
+}
+
+static void XboxMenuCollectIntObjects( TArray<FRegistryObjectInfo>& Out, const TCHAR* WantedClass, const TCHAR* WantedMetaClass, const TCHAR* WantedObjectPrefix=NULL )
+{
+    Out.Empty();
+    XboxMenuLoadIntObjectCache();
+
+    INT ClassFiltered = 0;
+    INT MetaFiltered = 0;
+    INT PrefixFiltered = 0;
+    for( INT i=0; i<GXboxMenuIntObjectCache.Num(); i++ )
+    {
+        const FRegistryObjectInfo& Info = GXboxMenuIntObjectCache(i);
+        if( !XboxMenuNameMatches( Info.Class, WantedClass ) )
+        {
+            ClassFiltered++;
+            continue;
+        }
+        if( WantedMetaClass && WantedMetaClass[0] && !XboxMenuNameMatches( Info.MetaClass, WantedMetaClass ) )
+        {
+            MetaFiltered++;
+            continue;
+        }
+        if( !XboxMenuObjectHasPrefix( Info.Object, WantedObjectPrefix ) )
+        {
+            PrefixFiltered++;
+            continue;
+        }
+
+        UBOOL bDuplicate = 0;
+        for( INT Existing=0; Existing<Out.Num(); Existing++ )
+            if( appStricmp( *Out(Existing).Object, *Info.Object ) == 0 )
+                bDuplicate = 1;
+        if( !bDuplicate )
+            new(Out)FRegistryObjectInfo(Info);
+    }
+
+    GXboxLog.Write( "XMENU .int filter class=%s meta=%s prefix=%s cached=%d classFiltered=%d metaFiltered=%d prefixFiltered=%d count=%d",
         WantedClass ? TCHAR_TO_ANSI(WantedClass) : "",
         WantedMetaClass ? TCHAR_TO_ANSI(WantedMetaClass) : "",
         WantedObjectPrefix ? TCHAR_TO_ANSI(WantedObjectPrefix) : "",
-        ParsedObjects,
+        GXboxMenuIntObjectCache.Num(),
         ClassFiltered,
         MetaFiltered,
         PrefixFiltered,
@@ -1917,6 +2013,14 @@ static INT XboxMenuFindPlayerClass( const FString& Value )
     return 0;
 }
 
+static UBOOL XboxMenuHasPlayerClass( const FString& Value )
+{
+    for( INT i=0; i<GXboxPlayerClasses.Num(); i++ )
+        if( appStricmp( *GXboxPlayerClasses(i).URLValue, *Value ) == 0 )
+            return 1;
+    return 0;
+}
+
 static FXboxPlayerClassOption& XboxMenuAddPlayerClassOption(
     const TCHAR* Label,
     const TCHAR* URLValue,
@@ -1975,6 +2079,42 @@ static void XboxMenuAddKnownPlayerClasses()
     XboxMenuAddPlayerClassOption( TEXT("BOSS"), TEXT("Botpack.TBoss"), TEXT("Boss"), TEXT("Botpack.Boss"), TEXT("Botpack.SelectionBoss"), TEXT("BotPack.VoiceMale"), TEXT("BotPack.VoiceBoss"), TEXT("BossSkins."), TEXT("BossSkins.Boss"), 0, 1, 2, 3, 1 );
 }
 
+#if TARGET_XBOX
+static void XboxMenuAddKnownBonusPlayerClass( const FRegistryObjectInfo& Info )
+{
+    if( XboxMenuHasPlayerClass( Info.Object ) )
+        return;
+
+    if( appStricmp( *Info.Object, TEXT("MultiMesh.TSkaarj") ) == 0 )
+    {
+        XboxMenuAddPlayerClassOption( TEXT("SKAARJ HYBRID"), TEXT("MultiMesh.TSkaarj"), TEXT("TSkaarj"), TEXT("EpicCustomModels.TSkM"), TEXT("EpicCustomModels.TSkM"), TEXT("BotPack.VoiceMale"), TEXT("MultiMesh.SkaarjVoice"), TEXT("TSkMSkins."), TEXT("TSkMSkins.Warr"), 0, 1, 2, 3, 1 );
+        return;
+    }
+    if( appStricmp( *Info.Object, TEXT("MultiMesh.TNali") ) == 0 )
+    {
+        XboxMenuAddPlayerClassOption( TEXT("NALI"), TEXT("MultiMesh.TNali"), TEXT("TNali"), TEXT("EpicCustomModels.TNaliMesh"), TEXT("EpicCustomModels.TNaliMesh"), TEXT("BotPack.VoiceMale"), TEXT("MultiMesh.NaliVoice"), TEXT("TNaliMeshSkins."), TEXT("TNaliMeshSkins.Ouboudah"), 0, 1, 2, 3, 0 );
+        return;
+    }
+    if( appStricmp( *Info.Object, TEXT("MultiMesh.TCow") ) == 0 )
+    {
+        XboxMenuAddPlayerClassOption( TEXT("NALI WARCOW"), TEXT("MultiMesh.TCow"), TEXT("TCow"), TEXT("EpicCustomModels.TCowMesh"), TEXT("EpicCustomModels.TCowMesh"), TEXT("BotPack.VoiceMale"), TEXT("MultiMesh.CowVoice"), TEXT("TCowMeshSkins."), TEXT("TCowMeshSkins.WarCow"), 0, 1, 2, 3, 0 );
+        return;
+    }
+
+    GXboxLog.Write( "XMENU skipped unknown player class metadata=%s description=%s",
+        TCHAR_TO_ANSI(*Info.Object),
+        TCHAR_TO_ANSI(*Info.Description) );
+}
+
+static void XboxMenuDiscoverKnownBonusPlayerClasses()
+{
+    TArray<FRegistryObjectInfo> Players;
+    XboxMenuCollectIntObjects( Players, TEXT("Class"), TEXT("TournamentPlayer") );
+    for( INT i=0; i<Players.Num(); i++ )
+        XboxMenuAddKnownBonusPlayerClass( Players(i) );
+}
+#endif
+
 static void XboxMenuLoadPlayerClasses()
 {
     if( GXboxPlayerListsLoaded )
@@ -1985,6 +2125,7 @@ static void XboxMenuLoadPlayerClasses()
 
 #if TARGET_XBOX
     XboxMenuAddKnownPlayerClasses();
+    XboxMenuDiscoverKnownBonusPlayerClasses();
 
     GXboxLog.Write( "XMENU using Xbox player class metadata=%d", GXboxPlayerClasses.Num() );
     return;
@@ -2436,6 +2577,16 @@ static UBOOL XboxMenuIsCowOrNaliPlayerValue( const FString& PlayerValue )
         || appStricmp( *PlayerValue, TEXT("MultiMesh.TCow") ) == 0;
 }
 
+static UBOOL XboxMenuIsCowPlayerValue( const FString& PlayerValue )
+{
+    return appStricmp( *PlayerValue, TEXT("MultiMesh.TCow") ) == 0;
+}
+
+static UBOOL XboxMenuIsNaliPlayerValue( const FString& PlayerValue )
+{
+    return appStricmp( *PlayerValue, TEXT("MultiMesh.TNali") ) == 0;
+}
+
 static UBOOL XboxMenuIsSkaarjPlayerValue( const FString& PlayerValue )
 {
     return appStricmp( *PlayerValue, TEXT("MultiMesh.TSkaarj") ) == 0;
@@ -2541,9 +2692,13 @@ static void XboxMenuApplyPreviewSkin( AActor* Actor )
 
     if( !bMultiSkinGroup )
     {
-        if( XboxMenuIsCowOrNaliPlayerValue( Player.URLValue ) )
+        if( XboxMenuIsCowPlayerValue( Player.URLValue ) )
         {
             XboxMenuSetSkinElement( Actor, 1, SkinName, Player.DefaultSkinName );
+        }
+        else if( XboxMenuIsNaliPlayerValue( Player.URLValue ) )
+        {
+            Actor->Skin = XboxMenuLoadTexture( SkinName );
         }
         else
         {
@@ -2745,7 +2900,8 @@ static void XboxMenuUpdatePlayerPreviewActor( UXboxViewport* Viewport )
     XboxMenuApplyPreviewSkin( Actor );
     GXboxLog.Write( "XMENU player preview skin apply end" );
     GXboxLog.Flush();
-    XboxMenuTrackPlayerPreviewAssets( Actor, GXboxMenu.PlayerClass, GXboxMenu.PlayerSkin, GXboxMenu.PlayerFace, GXboxMenu.PlayerTeam );
+    if( XboxMenuTrackPlayerPreviewAssets( Actor, GXboxMenu.PlayerClass, GXboxMenu.PlayerSkin, GXboxMenu.PlayerFace, GXboxMenu.PlayerTeam ) )
+        XboxMenuMaybeCollectPlayerPreviewGarbage( Viewport, bClassChanged ? "class" : "skin" );
 
     GXboxPlayerPreviewClass = GXboxMenu.PlayerClass;
     GXboxPlayerPreviewSkin = GXboxMenu.PlayerSkin;
@@ -3046,6 +3202,11 @@ static void XboxMenuSetMusicPaused( UXboxViewport* Viewport, UBOOL bPaused )
         Client->Engine->Audio->Exec( bPaused ? TEXT("XAUDIOPAUSEMUSIC 1") : TEXT("XAUDIOPAUSEMUSIC 0") );
 }
 
+static UBOOL XboxMenuEnsureConsoleClass( UXboxViewport* Viewport, const TCHAR* ConsoleClassName, const char* Reason )
+{
+    return XboxEnsureConsoleClass( Viewport, ConsoleClassName, Reason );
+}
+
 static void XboxMenuApplyMatchPause( UXboxViewport* Viewport )
 {
     if( GXboxMenu.PausedMatch || !XboxMenuShouldPauseMatch(Viewport) )
@@ -3160,6 +3321,7 @@ static void XboxMenuClose( UXboxViewport* Viewport )
         GXboxLog.Write( "XMENU closed" );
     GXboxMenu.Active = 0;
     XboxMenuDestroyPlayerPreview();
+    XboxMenuReleaseMapPreviewTexture();
 
     XboxMenuReleaseMatchPause( Viewport );
 
@@ -3223,6 +3385,7 @@ static void XboxMenuStartTournament( UXboxViewport* Viewport )
 
     XboxMenuClose( Viewport );
     XboxSplitResetRuntime( Client, "Tournament" );
+    XboxMenuEnsureConsoleClass( Viewport, TEXT("UTMenu.UTConsole"), "Tournament" );
     GXboxLog.Write( "XMENU Tournament travel: UT-Logo-Map.unr?Game=Botpack.LadderNewGame" );
     GXboxLog.Flush();
     Client->Engine->SetClientTravel( Viewport, TEXT("UT-Logo-Map.unr?Game=Botpack.LadderNewGame"), 0, TRAVEL_Absolute );
@@ -3312,8 +3475,10 @@ static void XboxMenuReturnToFrontend( UXboxViewport* Viewport )
         return;
 
     XboxMenuDestroyPlayerPreview();
+    XboxMenuReleaseMapPreviewTexture();
     XboxMenuReleaseMatchPause( Viewport );
     XboxSplitResetRuntime( Client, "ReturnToFrontend" );
+    XboxMenuEnsureConsoleClass( Viewport, TEXT("Engine.Console"), "ReturnToFrontend" );
     Client->Engine->Flush( 0 );
     GXboxMenu.Active = 1;
     GXboxMenu.Screen = XMS_Main;

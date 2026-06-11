@@ -63,6 +63,51 @@ static void XboxMemMark( const TCHAR* Label )
 	unguard;
 }
 
+static DWORD XboxAvailPhysKB()
+{
+	MEMORYSTATUS MemStatus;
+	appMemzero( &MemStatus, sizeof(MemStatus) );
+	MemStatus.dwLength = sizeof(MemStatus);
+	GlobalMemoryStatus( &MemStatus );
+	return MemStatus.dwAvailPhys / 1024;
+}
+
+extern "C" UBOOL XboxEnsureConsoleClass( UViewport* Viewport, const TCHAR* ConsoleClassName, const char* Reason )
+{
+	guard(XboxEnsureConsoleClass);
+	if( !Viewport || !ConsoleClassName || !ConsoleClassName[0] )
+		return 0;
+
+	UClass* ConsoleClass = UObject::StaticLoadClass( UConsole::StaticClass(), NULL, ConsoleClassName, NULL, LOAD_NoWarn | LOAD_Quiet, NULL );
+	if( !ConsoleClass )
+	{
+		debugf( NAME_Log, TEXT("Xbox: console switch failed reason=%s class=%s load=missing"), Reason ? appFromAnsi(Reason) : TEXT(""), ConsoleClassName );
+		return 0;
+	}
+
+	if( Viewport->Console && Viewport->Console->GetClass() == ConsoleClass )
+		return 1;
+
+	UConsole* OldConsole = Viewport->Console;
+	Viewport->Console = NULL;
+	UConsole* NewConsole = ConstructObject<UConsole>( ConsoleClass );
+	if( !NewConsole )
+	{
+		Viewport->Console = OldConsole;
+		debugf( NAME_Log, TEXT("Xbox: console switch failed reason=%s class=%s construct=NULL"), Reason ? appFromAnsi(Reason) : TEXT(""), ConsoleClassName );
+		return 0;
+	}
+
+	Viewport->Console = NewConsole;
+	NewConsole->_Init( Viewport );
+	if( OldConsole )
+		delete OldConsole;
+
+	debugf( NAME_Log, TEXT("Xbox: console switch reason=%s class=%s"), Reason ? appFromAnsi(Reason) : TEXT(""), ConsoleClassName );
+	return 1;
+	unguard;
+}
+
 static void XboxReleaseEntryLevel( ULevel*& EntryLevel, ULevel* ActiveLevel )
 {
 	guard(XboxReleaseEntryLevel);
@@ -145,13 +190,18 @@ static void SanitizeXboxDefaultPlayerURLConfig()
 	const TCHAR* Team  = GConfig->GetStr( TEXT("DefaultPlayer"), TEXT("Team"),  TEXT("User.ini") );
 
 	UBOOL bChanged = 0;
-	UBOOL bUnsupportedXboxClass =
+	UBOOL bKnownXboxClass =
 		Class
-	&&	(	appStricmp( Class, TEXT("MultiMesh.TSkaarj") ) == 0
+	&&	(	appStricmp( Class, TEXT("Botpack.TMale1") ) == 0
+		||	appStricmp( Class, TEXT("Botpack.TMale2") ) == 0
+		||	appStricmp( Class, TEXT("Botpack.TFemale1") ) == 0
+		||	appStricmp( Class, TEXT("Botpack.TFemale2") ) == 0
+		||	appStricmp( Class, TEXT("Botpack.TBoss") ) == 0
+		||	appStricmp( Class, TEXT("MultiMesh.TSkaarj") ) == 0
 		||	appStricmp( Class, TEXT("MultiMesh.TNali") ) == 0
 		||	appStricmp( Class, TEXT("MultiMesh.TCow") ) == 0 );
 
-	if( !Class || !Class[0] || bUnsupportedXboxClass )
+	if( !Class || !Class[0] || !bKnownXboxClass )
 	{
 		GConfig->SetString( TEXT("DefaultPlayer"), TEXT("Class"), TEXT("Botpack.TMale2"), TEXT("User.ini") );
 		GConfig->SetString( TEXT("DefaultPlayer"), TEXT("Skin"), TEXT("SoldierSkins.blkt"), TEXT("User.ini") );
@@ -186,6 +236,59 @@ static void SanitizeXboxDefaultPlayerURLConfig()
 		GConfig->Flush( 0, TEXT("User.ini") );
 		debugf( NAME_Init, TEXT("Xbox: sanitized incomplete [DefaultPlayer] URL config") );
 	}
+	unguard;
+}
+
+static UBOOL XboxIsCityIntroURL( const FURL& URL )
+{
+	return URL.Map.Len()
+	&&	(	appStricmp( *URL.Map, TEXT("CityIntro") ) == 0
+		||	appStricmp( *URL.Map, TEXT("CityIntro.unr") ) == 0 );
+}
+
+static void XboxStartFrontendMusic( UAudioSubsystem* Audio, const TCHAR* Tag )
+{
+	if( !Audio )
+		return;
+
+	debugf( NAME_Init, TEXT("Xbox: starting native CityIntro music stream (%s)"), Tag ? Tag : TEXT("frontend") );
+	Audio->Exec( TEXT("XAUDIOSTARTNATIVE Uttitle 0") );
+	XboxMemMark( Tag ? Tag : TEXT("Xbox frontend music") );
+}
+
+static void XboxUnloadNativeLevelMusicBulk( ULevel* Level, const TCHAR* Reason )
+{
+	guard(XboxUnloadNativeLevelMusicBulk);
+	if( !Level || !GFileManager )
+		return;
+
+	ALevelInfo* Info = Level->GetLevelInfo();
+	if( !Info || !Info->Song || !Info->Song->GetName() || !Info->Song->GetName()[0] )
+		return;
+
+	UMusic* Music = Info->Song;
+	INT BulkBytes = Music->Data.Num();
+	if( BulkBytes <= 0 )
+		return;
+
+	TCHAR NativePath[256];
+	appSprintf( NativePath, TEXT("D:\\MusicXbox\\%s.wav"), Music->GetName() );
+	INT NativeBytes = GFileManager->FileSize( NativePath );
+	if( NativeBytes <= 0 )
+	{
+		debugf( NAME_Init, TEXT("Xbox: retaining UMusic bulk song=%s bulkKB=%d native=%s nativeBytes=%d reason=%s"),
+			Music->GetName(), (BulkBytes + 1023) / 1024, NativePath, NativeBytes, Reason ? Reason : TEXT("") );
+		return;
+	}
+
+	DWORD BeforeKB = XboxAvailPhysKB();
+	Music->Data.Unload();
+	DWORD AfterKB = XboxAvailPhysKB();
+	debugf( NAME_Init, TEXT("Xbox: early native music bulk unload song=%s bulkKB=%d nativeKB=%d availBeforeKB=%u availAfterKB=%u reason=%s"),
+		Music->GetName(), (BulkBytes + 1023) / 1024, (NativeBytes + 1023) / 1024,
+		(unsigned)BeforeKB, (unsigned)AfterKB, Reason ? Reason : TEXT("") );
+	XboxMemMark( TEXT("LoadMap native music early unload") );
+
 	unguard;
 }
 #endif
@@ -419,10 +522,7 @@ void UGameEngine::Init()
 	else if( appStricmp( Parm, *FURL::DefaultLocalMap ) == 0 )
 	{
 		DefaultURL.AddOption( TEXT("Game=Engine.GameInfo") );
-		DefaultURL.AddOption( TEXT("Class=Botpack.TMale2") );
-		DefaultURL.AddOption( TEXT("Skin=SoldierSkins.blkt") );
-		DefaultURL.AddOption( TEXT("Face=SoldierSkins.Othello") );
-		DefaultURL.AddOption( TEXT("Voice=BotPack.VoiceMaleTwo") );
+		DefaultURL.AddOption( TEXT("Class=Engine.Spectator") );
 		DefaultURL.AddOption( TEXT("Team=255") );
 		debugf( NAME_Init, TEXT("Xbox: using lightweight frontend player URL for startup") );
 	}
@@ -483,6 +583,13 @@ void UGameEngine::Init()
 		debugf( NAME_Init, TEXT("[GE] Init: pre Console StaticLoadClass") );
 #if TARGET_XBOX
 		XboxMemMark( TEXT("GE.Init pre Console StaticLoadClass") );
+		const TCHAR* ConfigConsole = GConfig ? GConfig->GetStr( TEXT("Engine.Engine"), TEXT("Console"), NULL ) : TEXT("");
+		if( appStricmp( ConfigConsole ? ConfigConsole : TEXT(""), TEXT("Engine.Console") ) != 0 )
+		{
+			debugf( NAME_Log, TEXT("Xbox: overriding Console '%s' -> Engine.Console"), ConfigConsole ? ConfigConsole : TEXT("") );
+			if( GConfig )
+				GConfig->SetString( TEXT("Engine.Engine"), TEXT("Console"), TEXT("Engine.Console"), NULL );
+		}
 #endif
 		UClass* ConsoleClass = StaticLoadClass( UConsole::StaticClass(), NULL, TEXT("ini:Engine.Engine.Console"), NULL, LOAD_NoFail, NULL );
 		debugf( NAME_Init, TEXT("[GE] Init: pre Console ConstructObject") );
@@ -543,7 +650,13 @@ void UGameEngine::Init()
 		XboxMemMark( TEXT("GE.Init post InitAudio") );
 #endif
 		if( Audio )
+		{
 			Audio->SetViewport( Viewport );
+#if TARGET_XBOX
+			if( XboxIsCityIntroURL( URL ) )
+				XboxStartFrontendMusic( Audio, TEXT("GE.Init post CityIntro native music") );
+#endif
+		}
 	}
 	debugf( NAME_Init, TEXT("Game engine initialized") );
 
@@ -1005,6 +1118,16 @@ ULevel* UGameEngine::LoadMap( const FURL& URL, UPendingLevel* Pending, const TMa
 	guard(VerifyPackages);
 	try
 	{
+#if TARGET_XBOX
+		const UBOOL bXboxSkipVerifyPackages =
+			!Pending;
+		if( bXboxSkipVerifyPackages )
+		{
+			debugf( NAME_Log, TEXT("Xbox: skipping local package verify pass for memory headroom map=%s"), *URL.Map );
+		}
+		else
+#endif
+		{
 		BeginLoad();
 		if( Pending )
 		{
@@ -1025,6 +1148,7 @@ ULevel* UGameEngine::LoadMap( const FURL& URL, UPendingLevel* Pending, const TMa
 		}
 		LoadObject<ULevel>( MapParent, TEXT("MyLevel"), *URL.Map, LOAD_Verify | LOAD_Throw | LOAD_NoWarn, NULL );
 		EndLoad();
+		}
 #if TARGET_XBOX
 		XboxMemMark( TEXT("LoadMap post VerifyPackages") );
 #endif
@@ -1093,6 +1217,7 @@ ULevel* UGameEngine::LoadMap( const FURL& URL, UPendingLevel* Pending, const TMa
 	unguard;
 #if TARGET_XBOX
 	XboxMemMark( TEXT("LoadMap post DissociateViewports") );
+	UBOOL bXboxHadOldLevel = (GLevel != NULL);
 #endif
 
 	// Clean up game state.
@@ -1129,6 +1254,13 @@ ULevel* UGameEngine::LoadMap( const FURL& URL, UPendingLevel* Pending, const TMa
 	unguard;
 #if TARGET_XBOX
 	XboxMemMark( TEXT("LoadMap post ExitLevel") );
+	if( bXboxHadOldLevel && !Pending )
+	{
+		XboxMemMark( TEXT("LoadMap pre LoadLevel cleanup") );
+		Flush(0);
+		UObject::CollectGarbage( RF_Native );
+		XboxMemMark( TEXT("LoadMap post LoadLevel cleanup") );
+	}
 #endif
 
 	// Load the level and all objects under it, using the proper Guid.
@@ -1165,6 +1297,9 @@ ULevel* UGameEngine::LoadMap( const FURL& URL, UPendingLevel* Pending, const TMa
 	check(GLevel);
 	ALevelInfo* Info = GLevel->GetLevelInfo();
 	Info->ComputerName = appComputerName();
+#if TARGET_XBOX
+	XboxUnloadNativeLevelMusicBulk( GLevel, TEXT("LoadMap post GetLevelInfo") );
+#endif
 
 	// Handle pushing.
 	guard(ProcessHubStack);
@@ -1482,7 +1617,13 @@ ULevel* UGameEngine::LoadMap( const FURL& URL, UPendingLevel* Pending, const TMa
 
 		// Set up audio.
 		if( Audio )
+		{
 			Audio->SetViewport( Audio->GetViewport() );
+#if TARGET_XBOX
+			if( XboxIsCityIntroURL( URL ) )
+				XboxStartFrontendMusic( Audio, TEXT("LoadMap post CityIntro native music") );
+#endif
+		}
 
 		// Reset viewports.
 		for( INT i=0; i<Client->Viewports.Num(); i++ )

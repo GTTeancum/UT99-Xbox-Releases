@@ -201,6 +201,13 @@ void APlayerPawn::execGetEntryLevel( FFrame& Stack, RESULT_DECL )
 	check(XLevel);
 	check(XLevel->Engine);
 	check((UGameEngine*)(XLevel->Engine));
+#if TARGET_XBOX
+	if( !((UGameEngine*)(XLevel->Engine))->GEntry )
+	{
+		*(ALevelInfo**)Result = XLevel->GetLevelInfo();
+		return;
+	}
+#endif
 	check(((UGameEngine*)(XLevel->Engine))->GEntry);
 
 	*(ALevelInfo**)Result = ((UGameEngine*)(XLevel->Engine))->GEntry->GetLevelInfo();

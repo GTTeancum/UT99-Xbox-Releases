@@ -28,6 +28,17 @@
 #include <string.h>
 #include "xmp.h"
 
+#if defined(TARGET_XBOX)
+void *libxmp_xbox_malloc(size_t);
+void *libxmp_xbox_calloc(size_t, size_t);
+void *libxmp_xbox_realloc(void *, size_t);
+void  libxmp_xbox_free(void *);
+#define malloc(S)       libxmp_xbox_malloc(S)
+#define calloc(N,S)     libxmp_xbox_calloc(N,S)
+#define realloc(P,S)    libxmp_xbox_realloc(P,S)
+#define free(P)         libxmp_xbox_free(P)
+#endif
+
 #undef  LIBXMP_EXPORT_VAR
 #if defined(EMSCRIPTEN)
 #include <emscripten.h>

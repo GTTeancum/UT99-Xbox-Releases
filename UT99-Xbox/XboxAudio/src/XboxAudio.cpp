@@ -29,10 +29,18 @@
 #include "Engine.h"
 #include "FXboxLogger.h"
 
+#define XBOX_ENABLE_UMX_MUSIC 0
+
+#if XBOX_ENABLE_UMX_MUSIC
 extern "C"
 {
 #include "xmp.h"
+void libxmp_xbox_reset_alloc_stats(void);
+void libxmp_xbox_get_alloc_stats(unsigned long*, unsigned long*, unsigned long*, unsigned long*, unsigned long*, unsigned long*, unsigned long*);
 }
+#else
+typedef void* xmp_context;
+#endif
 
 extern "C" UBOOL XboxMenuWantsEffectSuppression();
 extern "C" UBOOL XboxMenuAllowsEffectSound( INT Id );
@@ -42,9 +50,18 @@ extern "C" volatile LONG GXboxAudioMusicPacketState = 0;
 extern "C" volatile LONG GXboxAudioMusicStreamState = 0;
 
 enum { ToneSmokeStreamPackets = 4, ToneSmokeStreamSamples = 4096, ToneSmokeStreamChannels = 2, ToneSmokeStreamRate = 44100, ToneSmokeStreamBytes = ToneSmokeStreamSamples * ToneSmokeStreamChannels * 2 };
-static SHORT GToneSmokeStreamData[ToneSmokeStreamPackets][ToneSmokeStreamSamples * ToneSmokeStreamChannels];
-enum { XboxMusicStreamPackets = 4, XboxMusicStreamPacketBytes = 32768 };
+enum { XboxMusicStreamPackets = 3, XboxMusicStreamPacketBytes = 18432 };
+#if XBOX_ENABLE_UMX_MUSIC
 static BYTE GXboxMusicStreamData[XboxMusicStreamPackets][XboxMusicStreamPacketBytes];
+#endif
+
+static DWORD XboxAudioAvailPhysKB()
+{
+    MEMORYSTATUS Status;
+    appMemzero( &Status, sizeof(Status) );
+    GlobalMemoryStatus( &Status );
+    return Status.dwAvailPhys / 1024;
+}
 
 /*-----------------------------------------------------------------------------
     UXboxAudioDevice
@@ -136,6 +153,7 @@ static INT XboxAudioToneSmokeMode()
     return appStrstr( Buffer, "Enabled=2" ) ? 2 : 1;
 }
 
+#if XBOX_ENABLE_UMX_MUSIC
 static INT XboxFindEmbeddedTrackerModule( const BYTE* Data, INT Bytes )
 {
     if( !Data || Bytes < 4 )
@@ -484,6 +502,7 @@ static int XboxXmpLoadWholeXboxFile( xmp_context Context, const char* Path, INT&
     Callbacks.close_func = XboxXmpClose;
     return xmp_load_module_from_callbacks( Context, XFile, Callbacks );
 }
+#endif
 
 class UXboxAudioDevice : public UAudioSubsystem
 {
@@ -499,8 +518,17 @@ class UXboxAudioDevice : public UAudioSubsystem
     INT             SoundVolume;
     xmp_context     MusicContext;
     IDirectSoundStream* MusicStream;
+    XFileMediaObject* MusicSource;
+    HANDLE          MusicFile;
+    XBOXADPCMWAVEFORMAT MusicNativeFormat;
+    VOID*           MusicSourceBuffer;
+    DWORD           MusicSourceLength;
+    DWORD           MusicSourceProgress;
+    DWORD           MusicDataOffset;
+    DWORD           MusicPacketBytes;
     IDirectSoundBuffer* ToneSmokeBuffer;
     IDirectSoundStream* ToneSmokeStream;
+    SHORT*          ToneSmokeStreamData;
     DWORD           ToneSmokePacketStatus[ToneSmokeStreamPackets];
     INT             ToneSmokePacketCursor;
     UMusic*         CurrentMusic;
@@ -528,8 +556,17 @@ public:
         SoundVolume      = 255;
         MusicContext     = NULL;
         MusicStream      = NULL;
+        MusicSource      = NULL;
+        MusicFile        = INVALID_HANDLE_VALUE;
+        appMemzero( &MusicNativeFormat, sizeof(MusicNativeFormat) );
+        MusicSourceBuffer = NULL;
+        MusicSourceLength = 0;
+        MusicSourceProgress = 0;
+        MusicDataOffset = 0;
+        MusicPacketBytes = XboxMusicStreamPacketBytes;
         ToneSmokeBuffer  = NULL;
         ToneSmokeStream  = NULL;
+        ToneSmokeStreamData = NULL;
         appMemzero( ToneSmokePacketStatus, sizeof(ToneSmokePacketStatus) );
         ToneSmokePacketCursor = 0;
         CurrentMusic     = NULL;
@@ -587,13 +624,11 @@ public:
         MusicVolume = Clamp<INT>( MusicVolume, 0, 255 );
         SoundVolume = Clamp<INT>( SoundVolume, 0, 255 );
 
-        MusicContext = xmp_create_context();
-        if( !MusicContext )
-            GXboxLog.Write( "XboxAudio: xmp_create_context failed; music disabled" );
-        GXboxAudioToneSmokeState = MusicContext ? 30 : 902;
+        MusicContext = NULL;
+        GXboxAudioToneSmokeState = 30;
 
-        GXboxLog.Write( "XboxAudio: DirectSound initialized musicCtx=%s musicVol=%d soundVol=%d",
-            MusicContext ? "OK" : "FAIL", MusicVolume, SoundVolume );
+        GXboxLog.Write( "XboxAudio: DirectSound initialized musicCtx=native-only musicVol=%d soundVol=%d",
+            MusicVolume, SoundVolume );
         StartToneSmokeIfRequested();
         return 1;
 
@@ -607,11 +642,13 @@ public:
         USound::Audio = NULL;
         UMusic::Audio = NULL;
         StopMusic();
+#if XBOX_ENABLE_UMX_MUSIC
         if( MusicContext )
         {
             xmp_free_context( MusicContext );
             MusicContext = NULL;
         }
+#endif
         if( ToneSmokeBuffer )
         {
             ToneSmokeBuffer->Stop();
@@ -623,6 +660,11 @@ public:
             ToneSmokeStream->FlushEx( 0, DSSTREAMFLUSHEX_ASYNC );
             ToneSmokeStream->Release();
             ToneSmokeStream = NULL;
+        }
+        if( ToneSmokeStreamData )
+        {
+            appFree( ToneSmokeStreamData );
+            ToneSmokeStreamData = NULL;
         }
         if( DirectSound )
         {
@@ -640,6 +682,19 @@ public:
     void SetViewport( UViewport* InViewport )
     {
         Viewport = InViewport;
+    }
+
+    UBOOL IsFrontendOrMenuMusic()
+    {
+        if( SuppressEffects )
+            return 1;
+        if( Viewport && Viewport->Actor && Viewport->Actor->XLevel && Viewport->Actor->XLevel->GetOuter() )
+        {
+            const TCHAR* LevelPackage = Viewport->Actor->XLevel->GetOuter()->GetName();
+            if( appStricmp( LevelPackage, TEXT("CityIntro") ) == 0 )
+                return 1;
+        }
+        return 0;
     }
 
     UBOOL Exec( const TCHAR* Cmd, FOutputDevice& Ar )
@@ -669,6 +724,35 @@ public:
         if( ParseCommand( &Cmd, TEXT("XAUDIOPAUSEMUSIC") ) )
         {
             SetMusicPaused( appAtoi(Cmd) ? 1 : 0 );
+            return 1;
+        }
+        if( ParseCommand( &Cmd, TEXT("XAUDIOSTARTNATIVE") ) )
+        {
+            TCHAR MusicName[64];
+            appMemzero( MusicName, sizeof(MusicName) );
+            if( !ParseToken( Cmd, MusicName, ARRAY_COUNT(MusicName), 0 ) || !MusicName[0] )
+            {
+                GXboxLog.Write( "XboxAudio: XAUDIOSTARTNATIVE missing music name" );
+                return 1;
+            }
+            BYTE Section = 0;
+            TCHAR SectionText[16];
+            appMemzero( SectionText, sizeof(SectionText) );
+            if( ParseToken( Cmd, SectionText, ARRAY_COUNT(SectionText), 0 ) && SectionText[0] )
+                Section = (BYTE)Clamp<INT>( appAtoi(SectionText), 0, 255 );
+
+            StopMusic();
+            CurrentSection = Section;
+            CurrentCDTrack = 255;
+            MusicPaused    = 0;
+            MusicFailed    = 0;
+            if( !StartNativeMusicByName( TCHAR_TO_ANSI(MusicName), Section, NULL ) )
+            {
+                GXboxLog.Write( "XboxAudio: native music command missing/failed name=%s section=%d; music silent",
+                    TCHAR_TO_ANSI(MusicName), Section );
+                GXboxAudioMusicStreamState = 905;
+                MusicFailed = 1;
+            }
             return 1;
         }
         if( ParseCommand( &Cmd, TEXT("XAUDIOSETMUSICVOLUME") ) )
@@ -976,7 +1060,15 @@ private:
         }
         GXboxAudioToneSmokeState = 50;
 
-        static SHORT ToneSmokeSamples[ToneSamples * ToneChannels];
+        SHORT* ToneSmokeSamples = (SHORT*)appMalloc( ToneBytes, TEXT("XboxToneSmoke") );
+        if( !ToneSmokeSamples )
+        {
+            GXboxAudioToneSmokeState = 904;
+            GXboxLog.Write( "XboxAudio: tone smoke sample alloc failed bytes=%d availKB=%u", ToneBytes, (unsigned)XboxAudioAvailPhysKB() );
+            ToneSmokeBuffer->Release();
+            ToneSmokeBuffer = NULL;
+            return;
+        }
         GXboxAudioToneSmokeState = 60;
 
         SHORT* Samples = ToneSmokeSamples;
@@ -990,6 +1082,7 @@ private:
         }
 
         hr = ToneSmokeBuffer->SetBufferData( ToneSmokeSamples, ToneBytes );
+        appFree( ToneSmokeSamples );
         if( FAILED(hr) )
         {
             GXboxAudioToneSmokeState = 907;
@@ -1055,6 +1148,20 @@ private:
             return;
         }
 
+        if( !ToneSmokeStreamData )
+        {
+            ToneSmokeStreamData = (SHORT*)appMalloc( ToneSmokeStreamBytes * ToneSmokeStreamPackets, TEXT("XboxToneSmokeStream") );
+            if( !ToneSmokeStreamData )
+            {
+                GXboxAudioToneSmokeState = 910;
+                GXboxLog.Write( "XboxAudio: tone stream sample alloc failed bytes=%d availKB=%u",
+                    ToneSmokeStreamBytes * ToneSmokeStreamPackets, (unsigned)XboxAudioAvailPhysKB() );
+                ToneSmokeStream->Release();
+                ToneSmokeStream = NULL;
+                return;
+            }
+        }
+
         ToneSmokeStream->SetVolume( DSBVOLUME_MAX );
         ToneSmokeStream->SetMixBins( &MixBins );
         for( INT p=0; p<ToneSmokeStreamPackets; p++ )
@@ -1076,10 +1183,10 @@ private:
     {
         guard(UXboxAudioDevice::SubmitToneSmokePacket);
 
-        if( !ToneSmokeStream || Packet < 0 || Packet >= ToneSmokeStreamPackets )
+        if( !ToneSmokeStream || !ToneSmokeStreamData || Packet < 0 || Packet >= ToneSmokeStreamPackets )
             return;
 
-        SHORT* Samples = GToneSmokeStreamData[Packet];
+        SHORT* Samples = ToneSmokeStreamData + Packet * ToneSmokeStreamSamples * ToneSmokeStreamChannels;
         for( INT i=0; i<ToneSmokeStreamSamples; i++ )
         {
             INT GlobalSample = ToneSmokePacketCursor + i;
@@ -1137,6 +1244,7 @@ private:
         MusicBlockAlign  = 4
     };
 
+#if XBOX_ENABLE_UMX_MUSIC
     UBOOL ResetMusicContextForRetry( const char* Reason )
     {
         if( MusicContext )
@@ -1145,6 +1253,257 @@ private:
         GXboxLog.Write( "XboxAudio: reset music xmp context after %s result=%s",
             Reason ? Reason : "load-fail", MusicContext ? "OK" : "NULL" );
         return MusicContext != NULL;
+    }
+#endif
+
+    static DWORD FourCC( const char* Text )
+    {
+        return ((DWORD)(BYTE)Text[0]) | ((DWORD)(BYTE)Text[1] << 8) | ((DWORD)(BYTE)Text[2] << 16) | ((DWORD)(BYTE)Text[3] << 24);
+    }
+
+    UBOOL ReadMusicFileExact( VOID* Dest, DWORD Bytes )
+    {
+        DWORD Done = 0;
+        return MusicFile != INVALID_HANDLE_VALUE && ReadFile( MusicFile, Dest, Bytes, &Done, NULL ) && Done == Bytes;
+    }
+
+    UBOOL ReadNativeMusicHeader( const char* Path )
+    {
+        guard(UXboxAudioDevice::ReadNativeMusicHeader);
+
+        struct FChunk
+        {
+            DWORD Id;
+            DWORD Size;
+        };
+
+        DWORD Riff[3];
+        if( !ReadMusicFileExact( Riff, sizeof(Riff) ) || Riff[0] != FourCC("RIFF") || Riff[2] != FourCC("WAVE") )
+        {
+            GXboxLog.Write( "XboxAudio: native music bad RIFF %s", Path );
+            return 0;
+        }
+
+        UBOOL bHaveFmt = 0;
+        UBOOL bHaveData = 0;
+        while( !bHaveData )
+        {
+            FChunk Chunk;
+            if( !ReadMusicFileExact( &Chunk, sizeof(Chunk) ) )
+                break;
+
+            DWORD Payload = Chunk.Size;
+            DWORD ChunkData = SetFilePointer( MusicFile, 0, NULL, FILE_CURRENT );
+            if( ChunkData == 0xFFFFFFFF )
+                return 0;
+            DWORD Next = ChunkData + Payload + (Payload & 1);
+            if( Chunk.Id == FourCC("fmt ") )
+            {
+                BYTE FormatBytes[64];
+                if( Payload < sizeof(WAVEFORMATEX) || Payload > sizeof(FormatBytes) )
+                {
+                    GXboxLog.Write( "XboxAudio: native music bad fmt size %s size=%u", Path, (unsigned)Payload );
+                    return 0;
+                }
+                appMemzero( FormatBytes, sizeof(FormatBytes) );
+                if( !ReadMusicFileExact( FormatBytes, Payload ) )
+                    return 0;
+                appMemzero( &MusicNativeFormat, sizeof(MusicNativeFormat) );
+                DWORD CopyBytes = Payload < sizeof(MusicNativeFormat) ? Payload : sizeof(MusicNativeFormat);
+                appMemcpy( &MusicNativeFormat, FormatBytes, CopyBytes );
+                bHaveFmt = 1;
+            }
+            else if( Chunk.Id == FourCC("data") )
+            {
+                MusicDataOffset = ChunkData;
+                MusicSourceLength = Payload;
+                bHaveData = 1;
+            }
+
+            if( SetFilePointer( MusicFile, Next, NULL, FILE_BEGIN ) == 0xFFFFFFFF )
+                return 0;
+        }
+
+        if( !bHaveFmt || !bHaveData || MusicSourceLength == 0 || MusicNativeFormat.wfx.wFormatTag != WAVE_FORMAT_XBOX_ADPCM )
+        {
+            GXboxLog.Write( "XboxAudio: native music unsupported %s fmt=%d data=%u",
+                Path, MusicNativeFormat.wfx.wFormatTag, (unsigned)MusicSourceLength );
+            return 0;
+        }
+
+        if( MusicNativeFormat.wSamplesPerBlock != 64 || MusicNativeFormat.wfx.nBlockAlign == 0 )
+        {
+            GXboxLog.Write( "XboxAudio: native music bad ADPCM block %s block=%u samples=%u",
+                Path, (unsigned)MusicNativeFormat.wfx.nBlockAlign, (unsigned)MusicNativeFormat.wSamplesPerBlock );
+            return 0;
+        }
+
+        MusicPacketBytes = (XboxMusicStreamPacketBytes / MusicNativeFormat.wfx.nBlockAlign) * MusicNativeFormat.wfx.nBlockAlign;
+        if( MusicPacketBytes < MusicNativeFormat.wfx.nBlockAlign )
+            MusicPacketBytes = MusicNativeFormat.wfx.nBlockAlign;
+        SetFilePointer( MusicFile, MusicDataOffset, NULL, FILE_BEGIN );
+        MusicSourceProgress = 0;
+        return 1;
+
+        unguard;
+    }
+
+    UBOOL FillNativeMusicPacket( INT Packet )
+    {
+        guard(UXboxAudioDevice::FillNativeMusicPacket);
+
+        if( MusicFile == INVALID_HANDLE_VALUE || !MusicSourceBuffer || Packet < 0 || Packet >= XboxMusicStreamPackets )
+            return 0;
+
+        BYTE* Dest = (BYTE*)MusicSourceBuffer + Packet * XboxMusicStreamPacketBytes;
+        DWORD Total = 0;
+        while( Total < MusicPacketBytes )
+        {
+            DWORD Used = 0;
+            DWORD Want = MusicPacketBytes - Total;
+            if( MusicSourceLength && MusicSourceProgress + Want > MusicSourceLength )
+                Want = MusicSourceLength - MusicSourceProgress;
+            if( Want == 0 )
+            {
+                SetFilePointer( MusicFile, MusicDataOffset, NULL, FILE_BEGIN );
+                MusicSourceProgress = 0;
+                continue;
+            }
+
+            if( !ReadFile( MusicFile, Dest + Total, Want, &Used, NULL ) )
+            {
+                GXboxLog.Write( "XboxAudio: native music file read failed p=%d err=%u", Packet, (unsigned)GetLastError() );
+                return 0;
+            }
+            if( Used == 0 )
+            {
+                GXboxLog.Write( "XboxAudio: native music short read p=%d progress=%u len=%u",
+                    Packet, (unsigned)MusicSourceProgress, (unsigned)MusicSourceLength );
+                return 0;
+            }
+            Total += Used;
+            MusicSourceProgress += Used;
+
+            if( Used < Want || (MusicSourceLength && MusicSourceProgress >= MusicSourceLength) )
+            {
+                SetFilePointer( MusicFile, MusicDataOffset, NULL, FILE_BEGIN );
+                MusicSourceProgress = 0;
+            }
+        }
+
+        return 1;
+        unguard;
+    }
+
+    UBOOL StartNativeMusicByName( const char* MusicName, BYTE Section, UMusic* Music )
+    {
+        guard(UXboxAudioDevice::StartNativeMusicByName);
+
+        if( !MusicName || !MusicName[0] )
+            return 0;
+
+        char Path[256];
+        appSprintf( Path, "D:\\MusicXbox\\%s.wav", MusicName );
+
+        GXboxLog.Write( "XboxAudio: native music probe %s availKB=%u", Path, (unsigned)XboxAudioAvailPhysKB() );
+        MusicFile = CreateFileA( Path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL );
+        if( MusicFile == INVALID_HANDLE_VALUE )
+        {
+            GXboxLog.Write( "XboxAudio: native music missing %s err=%u; music silent", Path, (unsigned)GetLastError() );
+            return 0;
+        }
+
+        if( !ReadNativeMusicHeader( Path ) )
+        {
+            CloseHandle( MusicFile );
+            MusicFile = INVALID_HANDLE_VALUE;
+            return 0;
+        }
+
+        DSSTREAMDESC Desc;
+        appMemzero( &Desc, sizeof(Desc) );
+        Desc.dwMaxAttachedPackets = XboxMusicStreamPackets;
+        Desc.lpwfxFormat = (LPWAVEFORMATEX)&MusicNativeFormat;
+        Desc.lpMixBins = &DirectSoundDefaultMixBins_Stereo;
+
+        HRESULT hr = DirectSoundCreateStream( &Desc, &MusicStream );
+        if( FAILED(hr) || !MusicStream )
+        {
+            GXboxLog.Write( "XboxAudio: native music CreateStream failed %s hr=0x%08X", Path, (DWORD)hr );
+            CloseHandle( MusicFile );
+            MusicFile = INVALID_HANDLE_VALUE;
+            MusicStream = NULL;
+            return 0;
+        }
+
+        MusicSourceBuffer = XPhysicalAlloc(
+            XboxMusicStreamPacketBytes * XboxMusicStreamPackets,
+            MAXULONG_PTR,
+            0,
+            PAGE_READWRITE | PAGE_NOCACHE );
+        if( !MusicSourceBuffer )
+        {
+            GXboxLog.Write( "XboxAudio: native music packet alloc failed %s bytes=%d availKB=%u",
+                Path, XboxMusicStreamPacketBytes * XboxMusicStreamPackets, (unsigned)XboxAudioAvailPhysKB() );
+            MusicStream->Release();
+            MusicStream = NULL;
+            CloseHandle( MusicFile );
+            MusicFile = INVALID_HANDLE_VALUE;
+            return 0;
+        }
+
+        for( INT Packet=0; Packet<XboxMusicStreamPackets; Packet++ )
+            MusicPacketStatus[Packet] = XMEDIAPACKET_STATUS_SUCCESS;
+        MusicPacketsSubmitted = 0;
+
+        MusicStream->SetVolume( XboxVolumeToDS( (FLOAT)MusicVolume / 255.0f ) );
+        for( INT Packet=0; Packet<XboxMusicStreamPackets; Packet++ )
+            SubmitMusicPacket( Packet );
+
+        MusicPlaying = 1;
+        hr = MusicStream->Pause( DSSTREAMPAUSE_RESUME );
+        if( FAILED(hr) )
+        {
+            GXboxLog.Write( "XboxAudio: native music resume failed %s hr=0x%08X", Path, (DWORD)hr );
+            StopMusic();
+            GXboxAudioMusicStreamState = 904;
+            MusicFailed = 1;
+            return 0;
+        }
+
+        DirectSound->CommitDeferredSettings();
+        DirectSoundDoWork();
+        if( Music )
+        {
+            RegisterMusic( Music );
+            if( Music->Data.Num() > 0 )
+            {
+                INT BulkKB = Music->Data.Num() / 1024;
+                Music->Data.Unload();
+                GXboxLog.Write( "XboxAudio: native music unloaded UMusic bulk %s bulkKB=%d availKB=%u",
+                    TCHAR_TO_ANSI(Music->GetName()), BulkKB, (unsigned)XboxAudioAvailPhysKB() );
+            }
+        }
+        GXboxAudioMusicStreamState = 1;
+        GXboxLog.Write( "XboxAudio: native music stream started %s section=%d fmt=0x%04X rate=%u ch=%u block=%u packetBytes=%d packets=%d fileBytes=%u",
+            Path, Section, MusicNativeFormat.wfx.wFormatTag, (unsigned)MusicNativeFormat.wfx.nSamplesPerSec,
+            (unsigned)MusicNativeFormat.wfx.nChannels, (unsigned)MusicNativeFormat.wfx.nBlockAlign,
+            (int)MusicPacketBytes, XboxMusicStreamPackets, (unsigned)MusicSourceLength );
+        return 1;
+
+        unguard;
+    }
+
+    UBOOL StartNativeMusic( UMusic* Music, BYTE Section )
+    {
+        guard(UXboxAudioDevice::StartNativeMusic);
+
+        if( !Music || !Music->GetName() || !Music->GetName()[0] )
+            return 0;
+
+        return StartNativeMusicByName( TCHAR_TO_ANSI(Music->GetName()), Section, Music );
+
+        unguard;
     }
 
     void StartMusic( UMusic* Music, BYTE Section, BYTE CDTrack )
@@ -1159,7 +1518,7 @@ private:
         MusicPaused    = 0;
         MusicFailed    = 0;
 
-        if( !DirectSound || !MusicContext || !Music || Section==255 )
+        if( !DirectSound || !Music || Section==255 )
         {
             GXboxLog.Write( "XboxAudio: music not started ds=%s ctx=%s music=%s section=%d",
                 DirectSound ? "OK" : "NULL",
@@ -1169,16 +1528,29 @@ private:
             return;
         }
 
+        if( StartNativeMusic( Music, Section ) )
+            return;
+
+        GXboxLog.Write( "XboxAudio: native music unavailable music=%s section=%d availKB=%u; UMX fallback disabled",
+            TCHAR_TO_ANSI(Music->GetName()), Section, (unsigned)XboxAudioAvailPhysKB() );
+        GXboxAudioMusicStreamState = 905;
+        MusicFailed = 1;
+        return;
+
+#if XBOX_ENABLE_UMX_MUSIC
         char MusicPath[256];
         appSprintf( MusicPath, "D:\\Music\\%s.umx", TCHAR_TO_ANSI(Music->GetName()) );
 
+        libxmp_xbox_reset_alloc_stats();
         INT WholeBytes = 0;
         INT CallbackOffset = 0;
         INT CallbackBytes  = 0;
+        DWORD AvailBeforeKB = XboxAudioAvailPhysKB();
         int LoadResult = XboxXmpLoadWholeXboxFile( MusicContext, MusicPath, WholeBytes );
         GXboxAudioMusicLoadState = (LoadResult == 0) ? WholeBytes : LoadResult;
-        GXboxLog.Write( "XboxAudio: callback loading whole UMX %s path=%s result=%d bytes=%d section=%d",
-            TCHAR_TO_ANSI(Music->GetName()), MusicPath, LoadResult, WholeBytes, Section );
+        GXboxLog.Write( "XboxAudio: callback loading whole UMX %s path=%s result=%d bytes=%d section=%d availKB=%u memPressure=%d",
+            TCHAR_TO_ANSI(Music->GetName()), MusicPath, LoadResult, WholeBytes, Section,
+            (unsigned)AvailBeforeKB, AvailBeforeKB < 8192 );
 
         if( LoadResult != 0 )
         {
@@ -1189,10 +1561,12 @@ private:
                 MusicFailed = 1;
                 return;
             }
+            AvailBeforeKB = XboxAudioAvailPhysKB();
             LoadResult = XboxXmpLoadModuleFromXboxFile( MusicContext, MusicPath, CallbackOffset, CallbackBytes );
             GXboxAudioMusicLoadState = (LoadResult == 0) ? CallbackBytes : LoadResult;
-            GXboxLog.Write( "XboxAudio: callback loading embedded music %s path=%s result=%d offset=%d moduleBytes=%d section=%d",
-                TCHAR_TO_ANSI(Music->GetName()), MusicPath, LoadResult, CallbackOffset, CallbackBytes, Section );
+            GXboxLog.Write( "XboxAudio: callback loading embedded music %s path=%s result=%d offset=%d moduleBytes=%d section=%d availKB=%u memPressure=%d",
+                TCHAR_TO_ANSI(Music->GetName()), MusicPath, LoadResult, CallbackOffset, CallbackBytes, Section,
+                (unsigned)AvailBeforeKB, AvailBeforeKB < 8192 );
         }
 
         if( LoadResult != 0 )
@@ -1204,16 +1578,20 @@ private:
                 MusicFailed = 1;
                 return;
             }
+            AvailBeforeKB = XboxAudioAvailPhysKB();
             Music->Data.Load();
             if( Music->Data.Num() > 0 )
             {
                 INT LazyOffset = XboxFindEmbeddedTrackerModule( &Music->Data(0), Music->Data.Num() );
                 if( LazyOffset < 0 )
                     LazyOffset = 0;
-                GXboxLog.Write( "XboxAudio: fallback loading music %s lazyBytes=%d offset=%d moduleBytes=%d section=%d",
-                    TCHAR_TO_ANSI(Music->GetName()), Music->Data.Num(), LazyOffset, Music->Data.Num() - LazyOffset, Section );
+                GXboxLog.Write( "XboxAudio: fallback loading music %s lazyBytes=%d offset=%d moduleBytes=%d section=%d availKB=%u memPressure=%d",
+                    TCHAR_TO_ANSI(Music->GetName()), Music->Data.Num(), LazyOffset, Music->Data.Num() - LazyOffset, Section,
+                    (unsigned)AvailBeforeKB, AvailBeforeKB < 8192 );
                 LoadResult = xmp_load_module_from_memory( MusicContext, &Music->Data(0) + LazyOffset, Music->Data.Num() - LazyOffset );
                 GXboxAudioMusicLoadState = (LoadResult == 0) ? (Music->Data.Num() - LazyOffset) : LoadResult;
+                GXboxLog.Write( "XboxAudio: fallback memory load result=%d availAfterKB=%u memPressure=%d",
+                    LoadResult, (unsigned)XboxAudioAvailPhysKB(), XboxAudioAvailPhysKB() < 8192 );
                 Music->Data.Unload();
             }
 
@@ -1228,11 +1606,13 @@ private:
                 }
                 INT PackageBytes = 0;
                 INT PackageOffset = 0;
+                AvailBeforeKB = XboxAudioAvailPhysKB();
                 BYTE* PackageData = XboxLoadMusicPackageModule( Music->GetName(), PackageBytes, PackageOffset );
                 if( PackageData )
                 {
-                    GXboxLog.Write( "XboxAudio: fallback loading whole music package %s bytes=%d section=%d",
-                        TCHAR_TO_ANSI(Music->GetName()), PackageBytes + PackageOffset, Section );
+                    GXboxLog.Write( "XboxAudio: fallback loading whole music package %s bytes=%d section=%d availKB=%u memPressure=%d",
+                        TCHAR_TO_ANSI(Music->GetName()), PackageBytes + PackageOffset, Section,
+                        (unsigned)AvailBeforeKB, AvailBeforeKB < 8192 );
                     LoadResult = xmp_load_module_from_memory( MusicContext, PackageData, PackageBytes + PackageOffset );
                     if( LoadResult != 0 )
                     {
@@ -1244,19 +1624,24 @@ private:
                             MusicFailed = 1;
                             return;
                         }
-                        GXboxLog.Write( "XboxAudio: fallback loading embedded music %s umxOffset=%d moduleBytes=%d section=%d",
-                            TCHAR_TO_ANSI(Music->GetName()), PackageOffset, PackageBytes, Section );
+                        AvailBeforeKB = XboxAudioAvailPhysKB();
+                        GXboxLog.Write( "XboxAudio: fallback loading embedded music %s umxOffset=%d moduleBytes=%d section=%d availKB=%u memPressure=%d",
+                            TCHAR_TO_ANSI(Music->GetName()), PackageOffset, PackageBytes, Section,
+                            (unsigned)AvailBeforeKB, AvailBeforeKB < 8192 );
                         LoadResult = xmp_load_module_from_memory( MusicContext, PackageData + PackageOffset, PackageBytes );
                         if( LoadResult != 0 )
                             GXboxAudioMusicLoadState = 9500 + Min<INT>( 99, -LoadResult );
                     }
+                    GXboxLog.Write( "XboxAudio: fallback package load result=%d availAfterKB=%u memPressure=%d",
+                        LoadResult, (unsigned)XboxAudioAvailPhysKB(), XboxAudioAvailPhysKB() < 8192 );
                     if( LoadResult == 0 )
                         GXboxAudioMusicLoadState = PackageBytes;
                     appFree( PackageData );
                 }
                 else if( Music->Data.Num() <= 0 )
                 {
-                    GXboxLog.Write( "XboxAudio: music %s has no data", TCHAR_TO_ANSI(Music->GetName()) );
+                    GXboxLog.Write( "XboxAudio: music %s has no data availKB=%u memPressure=%d",
+                        TCHAR_TO_ANSI(Music->GetName()), (unsigned)XboxAudioAvailPhysKB(), XboxAudioAvailPhysKB() < 8192 );
                 }
             }
 
@@ -1264,8 +1649,19 @@ private:
 
         if( LoadResult != 0 )
         {
-            GXboxLog.Write( "XboxAudio: xmp_load_module failed %s result=%d",
-                TCHAR_TO_ANSI(Music->GetName()), LoadResult );
+            DWORD AvailFailKB = XboxAudioAvailPhysKB();
+            unsigned long XmpLive = 0;
+            unsigned long XmpPeak = 0;
+            unsigned long XmpTotal = 0;
+            unsigned long XmpLargest = 0;
+            unsigned long XmpFails = 0;
+            unsigned long XmpLastFail = 0;
+            unsigned long XmpLastFailAvailKB = 0;
+            libxmp_xbox_get_alloc_stats( &XmpLive, &XmpPeak, &XmpTotal, &XmpLargest, &XmpFails, &XmpLastFail, &XmpLastFailAvailKB );
+            GXboxLog.Write( "XboxAudio: xmp_load_module failed %s result=%d availKB=%u memPressure=%d xmpLiveKB=%u xmpPeakKB=%u xmpTotalKB=%u xmpLargestKB=%u xmpFails=%u xmpLastFailKB=%u xmpLastFailAvailKB=%u",
+                TCHAR_TO_ANSI(Music->GetName()), LoadResult, (unsigned)AvailFailKB, AvailFailKB < 8192,
+                (unsigned)(XmpLive / 1024), (unsigned)(XmpPeak / 1024), (unsigned)(XmpTotal / 1024), (unsigned)(XmpLargest / 1024),
+                (unsigned)XmpFails, (unsigned)(XmpLastFail / 1024), (unsigned)XmpLastFailAvailKB );
             GXboxAudioMusicStreamState = 901;
             MusicFailed = 1;
             return;
@@ -1335,6 +1731,7 @@ private:
         GXboxAudioMusicStreamState = 1;
         GXboxLog.Write( "XboxAudio: music stream started %s section=%d rate=%d packetBytes=%d packets=%d",
             TCHAR_TO_ANSI(Music->GetName()), Section, MusicRate, XboxMusicStreamPacketBytes, XboxMusicStreamPackets );
+#endif
 
         unguard;
     }
@@ -1343,17 +1740,39 @@ private:
     {
         guard(UXboxAudioDevice::StopMusic);
 
+        UBOOL bTrackerMusic = ( MusicFile == INVALID_HANDLE_VALUE );
         if( MusicStream )
         {
             MusicStream->FlushEx( 0, DSSTREAMFLUSHEX_ASYNC );
             MusicStream->Release();
             MusicStream = NULL;
         }
-        if( MusicContext && MusicPlaying )
+        if( MusicSource )
+        {
+            MusicSource->Release();
+            MusicSource = NULL;
+        }
+        if( MusicFile != INVALID_HANDLE_VALUE )
+        {
+            CloseHandle( MusicFile );
+            MusicFile = INVALID_HANDLE_VALUE;
+        }
+        if( MusicSourceBuffer )
+        {
+            XPhysicalFree( MusicSourceBuffer );
+            MusicSourceBuffer = NULL;
+        }
+        MusicSourceLength = 0;
+        MusicSourceProgress = 0;
+        MusicDataOffset = 0;
+        MusicPacketBytes = XboxMusicStreamPacketBytes;
+#if XBOX_ENABLE_UMX_MUSIC
+        if( bTrackerMusic && MusicContext && MusicPlaying )
         {
             xmp_end_player( MusicContext );
             xmp_release_module( MusicContext );
         }
+#endif
         if( CurrentMusic )
             CurrentMusic->Handle = NULL;
         CurrentMusic = NULL;
@@ -1396,15 +1815,38 @@ private:
     {
         guard(UXboxAudioDevice::SubmitMusicPacket);
 
-        if( !MusicStream || !MusicContext || Packet < 0 || Packet >= XboxMusicStreamPackets )
+        if( !MusicStream || Packet < 0 || Packet >= XboxMusicStreamPackets )
             return;
 
-        RenderMusicBlock( GXboxMusicStreamData[Packet], XboxMusicStreamPacketBytes );
+        VOID* PacketData = NULL;
+        DWORD SubmitBytes = XboxMusicStreamPacketBytes;
+        if( MusicFile != INVALID_HANDLE_VALUE )
+        {
+            if( !FillNativeMusicPacket( Packet ) )
+            {
+                MusicFailed = 1;
+                return;
+            }
+            PacketData = (BYTE*)MusicSourceBuffer + Packet * XboxMusicStreamPacketBytes;
+            SubmitBytes = MusicPacketBytes;
+        }
+        else
+        {
+#if XBOX_ENABLE_UMX_MUSIC
+            if( !MusicContext )
+                return;
+            PacketData = GXboxMusicStreamData[Packet];
+            RenderMusicBlock( GXboxMusicStreamData[Packet], XboxMusicStreamPacketBytes );
+#else
+            MusicFailed = 1;
+            return;
+#endif
+        }
 
         XMEDIAPACKET Xmp;
         appMemzero( &Xmp, sizeof(Xmp) );
-        Xmp.pvBuffer  = GXboxMusicStreamData[Packet];
-        Xmp.dwMaxSize = XboxMusicStreamPacketBytes;
+        Xmp.pvBuffer  = PacketData;
+        Xmp.dwMaxSize = SubmitBytes;
         Xmp.pdwStatus = &MusicPacketStatus[Packet];
         MusicPacketStatus[Packet] = XMEDIAPACKET_STATUS_PENDING;
 
@@ -1423,6 +1865,7 @@ private:
         unguard;
     }
 
+#if XBOX_ENABLE_UMX_MUSIC
     void RenderMusicBlock( VOID* Dest, DWORD Size )
     {
         guard(UXboxAudioDevice::RenderMusicBlock);
@@ -1441,6 +1884,7 @@ private:
 
         unguard;
     }
+#endif
 
     void ServiceMusicStream()
     {

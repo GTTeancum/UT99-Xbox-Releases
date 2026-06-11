@@ -31,6 +31,31 @@ extern "C" TCHAR GPackage_XboxAudio[64] = TEXT("XboxAudio");
 
 // Global logger instance — opened before anything Unreal touches
 FXboxLogger GXboxLog;
+DWORD GXboxMallocLiveBytes = 0;
+DWORD GXboxMallocPeakBytes = 0;
+DWORD GXboxMallocTotalBytes = 0;
+DWORD GXboxMallocLargestBytes = 0;
+DWORD GXboxMallocLastLargeBytes = 0;
+char  GXboxMallocLargestTag[64] = {0};
+char  GXboxMallocLastLargeTag[64] = {0};
+
+static void XboxLogMemorySnapshot( const char* Label )
+{
+    MEMORYSTATUS MemStatus;
+    appMemzero( &MemStatus, sizeof(MemStatus) );
+    MemStatus.dwLength = sizeof(MemStatus);
+    GlobalMemoryStatus( &MemStatus );
+    GXboxLog.Write( "MEM %s availKB=%u heapLiveKB=%u heapPeakKB=%u heapTotalKB=%u largestKB=%u largestTag=%s lastLargeKB=%u lastLargeTag=%s",
+        Label ? Label : "snapshot",
+        (unsigned)(MemStatus.dwAvailPhys / 1024),
+        (unsigned)(GXboxMallocLiveBytes / 1024),
+        (unsigned)(GXboxMallocPeakBytes / 1024),
+        (unsigned)(GXboxMallocTotalBytes / 1024),
+        (unsigned)(GXboxMallocLargestBytes / 1024),
+        GXboxMallocLargestTag,
+        (unsigned)(GXboxMallocLastLargeBytes / 1024),
+        GXboxMallocLastLargeTag );
+}
 
 void __cdecl main()
 {
@@ -67,6 +92,7 @@ void __cdecl main()
     FFileManagerXbox     XboxFileManager;
 
     GXboxLog.Write( "BOOT: platform objects created" );
+    XboxLogMemorySnapshot( "platform-objects" );
 
     try
     {
@@ -93,6 +119,7 @@ void __cdecl main()
     );
 
     GXboxLog.Write( "BOOT: appInit() returned" );
+    XboxLogMemorySnapshot( "after-appInit" );
 
     GIsServer     = 1;
     GIsClient     = 1;
@@ -101,16 +128,19 @@ void __cdecl main()
     GLazyLoad     = 0;
 
     GXboxLog.Write( "BOOT: calling InitEngine()" );
+    XboxLogMemorySnapshot( "before-InitEngine" );
 
     UEngine* Engine = InitEngine();
 
     GXboxLog.Write( "BOOT: InitEngine() returned (Engine=%s)", Engine ? "OK" : "NULL" );
+    XboxLogMemorySnapshot( "after-InitEngine" );
 
     if( Engine && !GIsRequestingExit )
     {
         GXboxLog.Write( "BOOT: entering MainLoop()" );
         MainLoop( Engine );
         GXboxLog.Write( "BOOT: MainLoop() exited" );
+        XboxLogMemorySnapshot( "after-MainLoop" );
     }
     else
     {

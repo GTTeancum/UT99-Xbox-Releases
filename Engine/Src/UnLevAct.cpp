@@ -622,26 +622,20 @@ APlayerPawn* ULevel::SpawnPlayActor( UPlayer* Player, ENetRole RemoteRole, const
 	AInterpolationPoint* XboxFrontendPathStart = NULL;
 	if( bXboxFrontendIntro )
 	{
-		UClass* IntroSpectatorClass = StaticLoadClass( APlayerPawn::StaticClass(), NULL, TEXT("Botpack.CHSpectator"), NULL, LOAD_NoWarn, PackageMap );
-		if( !IntroSpectatorClass )
-			IntroSpectatorClass = StaticLoadClass( APlayerPawn::StaticClass(), NULL, TEXT("Engine.Spectator"), NULL, LOAD_NoWarn, PackageMap );
+		UClass* IntroSpectatorClass = StaticLoadClass( APlayerPawn::StaticClass(), NULL, TEXT("Engine.Spectator"), NULL, LOAD_NoWarn, PackageMap );
 		if( IntroSpectatorClass )
 		{
-			UClass* SpectatorCamClass = StaticLoadClass( AActor::StaticClass(), NULL, TEXT("Botpack.SpectatorCam"), NULL, LOAD_NoWarn, PackageMap );
 			AActor* IntroViewTarget = NULL;
 			AInterpolationPoint* IntroPathStart = NULL;
 			INT IntroCamCount = 0;
 			INT IntroPathCount = 0;
-			if( SpectatorCamClass )
+			for( INT ViewIndex=0; ViewIndex<Actors.Num(); ViewIndex++ )
 			{
-				for( INT ViewIndex=0; ViewIndex<Actors.Num(); ViewIndex++ )
+				AActor* ViewActor = Actors(ViewIndex);
+				if( ViewActor && ViewActor->GetClass() && appStricmp( ViewActor->GetClass()->GetName(), TEXT("SpectatorCam") ) == 0 )
 				{
-					AActor* ViewActor = Actors(ViewIndex);
-					if( ViewActor && ViewActor->IsA(SpectatorCamClass) )
-					{
-						IntroViewTarget = ViewActor;
-						IntroCamCount++;
-					}
+					IntroViewTarget = ViewActor;
+					IntroCamCount++;
 				}
 			}
 			for( INT PathIndex=0; PathIndex<Actors.Num(); PathIndex++ )

@@ -4,6 +4,14 @@
 
 #include "XboxLaunchPrivate.h"
 
+extern DWORD GXboxMallocLiveBytes;
+extern DWORD GXboxMallocPeakBytes;
+extern DWORD GXboxMallocTotalBytes;
+extern DWORD GXboxMallocLargestBytes;
+extern DWORD GXboxMallocLastLargeBytes;
+extern char  GXboxMallocLargestTag[64];
+extern char  GXboxMallocLastLargeTag[64];
+
 // ── InitEngine ────────────────────────────────────────────────────────────
 // Creates and initializes the game engine object.
 // Mirrors the Windows Launch implementation.
@@ -242,14 +250,21 @@ void MainLoop( UEngine* Engine )
 				if( CurrentURL != LastSmokeURL || (TickCount % 300) == 0 )
 				{
 					LastSmokeURL = CurrentURL;
-					GXboxLog.Write( "SMOKE tick=%d url=%s actors=%d pawns=%d players=%d bots=%d availKB=%d",
+					GXboxLog.Write( "SMOKE tick=%d url=%s actors=%d pawns=%d players=%d bots=%d availKB=%d heapLiveKB=%u heapPeakKB=%u heapTotalKB=%u largestKB=%u largestTag=%s lastLargeKB=%u lastLargeTag=%s",
 						TickCount,
 						TCHAR_TO_ANSI(*CurrentURL),
 						Level->Actors.Num(),
 						PawnCount,
 						PlayerPawnCount,
 						BotPawnCount,
-						MemStatus.dwAvailPhys / 1024 );
+						MemStatus.dwAvailPhys / 1024,
+						(unsigned)(GXboxMallocLiveBytes / 1024),
+						(unsigned)(GXboxMallocPeakBytes / 1024),
+						(unsigned)(GXboxMallocTotalBytes / 1024),
+						(unsigned)(GXboxMallocLargestBytes / 1024),
+						GXboxMallocLargestTag,
+						(unsigned)(GXboxMallocLastLargeBytes / 1024),
+						GXboxMallocLastLargeTag );
 				}
 			}
 		}

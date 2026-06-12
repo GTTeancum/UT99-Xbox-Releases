@@ -215,7 +215,7 @@ static FXboxMenuState GXboxMenu =
     0,
     0,
     0,
-    1,
+    0,
     1,
     0,
     0,
@@ -2069,6 +2069,31 @@ static UBOOL XboxSetObjectPropertyText( UObject* Object, const TCHAR* PropertyNa
 
     Property->ImportText( Value, (BYTE*)Object + Property->Offset, 0 );
     return 1;
+}
+
+static UBOOL XboxGetObjectPropertyString( UObject* Object, const TCHAR* PropertyName, FString& OutValue )
+{
+    OutValue = TEXT("");
+    if( !Object || !PropertyName )
+        return 0;
+
+    UProperty* Property = FindField<UProperty>( Object->GetClass(), PropertyName );
+    if( !Property )
+        return 0;
+
+    TCHAR Temp[256] = TEXT("");
+    Property->ExportText( 0, Temp, (BYTE*)Object, (BYTE*)Object, 0 );
+    OutValue = Temp;
+    XboxMenuCleanExportedText( OutValue );
+    return OutValue.Len() > 0;
+}
+
+static INT XboxGetObjectPropertyInt( UObject* Object, const TCHAR* PropertyName, INT DefaultValue )
+{
+    FString Value;
+    if( XboxGetObjectPropertyString( Object, PropertyName, Value ) )
+        return appAtoi( *Value );
+    return DefaultValue;
 }
 
 static UBOOL XboxSetObjectPropertyInt( UObject* Object, const TCHAR* PropertyName, INT Value )
@@ -4080,6 +4105,52 @@ static INT XboxTournamentMatchCount( INT LadderIndex )
     return XboxMenuClassDefaultInt( LadderClass, TEXT("Matches"), 0 );
 }
 
+static AInventory* XboxTournamentFindLadderInventory( APlayerPawn* Player, UClass* InventoryClass );
+
+static const TCHAR* XboxTournamentPositionProperty( INT LadderIndex )
+{
+    switch( Clamp<INT>( LadderIndex, 0, ARRAY_COUNT(GXboxTournamentLadders)-1 ) )
+    {
+        case 0: return TEXT("DMPosition");
+        case 1: return TEXT("DOMPosition");
+        case 2: return TEXT("CTFPosition");
+        case 3: return TEXT("ASPosition");
+        case 4: return TEXT("ChalPosition");
+    }
+    return TEXT("DMPosition");
+}
+
+static AInventory* XboxTournamentFindInventory( UXboxViewport* Viewport )
+{
+    if( !Viewport || !Viewport->Actor )
+        return NULL;
+
+    UClass* InventoryClass = UObject::StaticLoadClass( AInventory::StaticClass(), NULL, TEXT("Botpack.LadderInventory"), NULL, LOAD_NoWarn | LOAD_Quiet, NULL );
+    return XboxTournamentFindLadderInventory( Viewport->Actor, InventoryClass );
+}
+
+static INT XboxTournamentAvailableMatch( UXboxViewport* Viewport, INT LadderIndex )
+{
+    LadderIndex = Clamp<INT>( LadderIndex, 0, ARRAY_COUNT(GXboxTournamentLadders)-1 );
+    INT FirstMatch = GXboxTournamentLadders[LadderIndex].FirstRatedMatch;
+    INT MatchCount = XboxTournamentMatchCount( LadderIndex );
+    if( MatchCount <= 0 )
+        return 0;
+
+    AInventory* LadderInv = XboxTournamentFindInventory( Viewport );
+    INT Position = LadderInv ? XboxGetObjectPropertyInt( LadderInv, XboxTournamentPositionProperty( LadderIndex ), FirstMatch ) : FirstMatch;
+    if( Position < FirstMatch )
+        Position = FirstMatch;
+    return Clamp<INT>( Position, FirstMatch, MatchCount - 1 );
+}
+
+static void XboxTournamentClampSelection( UXboxViewport* Viewport )
+{
+    GXboxMenu.TournamentLadder = Clamp<INT>( GXboxMenu.TournamentLadder, 0, ARRAY_COUNT(GXboxTournamentLadders)-1 );
+    GXboxMenu.TournamentMatch = XboxTournamentAvailableMatch( Viewport, GXboxMenu.TournamentLadder );
+    GXboxMenu.TournamentSkill = Clamp<INT>( GXboxMenu.TournamentSkill, 0, ARRAY_COUNT(GXboxSkillLabels)-1 );
+}
+
 static void XboxTournamentClampSelection()
 {
     GXboxMenu.TournamentLadder = Clamp<INT>( GXboxMenu.TournamentLadder, 0, ARRAY_COUNT(GXboxTournamentLadders)-1 );
@@ -4138,7 +4209,7 @@ static UBOOL XboxTournamentEnsureInventory( UXboxViewport* Viewport )
     if( !Viewport || !Viewport->Actor || !Viewport->Actor->XLevel )
         return 0;
 
-    XboxTournamentClampSelection();
+    XboxTournamentClampSelection( Viewport );
 
     UClass* InventoryClass = UObject::StaticLoadClass( AInventory::StaticClass(), NULL, TEXT("Botpack.LadderInventory"), NULL, LOAD_NoWarn | LOAD_Quiet, NULL );
     UClass* LadderClass = XboxTournamentLadderClass( GXboxMenu.TournamentLadder );
@@ -4157,6 +4228,14 @@ static UBOOL XboxTournamentEnsureInventory( UXboxViewport* Viewport )
     {
         LadderInv = Cast<AInventory>( Player->XLevel->SpawnActor( InventoryClass, NAME_None, Player, NULL, Player->Location, Player->Rotation, NULL, 1 ) );
         bSpawned = LadderInv != NULL;
+        if( LadderInv )
+        {
+            XboxSetObjectPropertyInt( LadderInv, TEXT("DMPosition"), -1 );
+            XboxSetObjectPropertyInt( LadderInv, TEXT("DOMPosition"), -1 );
+            XboxSetObjectPropertyInt( LadderInv, TEXT("CTFPosition"), -1 );
+            XboxSetObjectPropertyInt( LadderInv, TEXT("ASPosition"), -1 );
+            XboxSetObjectPropertyInt( LadderInv, TEXT("ChalPosition"), 0 );
+        }
     }
 
     if( !LadderInv )
@@ -4207,7 +4286,7 @@ static void XboxMenuStartTournamentMatch( UXboxViewport* Viewport )
     if( !Viewport || !Client || !Client->Engine )
         return;
 
-    XboxTournamentClampSelection();
+    XboxTournamentClampSelection( Viewport );
     FString Map = XboxTournamentFullMap( GXboxMenu.TournamentLadder, GXboxMenu.TournamentMatch );
     if( Map.Len() <= 0 )
     {
@@ -4247,7 +4326,7 @@ static void XboxMenuStartTournament( UXboxViewport* Viewport )
         return;
 
     GXboxTournamentLaunchPending = 0;
-    XboxTournamentClampSelection();
+    XboxTournamentClampSelection( Viewport );
     GXboxMenu.Screen = XMS_Tournament;
     GXboxMenu.TournamentFocus = 0;
     XboxMenuReleaseMapPreviewTexture();
@@ -4437,7 +4516,7 @@ static void XboxMenuReturnToFrontend( UXboxViewport* Viewport )
 
 static void XboxMenuMove( INT Delta );
 static void XboxMenuAdjustInstantAction( INT Delta );
-static void XboxMenuAdjustTournament( INT Delta );
+static void XboxMenuAdjustTournament( UXboxViewport* Viewport, INT Delta );
 static void XboxMenuAdjustSplitMapSelect( INT Delta );
 static void XboxMenuAdjustPlayerSetup( UXboxViewport* Viewport, INT Delta );
 static void XboxMenuAdjustSettings( UXboxViewport* Viewport, INT Delta );
@@ -4577,35 +4656,25 @@ static void XboxMenuAdjustInstantAction( INT Delta )
     GXboxLog.Write( "XMENU instant adjust row=%d delta=%d", GXboxMenu.InstantFocus, Delta );
 }
 
-static void XboxMenuAdjustTournament( INT Delta )
+static void XboxMenuAdjustTournament( UXboxViewport* Viewport, INT Delta )
 {
     if( GXboxMenu.Screen != XMS_Tournament || Delta == 0 )
         return;
 
-    XboxTournamentClampSelection();
+    XboxTournamentClampSelection( Viewport );
 
     switch( GXboxMenu.TournamentFocus )
     {
         case 0:
             GXboxMenu.TournamentLadder = XboxMenuWrapInt( GXboxMenu.TournamentLadder, Delta, ARRAY_COUNT(GXboxTournamentLadders) );
-            GXboxMenu.TournamentMatch = GXboxTournamentLadders[GXboxMenu.TournamentLadder].FirstRatedMatch;
             XboxMenuReleaseMapPreviewTexture();
             break;
-        case 1:
-        {
-            INT FirstMatch = GXboxTournamentLadders[GXboxMenu.TournamentLadder].FirstRatedMatch;
-            INT MatchCount = XboxTournamentMatchCount( GXboxMenu.TournamentLadder );
-            INT Count = Max<INT>( 1, MatchCount - FirstMatch );
-            GXboxMenu.TournamentMatch = FirstMatch + XboxMenuWrapInt( GXboxMenu.TournamentMatch - FirstMatch, Delta, Count );
-            XboxMenuReleaseMapPreviewTexture();
-            break;
-        }
         case 2:
             GXboxMenu.TournamentSkill = XboxMenuWrapInt( GXboxMenu.TournamentSkill, Delta, ARRAY_COUNT(GXboxSkillLabels) );
             break;
     }
 
-    XboxTournamentClampSelection();
+    XboxTournamentClampSelection( Viewport );
     GXboxLog.Write( "XMENU tournament adjust row=%d ladder=%d match=%d skill=%d delta=%d",
         GXboxMenu.TournamentFocus, GXboxMenu.TournamentLadder, GXboxMenu.TournamentMatch, GXboxMenu.TournamentSkill, Delta );
 }
@@ -5088,7 +5157,7 @@ static UBOOL XboxMenuHandleInput( UXboxViewport* Viewport, const XINPUT_GAMEPAD&
     ||  XboxThumbPressed( Pad.sThumbLX, PrevPad.sThumbLX, -18000 ) )
     {
         XboxMenuAdjustInstantAction( -1 );
-        XboxMenuAdjustTournament( -1 );
+        XboxMenuAdjustTournament( Viewport, -1 );
         XboxMenuAdjustSplitMapSelect( -1 );
         XboxMenuAdjustPlayerSetup( Viewport, -1 );
         XboxMenuAdjustSettings( Viewport, -1 );
@@ -5097,7 +5166,7 @@ static UBOOL XboxMenuHandleInput( UXboxViewport* Viewport, const XINPUT_GAMEPAD&
     ||  XboxThumbPressed( Pad.sThumbLX, PrevPad.sThumbLX, 18000 ) )
     {
         XboxMenuAdjustInstantAction( 1 );
-        XboxMenuAdjustTournament( 1 );
+        XboxMenuAdjustTournament( Viewport, 1 );
         XboxMenuAdjustSplitMapSelect( 1 );
         XboxMenuAdjustPlayerSetup( Viewport, 1 );
         XboxMenuAdjustSettings( Viewport, 1 );
@@ -6111,7 +6180,7 @@ static void XboxMenuDrawInstantAction( UCanvas* Canvas )
     }
 }
 
-static void XboxMenuDrawTournament( UCanvas* Canvas )
+static void XboxMenuDrawTournament( UXboxViewport* Viewport, UCanvas* Canvas )
 {
     static const TCHAR* Labels[] =
     {
@@ -6121,7 +6190,7 @@ static void XboxMenuDrawTournament( UCanvas* Canvas )
         TEXT("BEGIN MATCH")
     };
 
-    XboxTournamentClampSelection();
+    XboxTournamentClampSelection( Viewport );
     UClass* LadderClass = XboxTournamentLadderClass( GXboxMenu.TournamentLadder );
     FString Map = XboxTournamentFullMap( GXboxMenu.TournamentLadder, GXboxMenu.TournamentMatch );
     FString Title;
@@ -6185,7 +6254,7 @@ static void XboxMenuDrawTournament( UCanvas* Canvas )
         if( i == GXboxMenu.TournamentFocus )
         {
             XboxMenuDrawRect( Canvas, 42, Y-6, 350, Y+18, 12, 82, 166, 0.55f );
-            if( i < 3 )
+            if( i == 0 || i == 2 )
             {
                 XboxMenuText( Canvas, MenuFont, 192, Y, 180, 215, 245, TEXT("<") );
                 XboxMenuText( Canvas, MenuFont, 334, Y, 180, 215, 245, TEXT(">") );
@@ -6209,7 +6278,7 @@ static void XboxMenuDrawTournament( UCanvas* Canvas )
     if( GXboxMenu.TournamentFocus == 3 )
         XboxMenuText( Canvas, MenuFont, 58, 402, 135, 255, 120, TEXT("A STARTS THE TOURNAMENT MATCH") );
     else
-        XboxMenuText( Canvas, MenuFont, 58, 402, 135, 170, 205, TEXT("DPAD LEFT/RIGHT CHANGES OPTIONS") );
+        XboxMenuText( Canvas, MenuFont, 58, 402, 135, 170, 205, TEXT("NEXT MATCH IS SET BY TOURNAMENT PROGRESS") );
 }
 
 static void XboxMenuDrawMutators( UCanvas* Canvas )
@@ -6706,7 +6775,7 @@ void XboxMenuPostRender( UViewport* Viewport, UCanvas* Canvas )
     else if( GXboxMenu.Screen == XMS_Mutators )
         XboxMenuDrawMutators( Canvas );
     else if( GXboxMenu.Screen == XMS_Tournament )
-        XboxMenuDrawTournament( Canvas );
+        XboxMenuDrawTournament( XboxViewport, Canvas );
     else if( GXboxMenu.Screen == XMS_SplitReady )
         XboxMenuDrawSplitReady( Canvas );
     else if( GXboxMenu.Screen == XMS_SplitMapSelect )

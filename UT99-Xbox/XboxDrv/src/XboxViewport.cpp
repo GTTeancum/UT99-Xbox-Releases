@@ -1,6 +1,7 @@
 // XboxViewport.cpp
 
 extern "C" UBOOL XboxRenderDrawMenuTexture( FSceneNode* Frame, const char* Name, FLOAT X, FLOAT Y, FLOAT XL, FLOAT YL, FLOAT Alpha );
+extern "C" UBOOL XboxRenderDrawMenuUTexture( FSceneNode* Frame, UTexture* Texture, FLOAT X, FLOAT Y, FLOAT XL, FLOAT YL, FLOAT Alpha );
 extern "C" void  XboxRenderDrawMenuRect( FSceneNode* Frame, FLOAT X1, FLOAT Y1, FLOAT X2, FLOAT Y2, BYTE R, BYTE G, BYTE B, BYTE A );
 extern "C" void  XboxRenderDrawMenuRingSlice( FSceneNode* Frame, FLOAT CX, FLOAT CY, FLOAT InnerR, FLOAT OuterR, FLOAT StartAngle, FLOAT EndAngle, BYTE R, BYTE G, BYTE B, BYTE A );
 extern "C" void  XboxRenderBeginMenuMeshSlot( FSceneNode* Frame, FLOAT X, FLOAT Y, FLOAT W, FLOAT H );
@@ -93,6 +94,9 @@ enum EXboxMenuScreen
     XMS_InstantAction,
     XMS_Mutators,
     XMS_SystemLink,
+    XMS_Tournament,
+    XMS_SplitReady,
+    XMS_SplitMapSelect,
     XMS_PlayerSetup,
     XMS_Settings,
     XMS_ComingSoon
@@ -105,6 +109,11 @@ struct FXboxMenuState
     INT PauseFocus;
     INT MainFocus;
     INT InstantFocus;
+    INT TournamentFocus;
+    INT TournamentLadder;
+    INT TournamentMatch;
+    INT TournamentSkill;
+    INT SplitFocus;
     INT PlayerFocus;
     INT SettingsFocus;
     INT InstantGameType;
@@ -206,6 +215,11 @@ static FXboxMenuState GXboxMenu =
     0,
     0,
     0,
+    1,
+    1,
+    0,
+    0,
+    0,
     0,
     { 0 },
     3,
@@ -291,6 +305,24 @@ static const INT GXboxFragLimits[] =
 static const INT GXboxTimeLimits[] =
 {
     0, 5, 10, 15, 20, 30
+};
+
+struct FXboxTournamentLadderOption
+{
+    const TCHAR* Label;
+    const TCHAR* LadderClass;
+    const TCHAR* GameClass;
+    INT FirstRatedMatch;
+    INT LastMatchType;
+};
+
+static const FXboxTournamentLadderOption GXboxTournamentLadders[] =
+{
+    { TEXT("DEATHMATCH"),       TEXT("Botpack.LadderDM"),   TEXT("Botpack.DeathMatchPlus"), 1, 1 },
+    { TEXT("DOMINATION"),       TEXT("Botpack.LadderDOM"),  TEXT("Botpack.Domination"),     1, 3 },
+    { TEXT("CAPTURE THE FLAG"), TEXT("Botpack.LadderCTF"),  TEXT("Botpack.CTFGame"),        1, 2 },
+    { TEXT("ASSAULT"),          TEXT("Botpack.LadderAS"),   TEXT("Botpack.Assault"),        1, 4 },
+    { TEXT("FINAL CHALLENGE"),  TEXT("Botpack.LadderChal"), TEXT("Botpack.ChallengeDMP"),   1, 5 }
 };
 
 enum EXboxSettingsRow
@@ -441,9 +473,27 @@ static UBOOL GXboxSplitSmokeActive = 0;
 static UBOOL GXboxSplitSmokeFinished = 0;
 static DOUBLE GXboxSplitSmokeStartTime = 0.0;
 static FVector GXboxSplitSmokeStartLocation(0,0,0);
+static UBOOL GXboxSplitUseReadySlots = 0;
+static UBOOL GXboxTournamentLaunchPending = 0;
+
+struct FXboxSplitReadySlot
+{
+    UBOOL Joined;
+    UBOOL Locked;
+    INT   Character;
+    INT   Team;
+    INT   Focus;
+};
+
+static FXboxSplitReadySlot GXboxSplitReadySlots[4];
+static HANDLE GXboxSplitReadyControllerHandles[4] = { NULL, NULL, NULL, NULL };
+static XINPUT_STATE GXboxSplitReadyControllerState[4];
+static XINPUT_STATE GXboxSplitReadyPrevControllerState[4];
+static UBOOL GXboxSplitReadyInitialized = 0;
 
 static UBOOL XboxSetObjectPropertyText( UObject* Object, const TCHAR* PropertyName, const TCHAR* Value );
 static UBOOL XboxSetClassDefaultPropertyText( const TCHAR* ClassName, const TCHAR* PropertyName, const TCHAR* Value );
+static void XboxSplitBuildPlayerURLForSlot( INT Port, TCHAR* Out, INT OutCount, UBOOL bForceDummy );
 
 struct FXboxSystemLinkPeer
 {
@@ -529,6 +579,7 @@ static void XboxSplitResetRuntime( UXboxClient* Client, const char* Reason )
 
     GXboxSplitPending = 0;
     GXboxSplitActive = 0;
+    GXboxSplitUseReadySlots = 0;
     GXboxSplitRenderViewport = 0;
     GXboxSplitRenderViewportCount = 1;
     for( INT i=0; i<4; i++ )
@@ -547,6 +598,11 @@ static UBOOL XboxSplitSmokeEnabled()
 static UBOOL XboxMenuSmokeEnabled()
 {
     return GetFileAttributesA( "D:\\XboxMenuSmoke.ini" ) != 0xFFFFFFFF;
+}
+
+static UBOOL XboxTournamentSmokeEnabled()
+{
+    return GetFileAttributesA( "D:\\XboxTournamentSmoke.ini" ) != 0xFFFFFFFF;
 }
 
 static void XboxSplitSmokeMaybeQueue( UXboxClient* Client )
@@ -705,9 +761,14 @@ static void XboxSplitConfigureViewports( UXboxClient* Client )
         VP->ViewX = (i & 1) ? HalfW : 0;
         VP->ViewY = (i & 2) ? HalfH : 0;
         VP->ColorBytes = Primary->ColorBytes ? Primary->ColorBytes : 4;
-        VP->bXboxSplitDummy = (i > 0) && !(DeviceMask & (1 << i));
-        GXboxLog.Write( "XSPLIT viewport=%d controllerPort=%d devicePresent=%d dummy=%d",
-            i, VP->ControllerPort, (DeviceMask & (1 << i)) ? 1 : 0, VP->bXboxSplitDummy ? 1 : 0 );
+        if( GXboxSplitUseReadySlots )
+            VP->bXboxSplitDummy = !GXboxSplitReadySlots[i].Joined;
+        else
+            VP->bXboxSplitDummy = (i > 0) && !(DeviceMask & (1 << i));
+        GXboxLog.Write( "XSPLIT viewport=%d controllerPort=%d devicePresent=%d joined=%d dummy=%d",
+            i, VP->ControllerPort, (DeviceMask & (1 << i)) ? 1 : 0,
+            GXboxSplitUseReadySlots ? (GXboxSplitReadySlots[i].Joined ? 1 : 0) : -1,
+            VP->bXboxSplitDummy ? 1 : 0 );
     }
 
     for( INT i=0; i<4; i++ )
@@ -762,7 +823,28 @@ static UBOOL XboxSplitCurrentMapReady( UClient* InClient )
     if( !Level->GetLevelInfo()->Game )
         return 0;
 
-    return appStrnicmp( *Level->URL.Map, TEXT("DM-"), 3 ) == 0;
+    if( Level->URL.Map.Len() <= 0 )
+        return 0;
+
+    const TCHAR* MapName = *Level->URL.Map;
+    if( appStricmp( MapName, TEXT("CityIntro") ) == 0
+    ||  appStricmp( MapName, TEXT("CityIntro.unr") ) == 0
+    ||  appStricmp( MapName, TEXT("UT-Logo-Map") ) == 0
+    ||  appStricmp( MapName, TEXT("UT-Logo-Map.unr") ) == 0 )
+    {
+        return 0;
+    }
+
+    UClass* GameClass = Level->GetLevelInfo()->Game->GetClass();
+    const TCHAR* GameName = GameClass ? GameClass->GetName() : TEXT("");
+    if( appStricmp( GameName, TEXT("GameInfo") ) == 0
+    ||  appStricmp( GameName, TEXT("UTIntro") ) == 0
+    ||  appStricmp( GameName, TEXT("LadderNewGame") ) == 0 )
+    {
+        return 0;
+    }
+
+    return 1;
 }
 
 extern "C" void XboxSplitTryActivate( UClient* InClient )
@@ -793,13 +875,13 @@ extern "C" void XboxSplitTryActivate( UClient* InClient )
             continue;
 
         FString Error;
-        FString DummyURLText = FString::Printf
-        (
-            TEXT("%s?Name=Dummy%i?Team=%i"),
-            *Level->URL.String(),
-            i + 1,
-            i & 3
-        );
+        TCHAR SlotURL[512];
+        if( GXboxSplitUseReadySlots )
+            XboxSplitBuildPlayerURLForSlot( i, SlotURL, ARRAY_COUNT(SlotURL), !GXboxSplitReadySlots[i].Joined );
+        else
+            appSprintf( SlotURL, TEXT("?Name=Dummy%i?Team=%i"), i + 1, i & 3 );
+
+        FString DummyURLText = FString::Printf( TEXT("%s%s"), *Level->URL.String(), SlotURL );
         FURL DummyURL( NULL, *DummyURLText, TRAVEL_Absolute );
         GXboxLog.Write( "XSPLIT spawning dummy viewport=%d url=%s", i, TCHAR_TO_ANSI(*DummyURL.String()) );
         if( !Level->SpawnPlayActor( VP, ROLE_SimulatedProxy, DummyURL, Error ) )
@@ -815,7 +897,13 @@ extern "C" void XboxSplitTryActivate( UClient* InClient )
     GXboxSplitActive = 1;
     XboxSplitSuppressBots( Level );
     if( Primary && Primary->Actor )
-        XboxSplitPreparePlayer( Primary->Actor, 0 );
+    {
+        UXboxViewport* PrimaryXVP = Cast<UXboxViewport>( Primary );
+        UBOOL bPrimaryDummy = GXboxSplitUseReadySlots && !GXboxSplitReadySlots[0].Joined;
+        if( PrimaryXVP )
+            PrimaryXVP->bXboxSplitDummy = bPrimaryDummy;
+        XboxSplitPreparePlayer( Primary->Actor, bPrimaryDummy );
+    }
     for( INT i=1; i<Client->Viewports.Num() && i<4; i++ )
         if( Client->Viewports(i) && Client->Viewports(i)->Actor )
         {
@@ -1932,21 +2020,34 @@ static void XboxMenuCleanExportedText( FString& Value )
         Value = TEXT("");
 }
 
-static UBOOL XboxMenuClassDefaultString( UClass* Class, const TCHAR* PropertyName, FString& OutValue )
+static UBOOL XboxMenuClassDefaultStringAt( UClass* Class, const TCHAR* PropertyName, INT ArrayIndex, FString& OutValue )
 {
     OutValue = TEXT("");
     if( !Class || !Class->Defaults.Num() )
         return 0;
 
     UProperty* Property = FindField<UProperty>( Class, PropertyName );
-    if( !Property )
+    if( !Property || ArrayIndex < 0 || ArrayIndex >= Property->ArrayDim )
         return 0;
 
-    TCHAR Temp[256] = TEXT("");
-    Property->ExportText( 0, Temp, &Class->Defaults(0), &Class->Defaults(0), 0 );
+    TCHAR Temp[1024] = TEXT("");
+    Property->ExportText( ArrayIndex, Temp, &Class->Defaults(0), &Class->Defaults(0), 0 );
     OutValue = Temp;
     XboxMenuCleanExportedText( OutValue );
     return OutValue.Len() > 0;
+}
+
+static UBOOL XboxMenuClassDefaultString( UClass* Class, const TCHAR* PropertyName, FString& OutValue )
+{
+    return XboxMenuClassDefaultStringAt( Class, PropertyName, 0, OutValue );
+}
+
+static INT XboxMenuClassDefaultIntAt( UClass* Class, const TCHAR* PropertyName, INT ArrayIndex, INT DefaultValue )
+{
+    FString Value;
+    if( XboxMenuClassDefaultStringAt( Class, PropertyName, ArrayIndex, Value ) )
+        return appAtoi( *Value );
+    return DefaultValue;
 }
 
 static INT XboxMenuClassDefaultInt( UClass* Class, const TCHAR* PropertyName, INT DefaultValue )
@@ -1968,6 +2069,13 @@ static UBOOL XboxSetObjectPropertyText( UObject* Object, const TCHAR* PropertyNa
 
     Property->ImportText( Value, (BYTE*)Object + Property->Offset, 0 );
     return 1;
+}
+
+static UBOOL XboxSetObjectPropertyInt( UObject* Object, const TCHAR* PropertyName, INT Value )
+{
+    TCHAR Temp[32];
+    appSprintf( Temp, TEXT("%i"), Value );
+    return XboxSetObjectPropertyText( Object, PropertyName, Temp );
 }
 
 static UBOOL XboxSetClassDefaultPropertyText( const TCHAR* ClassName, const TCHAR* PropertyName, const TCHAR* Value )
@@ -2875,6 +2983,117 @@ static void XboxMenuBuildPlayerURL( TCHAR* Out, INT OutCount )
     Out[OutCount-1] = 0;
 }
 
+static void XboxSplitReadyReset()
+{
+    XboxMenuLoadPlayerState();
+    XboxMenuLoadPlayerClasses();
+
+    INT CharacterCount = Max<INT>( 1, GXboxPlayerClasses.Num() );
+    for( INT i=0; i<4; i++ )
+    {
+        GXboxSplitReadySlots[i].Joined = 0;
+        GXboxSplitReadySlots[i].Locked = 0;
+        GXboxSplitReadySlots[i].Character = XboxMenuWrapInt( GXboxMenu.PlayerClass, i, CharacterCount );
+        GXboxSplitReadySlots[i].Team = 255;
+        GXboxSplitReadySlots[i].Focus = 0;
+    }
+
+    GXboxSplitReadyInitialized = 1;
+    GXboxLog.Write( "XSPLIT ready reset defaultCharacter=%d count=%d", GXboxMenu.PlayerClass, CharacterCount );
+}
+
+static void XboxSplitReadyEnsure()
+{
+    if( !GXboxSplitReadyInitialized )
+        XboxSplitReadyReset();
+}
+
+static INT XboxSplitReadyJoinedCount()
+{
+    XboxSplitReadyEnsure();
+    INT Count = 0;
+    for( INT i=0; i<4; i++ )
+        if( GXboxSplitReadySlots[i].Joined )
+            Count++;
+    return Count;
+}
+
+static UBOOL XboxSplitReadyCanBegin()
+{
+    XboxSplitReadyEnsure();
+    INT Joined = 0;
+    for( INT i=0; i<4; i++ )
+    {
+        if( !GXboxSplitReadySlots[i].Joined )
+            continue;
+        Joined++;
+        if( !GXboxSplitReadySlots[i].Locked )
+            return 0;
+    }
+    return Joined > 0;
+}
+
+static const FXboxPlayerClassOption& XboxSplitReadyPlayerClass( INT Port )
+{
+    XboxSplitReadyEnsure();
+    XboxMenuLoadPlayerClasses();
+    INT Count = Max<INT>( 1, GXboxPlayerClasses.Num() );
+    INT Character = Clamp<INT>( GXboxSplitReadySlots[Clamp<INT>(Port,0,3)].Character, 0, Count-1 );
+    return XboxMenuPlayerClass( Character );
+}
+
+static void XboxSplitBuildPlayerURLForSlot( INT Port, TCHAR* Out, INT OutCount, UBOOL bForceDummy )
+{
+    XboxSplitReadyEnsure();
+    Port = Clamp<INT>( Port, 0, 3 );
+    const FXboxPlayerClassOption& Player = XboxSplitReadyPlayerClass( Port );
+    INT Team = Clamp<INT>( GXboxSplitReadySlots[Port].Team, 0, 255 );
+
+    if( bForceDummy || !GXboxSplitReadySlots[Port].Joined )
+    {
+        appSprintf
+        (
+            Out,
+            TEXT("?Name=Dummy%i?Class=%s?Skin=%s?Face=%s?Voice=%s?Team=%i"),
+            Port + 1,
+            *Player.URLValue,
+            *Player.SkinValue,
+            *Player.FaceValue,
+            *Player.DefaultVoice,
+            Team
+        );
+    }
+    else
+    {
+        appSprintf
+        (
+            Out,
+            TEXT("?Name=Player%i?Class=%s?Skin=%s?Face=%s?Voice=%s?Team=%i"),
+            Port + 1,
+            *Player.URLValue,
+            *Player.SkinValue,
+            *Player.FaceValue,
+            *Player.DefaultVoice,
+            Team
+        );
+    }
+    Out[OutCount-1] = 0;
+}
+
+static void XboxSplitReadyReleaseControllers()
+{
+    for( INT i=1; i<4; i++ )
+    {
+        if( GXboxSplitReadyControllerHandles[i] )
+        {
+            XInputClose( GXboxSplitReadyControllerHandles[i] );
+            GXboxSplitReadyControllerHandles[i] = NULL;
+        }
+        appMemzero( &GXboxSplitReadyControllerState[i], sizeof(GXboxSplitReadyControllerState[i]) );
+        appMemzero( &GXboxSplitReadyPrevControllerState[i], sizeof(GXboxSplitReadyPrevControllerState[i]) );
+    }
+}
+
 static UTexture* XboxMenuLoadTexture( const FString& Name )
 {
     if( Name.Len() == 0 )
@@ -3711,6 +3930,7 @@ static void XboxMenuClose( UXboxViewport* Viewport )
     if( GXboxMenu.Active )
         GXboxLog.Write( "XMENU closed" );
     GXboxMenu.Active = 0;
+    XboxSplitReadyReleaseControllers();
     XboxMenuReleaseCurrentPlayerPortrait();
     XboxMenuDestroyPlayerPreview();
     XboxMenuReleaseMapPreviewTexture();
@@ -3754,6 +3974,26 @@ static void XboxMenuBack( UXboxViewport* Viewport )
         GXboxMenu.Screen = XMS_Main;
         GXboxLog.Write( "XMENU back from System Link probe" );
     }
+    else if( GXboxMenu.Screen == XMS_Tournament )
+    {
+        XboxMenuReleaseMapPreviewTexture();
+        GXboxMenu.Screen = XMS_Main;
+        GXboxLog.Write( "XMENU back from Tournament" );
+    }
+    else if( GXboxMenu.Screen == XMS_SplitMapSelect )
+    {
+        GXboxMenu.Screen = XMS_SplitReady;
+        GXboxMenu.SplitFocus = 0;
+        XboxMenuReleaseMapPreviewTexture();
+        GXboxLog.Write( "XMENU back to Splitscreen Ready" );
+    }
+    else if( GXboxMenu.Screen == XMS_SplitReady )
+    {
+        XboxSplitReadyReleaseControllers();
+        XboxMenuReleaseMapPreviewTexture();
+        GXboxMenu.Screen = XMS_Main;
+        GXboxLog.Write( "XMENU back from Splitscreen Ready" );
+    }
     else
     {
         if( GXboxMenu.Screen == XMS_PlayerSetup )
@@ -3771,18 +4011,280 @@ static void XboxMenuComingSoon( const TCHAR* Title )
     GXboxLog.Write( "XMENU coming soon: %s", TCHAR_TO_ANSI(Title) );
 }
 
+static UBOOL XboxMenuCallConsoleFunction( UXboxViewport* Viewport, const TCHAR* FunctionName, void* Parms )
+{
+    if( !Viewport || !Viewport->Console || !FunctionName || !FunctionName[0] )
+        return 0;
+
+    UObject* ConsoleObject = (UObject*)Viewport->Console;
+    UFunction* Function = ConsoleObject->FindFunction( FName(FunctionName, FNAME_Find) );
+    if( !Function )
+    {
+        GXboxLog.Write( "XMENU console function missing %s", TCHAR_TO_ANSI(FunctionName) );
+        return 0;
+    }
+
+    ConsoleObject->ProcessEvent( Function, Parms );
+    return 1;
+}
+
+static void XboxMenuPumpTournamentLaunch( UXboxViewport* Viewport, UCanvas* Canvas )
+{
+    if( !GXboxTournamentLaunchPending )
+        return;
+
+    UXboxClient* Client = Viewport ? (UXboxClient*)Viewport->GetOuter() : NULL;
+    if( !Viewport || !Canvas || !Client || !Client->Engine )
+        return;
+
+    GXboxTournamentLaunchPending = 0;
+    XboxSplitResetRuntime( Client, "Tournament" );
+    XboxSplitReadyReleaseControllers();
+    XboxMenuReleaseCurrentPlayerPortrait();
+    XboxMenuDestroyPlayerPreview();
+    XboxMenuReleaseMapPreviewTexture();
+    XboxMenuReleaseMatchPause( Viewport );
+
+    if( !XboxMenuEnsureConsoleClass( Viewport, TEXT("UTMenu.UTConsole"), "Tournament" ) )
+    {
+        GXboxLog.Write( "XMENU Tournament blocked: UTConsole unavailable" );
+        return;
+    }
+
+    XboxMenuCallConsoleFunction( Viewport, TEXT("ResetUWindow"), NULL );
+    struct FCreateRootWindowParms
+    {
+        UCanvas* Canvas;
+    } CreateRootParms;
+    CreateRootParms.Canvas = Canvas;
+    XboxMenuCallConsoleFunction( Viewport, TEXT("CreateRootWindow"), &CreateRootParms );
+
+    GXboxMenu.Active = 0;
+    if( Client->Engine->Audio )
+        Client->Engine->Audio->Exec( TEXT("XAUDIOSETMENUMODE 0") );
+
+    GXboxLog.Write( "XMENU Tournament travel with UTConsole root: UT-Logo-Map.unr?Game=Botpack.LadderNewGame" );
+    GXboxLog.Flush();
+    Client->Engine->SetClientTravel( Viewport, TEXT("UT-Logo-Map.unr?Game=Botpack.LadderNewGame"), 0, TRAVEL_Absolute );
+}
+
+static UClass* XboxTournamentLadderClass( INT Index )
+{
+    Index = Clamp<INT>( Index, 0, ARRAY_COUNT(GXboxTournamentLadders)-1 );
+    return UObject::StaticLoadClass( UObject::StaticClass(), NULL, GXboxTournamentLadders[Index].LadderClass, NULL, LOAD_NoWarn | LOAD_Quiet, NULL );
+}
+
+static INT XboxTournamentMatchCount( INT LadderIndex )
+{
+    UClass* LadderClass = XboxTournamentLadderClass( LadderIndex );
+    return XboxMenuClassDefaultInt( LadderClass, TEXT("Matches"), 0 );
+}
+
+static void XboxTournamentClampSelection()
+{
+    GXboxMenu.TournamentLadder = Clamp<INT>( GXboxMenu.TournamentLadder, 0, ARRAY_COUNT(GXboxTournamentLadders)-1 );
+    INT FirstMatch = GXboxTournamentLadders[GXboxMenu.TournamentLadder].FirstRatedMatch;
+    INT MatchCount = XboxTournamentMatchCount( GXboxMenu.TournamentLadder );
+    if( MatchCount <= FirstMatch )
+        GXboxMenu.TournamentMatch = 0;
+    else
+        GXboxMenu.TournamentMatch = Clamp<INT>( GXboxMenu.TournamentMatch, FirstMatch, MatchCount - 1 );
+    GXboxMenu.TournamentSkill = Clamp<INT>( GXboxMenu.TournamentSkill, 0, ARRAY_COUNT(GXboxSkillLabels)-1 );
+}
+
+static UBOOL XboxTournamentStringAt( INT LadderIndex, const TCHAR* PropertyName, INT MatchIndex, FString& OutValue )
+{
+    UClass* LadderClass = XboxTournamentLadderClass( LadderIndex );
+    return XboxMenuClassDefaultStringAt( LadderClass, PropertyName, MatchIndex, OutValue );
+}
+
+static FString XboxTournamentFullMap( INT LadderIndex, INT MatchIndex )
+{
+    UClass* LadderClass = XboxTournamentLadderClass( LadderIndex );
+    FString Prefix;
+    FString Map;
+    XboxMenuClassDefaultString( LadderClass, TEXT("MapPrefix"), Prefix );
+    XboxMenuClassDefaultStringAt( LadderClass, TEXT("Maps"), MatchIndex, Map );
+    return Prefix + Map;
+}
+
+static AInventory* XboxTournamentFindLadderInventory( APlayerPawn* Player, UClass* InventoryClass )
+{
+    if( !Player || !InventoryClass )
+        return NULL;
+
+    for( AInventory* Inv=Player->Inventory; Inv; Inv=Inv->Inventory )
+        if( Inv->IsA( InventoryClass ) )
+            return Inv;
+    return NULL;
+}
+
+static void XboxTournamentEnsureInventoryLinked( APlayerPawn* Player, AInventory* Inv )
+{
+    if( !Player || !Inv )
+        return;
+
+    for( AInventory* Scan=Player->Inventory; Scan; Scan=Scan->Inventory )
+        if( Scan == Inv )
+            return;
+
+    Inv->Inventory = Player->Inventory;
+    Inv->Owner = Player;
+    Player->Inventory = Inv;
+}
+
+static UBOOL XboxTournamentEnsureInventory( UXboxViewport* Viewport )
+{
+    if( !Viewport || !Viewport->Actor || !Viewport->Actor->XLevel )
+        return 0;
+
+    XboxTournamentClampSelection();
+
+    UClass* InventoryClass = UObject::StaticLoadClass( AInventory::StaticClass(), NULL, TEXT("Botpack.LadderInventory"), NULL, LOAD_NoWarn | LOAD_Quiet, NULL );
+    UClass* LadderClass = XboxTournamentLadderClass( GXboxMenu.TournamentLadder );
+    if( !InventoryClass || !LadderClass )
+    {
+        GXboxLog.Write( "XMENU Tournament blocked: inventory=%s ladder=%s",
+            InventoryClass ? "ok" : "missing",
+            LadderClass ? "ok" : "missing" );
+        return 0;
+    }
+
+    APlayerPawn* Player = Viewport->Actor;
+    AInventory* LadderInv = XboxTournamentFindLadderInventory( Player, InventoryClass );
+    UBOOL bSpawned = 0;
+    if( !LadderInv )
+    {
+        LadderInv = Cast<AInventory>( Player->XLevel->SpawnActor( InventoryClass, NAME_None, Player, NULL, Player->Location, Player->Rotation, NULL, 1 ) );
+        bSpawned = LadderInv != NULL;
+    }
+
+    if( !LadderInv )
+    {
+        GXboxLog.Write( "XMENU Tournament blocked: failed to spawn LadderInventory" );
+        return 0;
+    }
+
+    TCHAR ClassText[128];
+    appSprintf( ClassText, TEXT("class'%s'"), GXboxTournamentLadders[GXboxMenu.TournamentLadder].LadderClass );
+    XboxSetObjectPropertyText( LadderInv, TEXT("CurrentLadder"), ClassText );
+    XboxSetObjectPropertyInt( LadderInv, TEXT("TournamentDifficulty"), GXboxMenu.TournamentSkill );
+    XboxSetObjectPropertyInt( LadderInv, TEXT("PendingChange"), 0 );
+    XboxSetObjectPropertyInt( LadderInv, TEXT("PendingPosition"), GXboxMenu.TournamentMatch );
+    XboxSetObjectPropertyInt( LadderInv, TEXT("LastMatchType"), GXboxTournamentLadders[GXboxMenu.TournamentLadder].LastMatchType );
+
+    FString TeamText;
+    if( XboxMenuClassDefaultStringAt( LadderClass, TEXT("LadderTeams"), 0, TeamText ) )
+        XboxSetObjectPropertyText( LadderInv, TEXT("Team"), *TeamText );
+
+    if( bSpawned )
+    {
+        UFunction* GiveTo = LadderInv->FindFunction( FName(TEXT("GiveTo"), FNAME_Find) );
+        if( GiveTo )
+        {
+            struct FGiveToParms
+            {
+                APawn* Other;
+            } Parms;
+            Parms.Other = Player;
+            LadderInv->ProcessEvent( GiveTo, &Parms );
+        }
+    }
+
+    XboxTournamentEnsureInventoryLinked( Player, LadderInv );
+    GXboxLog.Write( "XMENU Tournament inventory ready spawned=%d ladder=%s match=%d skill=%d team=%s",
+        bSpawned,
+        TCHAR_TO_ANSI(GXboxTournamentLadders[GXboxMenu.TournamentLadder].LadderClass),
+        GXboxMenu.TournamentMatch,
+        GXboxMenu.TournamentSkill,
+        TeamText.Len() ? TCHAR_TO_ANSI(*TeamText) : "" );
+    return 1;
+}
+
+static void XboxMenuStartTournamentMatch( UXboxViewport* Viewport )
+{
+    UXboxClient* Client = Viewport ? (UXboxClient*)Viewport->GetOuter() : NULL;
+    if( !Viewport || !Client || !Client->Engine )
+        return;
+
+    XboxTournamentClampSelection();
+    FString Map = XboxTournamentFullMap( GXboxMenu.TournamentLadder, GXboxMenu.TournamentMatch );
+    if( Map.Len() <= 0 )
+    {
+        GXboxLog.Write( "XMENU Tournament blocked: empty map ladder=%d match=%d", GXboxMenu.TournamentLadder, GXboxMenu.TournamentMatch );
+        return;
+    }
+
+    if( !XboxTournamentEnsureInventory( Viewport ) )
+        return;
+
+    XboxMenuEnsureConsoleClass( Viewport, TEXT("UTMenu.UTConsole"), "TournamentMatch" );
+
+    TCHAR PlayerURL[512];
+    TCHAR URL[1024];
+    XboxMenuBuildPlayerURL( PlayerURL, ARRAY_COUNT(PlayerURL) );
+    appSprintf
+    (
+        URL,
+        TEXT("%s?Game=%s?Tournament=%i%s"),
+        *Map,
+        GXboxTournamentLadders[GXboxMenu.TournamentLadder].GameClass,
+        GXboxMenu.TournamentMatch,
+        PlayerURL
+    );
+
+    XboxMenuClose( Viewport );
+    XboxSplitResetRuntime( Client, "TournamentMatch" );
+    GXboxLog.Write( "XMENU Tournament match travel: %s", TCHAR_TO_ANSI(URL) );
+    GXboxLog.Flush();
+    Client->Engine->SetClientTravel( Viewport, URL, 0, TRAVEL_Absolute );
+}
+
 static void XboxMenuStartTournament( UXboxViewport* Viewport )
 {
     UXboxClient* Client = Viewport ? (UXboxClient*)Viewport->GetOuter() : NULL;
     if( !Client || !Client->Engine )
         return;
 
-    XboxMenuClose( Viewport );
-    XboxSplitResetRuntime( Client, "Tournament" );
-    XboxMenuEnsureConsoleClass( Viewport, TEXT("UTMenu.UTConsole"), "Tournament" );
-    GXboxLog.Write( "XMENU Tournament travel: UT-Logo-Map.unr?Game=Botpack.LadderNewGame" );
-    GXboxLog.Flush();
-    Client->Engine->SetClientTravel( Viewport, TEXT("UT-Logo-Map.unr?Game=Botpack.LadderNewGame"), 0, TRAVEL_Absolute );
+    GXboxTournamentLaunchPending = 0;
+    XboxTournamentClampSelection();
+    GXboxMenu.Screen = XMS_Tournament;
+    GXboxMenu.TournamentFocus = 0;
+    XboxMenuReleaseMapPreviewTexture();
+    GXboxLog.Write( "XMENU screen: Tournament native ladder=%d match=%d", GXboxMenu.TournamentLadder, GXboxMenu.TournamentMatch );
+}
+
+static void XboxTournamentSmokeTick( UXboxViewport* Viewport )
+{
+    static INT SmokeStage = 0;
+    static DOUBLE SmokeStartTime = 0.0;
+
+    if( !XboxTournamentSmokeEnabled() || !Viewport || !Viewport->Actor )
+        return;
+
+    if( SmokeStage == 0 )
+    {
+        XboxMenuOpen( Viewport );
+        GXboxMenu.Screen = XMS_Main;
+        GXboxMenu.MainFocus = 1;
+        SmokeStartTime = appSeconds();
+        SmokeStage = 1;
+        GXboxLog.Write( "XMENU TOURNAMENT SMOKE opened main menu" );
+    }
+    else if( SmokeStage == 1 && (appSeconds() - SmokeStartTime) > 1.0 )
+    {
+        XboxMenuStartTournament( Viewport );
+        SmokeStartTime = appSeconds();
+        SmokeStage = 2;
+        GXboxLog.Write( "XMENU TOURNAMENT SMOKE selected Tournament" );
+    }
+    else if( SmokeStage == 2 && (appSeconds() - SmokeStartTime) > 1.0 )
+    {
+        GXboxMenu.TournamentFocus = 3;
+        XboxMenuStartTournamentMatch( Viewport );
+        SmokeStage = 3;
+        GXboxLog.Write( "XMENU TOURNAMENT SMOKE launched native match" );
+    }
 }
 
 static void XboxMenuStartInstantAction( UXboxViewport* Viewport )
@@ -3841,24 +4343,68 @@ static void XboxMenuStartSplitScreen( UXboxViewport* Viewport )
     if( !Client || !Client->Engine )
         return;
 
-    XboxSetClassDefaultPropertyText( TEXT("Botpack.DeathMatchPlus"), TEXT("InitialBots"), TEXT("0") );
-    XboxSetClassDefaultPropertyText( TEXT("Botpack.DeathMatchPlus"), TEXT("MinPlayers"), TEXT("0") );
-
     XboxSplitResetRuntime( Client, "StartSplitScreen" );
+    XboxSplitReadyReset();
+    GXboxMenu.Screen = XMS_SplitReady;
+    GXboxMenu.SplitFocus = 0;
+    GXboxLog.Write( "XMENU screen: Splitscreen Ready" );
+}
+
+static void XboxMenuStartSplitMatch( UXboxViewport* Viewport )
+{
+    UXboxClient* Client = Viewport ? (UXboxClient*)Viewport->GetOuter() : NULL;
+    if( !Client || !Client->Engine )
+        return;
+    if( !XboxSplitReadyCanBegin() )
+    {
+        GXboxLog.Write( "XSPLIT begin blocked joined=%d canBegin=0", XboxSplitReadyJoinedCount() );
+        return;
+    }
+
+    INT GameTypeCount = XboxMenuGameTypeCount();
+    GXboxMenu.InstantGameType = Clamp<INT>( GXboxMenu.InstantGameType, 0, GameTypeCount-1 );
+    INT MapCount = XboxInstantMapList( GXboxMenu.InstantGameType );
+    if( MapCount <= 0 )
+    {
+        const FXboxDiscoveredOption& Game = XboxMenuGameType( GXboxMenu.InstantGameType );
+        GXboxLog.Write( "XSPLIT begin blocked: no maps for game=%s prefix=%s",
+            TCHAR_TO_ANSI(*Game.URLValue), TCHAR_TO_ANSI(*Game.MapPrefix) );
+        return;
+    }
+
+    INT MapIndex = Clamp<INT>( GXboxMenu.InstantMap[GXboxMenu.InstantGameType], 0, MapCount-1 );
+    const FXboxDiscoveredOption& Map = XboxMenuMap( GXboxMenu.InstantGameType, MapIndex );
+    const FXboxDiscoveredOption& Game = XboxMenuGameType( GXboxMenu.InstantGameType );
+    INT FragLimit = GXboxFragLimits[Clamp<INT>(GXboxMenu.InstantFragLimit, 0, ARRAY_COUNT(GXboxFragLimits)-1)];
+    INT TimeLimit = GXboxTimeLimits[Clamp<INT>(GXboxMenu.InstantTimeLimit, 0, ARRAY_COUNT(GXboxTimeLimits)-1)];
+    INT Skill = Clamp<INT>( GXboxMenu.InstantSkill, 0, ARRAY_COUNT(GXboxSkillLabels)-1 );
+
+    XboxSetClassDefaultPropertyText( *Game.URLValue, TEXT("InitialBots"), TEXT("0") );
+    XboxSetClassDefaultPropertyText( *Game.URLValue, TEXT("MinPlayers"), TEXT("0") );
+
+    XboxSplitResetRuntime( Client, "SplitReadyLaunch" );
+    GXboxSplitUseReadySlots = 1;
     GXboxSplitPending = 1;
 
     TCHAR PlayerURL[512];
     TCHAR URL[1024];
-    XboxMenuBuildPlayerURL( PlayerURL, ARRAY_COUNT(PlayerURL) );
+    XboxSplitBuildPlayerURLForSlot( 0, PlayerURL, ARRAY_COUNT(PlayerURL), !GXboxSplitReadySlots[0].Joined );
     appSprintf
     (
         URL,
-        TEXT("DM-Deck16][.unr?Game=Botpack.DeathMatchPlus?FragLimit=0?TimeLimit=0?MinPlayers=0?MaxPlayers=4?Difficulty=1%s"),
+        TEXT("%s?Game=%s?FragLimit=%i?TimeLimit=%i?MinPlayers=0?MaxPlayers=4?Difficulty=%i%s"),
+        *Map.URLValue,
+        *Game.URLValue,
+        FragLimit,
+        TimeLimit,
+        Skill,
         PlayerURL
     );
 
     XboxMenuClose( Viewport );
-    GXboxLog.Write( "XSPLIT queued travel: %s", TCHAR_TO_ANSI(URL) );
+    XboxSplitReadyReleaseControllers();
+    GXboxLog.Write( "XSPLIT ready travel joined=%d map=%s game=%s url=%s",
+        XboxSplitReadyJoinedCount(), TCHAR_TO_ANSI(*Map.URLValue), TCHAR_TO_ANSI(*Game.URLValue), TCHAR_TO_ANSI(URL) );
     Client->Engine->SetClientTravel( Viewport, URL, 0, TRAVEL_Absolute );
 }
 
@@ -3891,6 +4437,8 @@ static void XboxMenuReturnToFrontend( UXboxViewport* Viewport )
 
 static void XboxMenuMove( INT Delta );
 static void XboxMenuAdjustInstantAction( INT Delta );
+static void XboxMenuAdjustTournament( INT Delta );
+static void XboxMenuAdjustSplitMapSelect( INT Delta );
 static void XboxMenuAdjustPlayerSetup( UXboxViewport* Viewport, INT Delta );
 static void XboxMenuAdjustSettings( UXboxViewport* Viewport, INT Delta );
 
@@ -3968,6 +4516,20 @@ static void XboxMenuActivate( UXboxViewport* Viewport )
     {
         XboxMenuToggleCurrentMutator();
     }
+    else if( GXboxMenu.Screen == XMS_Tournament )
+    {
+        if( GXboxMenu.TournamentFocus == 3 )
+            XboxMenuStartTournamentMatch( Viewport );
+        else
+            XboxMenuMove( 1 );
+    }
+    else if( GXboxMenu.Screen == XMS_SplitMapSelect )
+    {
+        if( GXboxMenu.SplitFocus == 4 )
+            XboxMenuStartSplitMatch( Viewport );
+        else
+            XboxMenuMove( 1 );
+    }
     else if( GXboxMenu.Screen == XMS_PlayerSetup )
     {
         XboxMenuAdjustPlayerSetup( Viewport, 1 );
@@ -4013,6 +4575,66 @@ static void XboxMenuAdjustInstantAction( INT Delta )
     }
 
     GXboxLog.Write( "XMENU instant adjust row=%d delta=%d", GXboxMenu.InstantFocus, Delta );
+}
+
+static void XboxMenuAdjustTournament( INT Delta )
+{
+    if( GXboxMenu.Screen != XMS_Tournament || Delta == 0 )
+        return;
+
+    XboxTournamentClampSelection();
+
+    switch( GXboxMenu.TournamentFocus )
+    {
+        case 0:
+            GXboxMenu.TournamentLadder = XboxMenuWrapInt( GXboxMenu.TournamentLadder, Delta, ARRAY_COUNT(GXboxTournamentLadders) );
+            GXboxMenu.TournamentMatch = GXboxTournamentLadders[GXboxMenu.TournamentLadder].FirstRatedMatch;
+            XboxMenuReleaseMapPreviewTexture();
+            break;
+        case 1:
+        {
+            INT FirstMatch = GXboxTournamentLadders[GXboxMenu.TournamentLadder].FirstRatedMatch;
+            INT MatchCount = XboxTournamentMatchCount( GXboxMenu.TournamentLadder );
+            INT Count = Max<INT>( 1, MatchCount - FirstMatch );
+            GXboxMenu.TournamentMatch = FirstMatch + XboxMenuWrapInt( GXboxMenu.TournamentMatch - FirstMatch, Delta, Count );
+            XboxMenuReleaseMapPreviewTexture();
+            break;
+        }
+        case 2:
+            GXboxMenu.TournamentSkill = XboxMenuWrapInt( GXboxMenu.TournamentSkill, Delta, ARRAY_COUNT(GXboxSkillLabels) );
+            break;
+    }
+
+    XboxTournamentClampSelection();
+    GXboxLog.Write( "XMENU tournament adjust row=%d ladder=%d match=%d skill=%d delta=%d",
+        GXboxMenu.TournamentFocus, GXboxMenu.TournamentLadder, GXboxMenu.TournamentMatch, GXboxMenu.TournamentSkill, Delta );
+}
+
+static void XboxMenuAdjustSplitMapSelect( INT Delta )
+{
+    if( GXboxMenu.Screen != XMS_SplitMapSelect || Delta == 0 )
+        return;
+
+    switch( GXboxMenu.SplitFocus )
+    {
+        case 0:
+            GXboxMenu.InstantGameType = XboxMenuWrap( GXboxMenu.InstantGameType, Delta, XboxMenuGameTypeCount() );
+            break;
+        case 1:
+        {
+            INT MapCount = XboxInstantMapList( GXboxMenu.InstantGameType );
+            GXboxMenu.InstantMap[GXboxMenu.InstantGameType] = XboxMenuWrap( GXboxMenu.InstantMap[GXboxMenu.InstantGameType], Delta, MapCount );
+            break;
+        }
+        case 2:
+            GXboxMenu.InstantFragLimit = XboxMenuWrap( GXboxMenu.InstantFragLimit, Delta, ARRAY_COUNT(GXboxFragLimits) );
+            break;
+        case 3:
+            GXboxMenu.InstantTimeLimit = XboxMenuWrap( GXboxMenu.InstantTimeLimit, Delta, ARRAY_COUNT(GXboxTimeLimits) );
+            break;
+    }
+
+    GXboxLog.Write( "XMENU split map adjust row=%d delta=%d", GXboxMenu.SplitFocus, Delta );
 }
 
 static void XboxMenuAdjustPlayerSetup( UXboxViewport* Viewport, INT Delta )
@@ -4204,6 +4826,16 @@ static void XboxMenuMove( INT Delta )
         GXboxMenu.InstantMutatorChoice = XboxMenuWrap( GXboxMenu.InstantMutatorChoice, Delta, XboxMenuMutatorCount() );
         GXboxLog.Write( "XMENU mutator focus=%d", GXboxMenu.InstantMutatorChoice );
     }
+    else if( GXboxMenu.Screen == XMS_Tournament )
+    {
+        GXboxMenu.TournamentFocus = XboxMenuWrapInt( GXboxMenu.TournamentFocus, Delta, 4 );
+        GXboxLog.Write( "XMENU tournament focus=%d", GXboxMenu.TournamentFocus );
+    }
+    else if( GXboxMenu.Screen == XMS_SplitMapSelect )
+    {
+        GXboxMenu.SplitFocus = XboxMenuWrapInt( GXboxMenu.SplitFocus, Delta, 5 );
+        GXboxLog.Write( "XMENU split map focus=%d", GXboxMenu.SplitFocus );
+    }
     else if( GXboxMenu.Screen == XMS_PlayerSetup )
     {
         GXboxMenu.PlayerFocus = XboxMenuWrapInt( GXboxMenu.PlayerFocus, Delta, GXboxPlayerSetupRowCount );
@@ -4233,6 +4865,183 @@ static UBOOL XboxThumbPressed( SHORT Cur, SHORT Prev, SHORT Threshold )
     return Cur < Threshold && Prev >= Threshold;
 }
 
+static void XboxSplitReadyAdjustCharacter( INT Port, INT Delta )
+{
+    XboxSplitReadyEnsure();
+    Port = Clamp<INT>( Port, 0, 3 );
+    if( !GXboxSplitReadySlots[Port].Joined || GXboxSplitReadySlots[Port].Locked )
+        return;
+
+    const FXboxPlayerClassOption& OldPlayer = XboxSplitReadyPlayerClass( Port );
+    if( OldPlayer.PortraitName[0] )
+        XboxRenderReleaseMenuTexture( OldPlayer.PortraitName );
+
+    GXboxSplitReadySlots[Port].Character = XboxMenuWrapInt( GXboxSplitReadySlots[Port].Character, Delta, GXboxPlayerClasses.Num() );
+    const FXboxPlayerClassOption& Player = XboxSplitReadyPlayerClass( Port );
+    GXboxSplitReadySlots[Port].Team = Player.DefaultTeam;
+    GXboxLog.Write( "XSPLIT ready port=%d character=%d label=%s portrait=%s",
+        Port + 1, GXboxSplitReadySlots[Port].Character, TCHAR_TO_ANSI(*Player.Label), Player.PortraitName );
+}
+
+static void XboxSplitReadyAdjustTeam( INT Port, INT Delta )
+{
+    XboxSplitReadyEnsure();
+    Port = Clamp<INT>( Port, 0, 3 );
+    if( !GXboxSplitReadySlots[Port].Joined || GXboxSplitReadySlots[Port].Locked )
+        return;
+
+    if( GXboxSplitReadySlots[Port].Team == 255 )
+        GXboxSplitReadySlots[Port].Team = Delta > 0 ? 0 : 3;
+    else
+    {
+        GXboxSplitReadySlots[Port].Team += Delta;
+        if( GXboxSplitReadySlots[Port].Team > 3 )
+            GXboxSplitReadySlots[Port].Team = 255;
+        else if( GXboxSplitReadySlots[Port].Team < 0 )
+            GXboxSplitReadySlots[Port].Team = 255;
+    }
+    GXboxLog.Write( "XSPLIT ready port=%d team=%d", Port + 1, GXboxSplitReadySlots[Port].Team );
+}
+
+static void XboxSplitReadyMove( INT Port, INT Delta )
+{
+    XboxSplitReadyEnsure();
+    Port = Clamp<INT>( Port, 0, 3 );
+    if( !GXboxSplitReadySlots[Port].Joined || GXboxSplitReadySlots[Port].Locked )
+        return;
+    GXboxSplitReadySlots[Port].Focus = XboxMenuWrapInt( GXboxSplitReadySlots[Port].Focus, Delta, 2 );
+}
+
+static void XboxSplitReadyHandlePad( UXboxViewport* Viewport, INT Port, const XINPUT_GAMEPAD& Pad, const XINPUT_GAMEPAD& PrevPad )
+{
+    XboxSplitReadyEnsure();
+    WORD CurDigital  = Pad.wButtons;
+    WORD PrevDigital = PrevPad.wButtons;
+
+    if( XboxAnalogPressed( Pad, PrevPad, XINPUT_GAMEPAD_B )
+    ||  XboxButtonPressed( CurDigital, PrevDigital, XINPUT_GAMEPAD_BACK ) )
+    {
+        if( GXboxSplitReadySlots[Port].Locked )
+        {
+            GXboxSplitReadySlots[Port].Locked = 0;
+            GXboxLog.Write( "XSPLIT ready unlocked port=%d", Port + 1 );
+        }
+        else if( GXboxSplitReadySlots[Port].Joined )
+        {
+            const FXboxPlayerClassOption& Player = XboxSplitReadyPlayerClass( Port );
+            if( Player.PortraitName[0] )
+                XboxRenderReleaseMenuTexture( Player.PortraitName );
+            GXboxSplitReadySlots[Port].Joined = 0;
+            GXboxLog.Write( "XSPLIT ready leave port=%d", Port + 1 );
+        }
+        else if( Port == 0 && XboxSplitReadyJoinedCount() == 0 )
+        {
+            XboxMenuBack( Viewport );
+        }
+        return;
+    }
+
+    if( XboxAnalogPressed( Pad, PrevPad, XINPUT_GAMEPAD_A ) )
+    {
+        if( !GXboxSplitReadySlots[Port].Joined )
+        {
+            GXboxSplitReadySlots[Port].Joined = 1;
+            GXboxSplitReadySlots[Port].Locked = 0;
+            GXboxSplitReadySlots[Port].Focus = 0;
+            const FXboxPlayerClassOption& Player = XboxSplitReadyPlayerClass( Port );
+            GXboxSplitReadySlots[Port].Team = Player.DefaultTeam;
+            GXboxLog.Write( "XSPLIT ready join port=%d character=%d label=%s",
+                Port + 1, GXboxSplitReadySlots[Port].Character, TCHAR_TO_ANSI(*Player.Label) );
+        }
+        else if( !GXboxSplitReadySlots[Port].Locked )
+        {
+            GXboxSplitReadySlots[Port].Locked = 1;
+            GXboxLog.Write( "XSPLIT ready locked port=%d", Port + 1 );
+        }
+        return;
+    }
+
+    if( Port == 0 && XboxButtonPressed( CurDigital, PrevDigital, XINPUT_GAMEPAD_START ) )
+    {
+        if( XboxSplitReadyCanBegin() )
+        {
+            GXboxMenu.Screen = XMS_SplitMapSelect;
+            GXboxMenu.SplitFocus = 0;
+            GXboxLog.Write( "XSPLIT ready complete joined=%d -> map select", XboxSplitReadyJoinedCount() );
+        }
+        else
+        {
+            GXboxLog.Write( "XSPLIT ready start blocked joined=%d", XboxSplitReadyJoinedCount() );
+        }
+        return;
+    }
+
+    if( XboxButtonPressed( CurDigital, PrevDigital, XINPUT_GAMEPAD_DPAD_UP )
+    ||  XboxThumbPressed( Pad.sThumbLY, PrevPad.sThumbLY, 18000 ) )
+        XboxSplitReadyMove( Port, -1 );
+    if( XboxButtonPressed( CurDigital, PrevDigital, XINPUT_GAMEPAD_DPAD_DOWN )
+    ||  XboxThumbPressed( Pad.sThumbLY, PrevPad.sThumbLY, -18000 ) )
+        XboxSplitReadyMove( Port, 1 );
+
+    if( XboxButtonPressed( CurDigital, PrevDigital, XINPUT_GAMEPAD_DPAD_LEFT )
+    ||  XboxThumbPressed( Pad.sThumbLX, PrevPad.sThumbLX, -18000 ) )
+    {
+        if( GXboxSplitReadySlots[Port].Focus == 0 )
+            XboxSplitReadyAdjustCharacter( Port, -1 );
+        else
+            XboxSplitReadyAdjustTeam( Port, -1 );
+    }
+    if( XboxButtonPressed( CurDigital, PrevDigital, XINPUT_GAMEPAD_DPAD_RIGHT )
+    ||  XboxThumbPressed( Pad.sThumbLX, PrevPad.sThumbLX, 18000 ) )
+    {
+        if( GXboxSplitReadySlots[Port].Focus == 0 )
+            XboxSplitReadyAdjustCharacter( Port, 1 );
+        else
+            XboxSplitReadyAdjustTeam( Port, 1 );
+    }
+}
+
+static void XboxSplitReadyPollControllers( UXboxViewport* Viewport, const XINPUT_GAMEPAD& Port0Pad, const XINPUT_GAMEPAD& Port0PrevPad )
+{
+    XboxSplitReadyHandlePad( Viewport, 0, Port0Pad, Port0PrevPad );
+
+    DWORD DeviceMask = XGetDevices( XDEVICE_TYPE_GAMEPAD );
+    for( INT Port=1; Port<4; Port++ )
+    {
+        if( !(DeviceMask & (1 << Port)) )
+        {
+            if( GXboxSplitReadyControllerHandles[Port] )
+            {
+                XInputClose( GXboxSplitReadyControllerHandles[Port] );
+                GXboxSplitReadyControllerHandles[Port] = NULL;
+            }
+            appMemzero( &GXboxSplitReadyControllerState[Port], sizeof(GXboxSplitReadyControllerState[Port]) );
+            appMemzero( &GXboxSplitReadyPrevControllerState[Port], sizeof(GXboxSplitReadyPrevControllerState[Port]) );
+            continue;
+        }
+
+        if( !GXboxSplitReadyControllerHandles[Port] )
+            GXboxSplitReadyControllerHandles[Port] = XboxOpenControllerOnPort( Port, DeviceMask );
+        if( !GXboxSplitReadyControllerHandles[Port] )
+            continue;
+
+        GXboxSplitReadyPrevControllerState[Port] = GXboxSplitReadyControllerState[Port];
+        DWORD Result = XInputGetState( GXboxSplitReadyControllerHandles[Port], &GXboxSplitReadyControllerState[Port] );
+        if( Result == ERROR_SUCCESS )
+        {
+            XboxSplitReadyHandlePad( Viewport, Port, GXboxSplitReadyControllerState[Port].Gamepad, GXboxSplitReadyPrevControllerState[Port].Gamepad );
+        }
+        else
+        {
+            XInputClose( GXboxSplitReadyControllerHandles[Port] );
+            GXboxSplitReadyControllerHandles[Port] = NULL;
+            appMemzero( &GXboxSplitReadyControllerState[Port], sizeof(GXboxSplitReadyControllerState[Port]) );
+            appMemzero( &GXboxSplitReadyPrevControllerState[Port], sizeof(GXboxSplitReadyPrevControllerState[Port]) );
+            GXboxLog.Write( "XSPLIT ready controller lost port=%d result=0x%08X", Port + 1, Result );
+        }
+    }
+}
+
 static void XboxSendGameplayButton( UXboxViewport* Viewport, EInputKey Key, UBOOL bDown, UBOOL bWasDown )
 {
     if( !Viewport || bDown == bWasDown )
@@ -4260,6 +5069,15 @@ static UBOOL XboxMenuHandleInput( UXboxViewport* Viewport, const XINPUT_GAMEPAD&
         return 0;
     }
 
+    if( GXboxMenu.Screen == XMS_SplitReady )
+    {
+        XboxSplitReadyPollControllers( Viewport, Pad, PrevPad );
+        return 1;
+    }
+
+    if( GXboxMenu.Screen == XMS_SplitMapSelect && XboxViewportIndex(Viewport) != 0 )
+        return 1;
+
     if( XboxButtonPressed( CurDigital, PrevDigital, XINPUT_GAMEPAD_DPAD_UP )
     ||  XboxThumbPressed( Pad.sThumbLY, PrevPad.sThumbLY, 18000 ) )
         XboxMenuMove( -1 );
@@ -4270,6 +5088,8 @@ static UBOOL XboxMenuHandleInput( UXboxViewport* Viewport, const XINPUT_GAMEPAD&
     ||  XboxThumbPressed( Pad.sThumbLX, PrevPad.sThumbLX, -18000 ) )
     {
         XboxMenuAdjustInstantAction( -1 );
+        XboxMenuAdjustTournament( -1 );
+        XboxMenuAdjustSplitMapSelect( -1 );
         XboxMenuAdjustPlayerSetup( Viewport, -1 );
         XboxMenuAdjustSettings( Viewport, -1 );
     }
@@ -4277,6 +5097,8 @@ static UBOOL XboxMenuHandleInput( UXboxViewport* Viewport, const XINPUT_GAMEPAD&
     ||  XboxThumbPressed( Pad.sThumbLX, PrevPad.sThumbLX, 18000 ) )
     {
         XboxMenuAdjustInstantAction( 1 );
+        XboxMenuAdjustTournament( 1 );
+        XboxMenuAdjustSplitMapSelect( 1 );
         XboxMenuAdjustPlayerSetup( Viewport, 1 );
         XboxMenuAdjustSettings( Viewport, 1 );
     }
@@ -4383,23 +5205,10 @@ static void XboxMenuDrawTexture( UCanvas* Canvas, UTexture* Texture, FLOAT X, FL
     if( !Canvas || !Texture )
         return;
 
-    Canvas->DrawTile
-    (
-        Texture,
-        X,
-        Y,
-        XL,
-        YL,
-        0.0f,
-        0.0f,
-        Texture->USize,
-        Texture->VSize,
-        NULL,
-        Canvas->Z,
-        FPlane(1,1,1,1),
-        FPlane(0,0,0,0),
-        PF_TwoSided
-    );
+    if( Canvas->Frame && XboxRenderDrawMenuUTexture( Canvas->Frame, Texture, X, Y, XL, YL, 1.0f ) )
+        return;
+
+    Canvas->DrawTile( Texture, X, Y, XL, YL, 0.0f, 0.0f, Texture->USize, Texture->VSize, NULL, Canvas->Z, FPlane(1,1,1,1), FPlane(0,0,0,0), PF_TwoSided );
 }
 
 static void XboxMenuDrawTextureTint( UCanvas* Canvas, UTexture* Texture, FLOAT X, FLOAT Y, FLOAT XL, FLOAT YL, BYTE R, BYTE G, BYTE B, BYTE A )
@@ -5302,6 +6111,107 @@ static void XboxMenuDrawInstantAction( UCanvas* Canvas )
     }
 }
 
+static void XboxMenuDrawTournament( UCanvas* Canvas )
+{
+    static const TCHAR* Labels[] =
+    {
+        TEXT("LADDER"),
+        TEXT("RUNG"),
+        TEXT("SKILL"),
+        TEXT("BEGIN MATCH")
+    };
+
+    XboxTournamentClampSelection();
+    UClass* LadderClass = XboxTournamentLadderClass( GXboxMenu.TournamentLadder );
+    FString Map = XboxTournamentFullMap( GXboxMenu.TournamentLadder, GXboxMenu.TournamentMatch );
+    FString Title;
+    FString Description;
+    XboxTournamentStringAt( GXboxMenu.TournamentLadder, TEXT("MapTitle"), GXboxMenu.TournamentMatch, Title );
+    XboxTournamentStringAt( GXboxMenu.TournamentLadder, TEXT("MapDescription"), GXboxMenu.TournamentMatch, Description );
+    if( Title.Len() <= 0 )
+        Title = Map;
+
+    FString MatchLabel = FString::Printf( TEXT("%02i  %s"), GXboxMenu.TournamentMatch + 1, *Title );
+    const TCHAR* Values[] =
+    {
+        GXboxTournamentLadders[GXboxMenu.TournamentLadder].Label,
+        *MatchLabel,
+        GXboxSkillLabels[Clamp<INT>(GXboxMenu.TournamentSkill, 0, ARRAY_COUNT(GXboxSkillLabels)-1)],
+        TEXT("")
+    };
+
+    UTexture* Preview = Map.Len() ? XboxMenuGetMapPreview( *Map ) : NULL;
+    INT FragLimit = XboxMenuClassDefaultIntAt( LadderClass, TEXT("FragLimits"), GXboxMenu.TournamentMatch, 0 );
+    INT GoalScore = XboxMenuClassDefaultIntAt( LadderClass, TEXT("GoalTeamScore"), GXboxMenu.TournamentMatch, 0 );
+    INT TimeLimit = XboxMenuClassDefaultIntAt( LadderClass, TEXT("TimeLimits"), GXboxMenu.TournamentMatch, 0 );
+    TCHAR RuleText[96];
+    if( GoalScore > 0 )
+        appSprintf( RuleText, TEXT("GOAL SCORE %i"), GoalScore );
+    else if( FragLimit > 0 )
+        appSprintf( RuleText, TEXT("FRAG LIMIT %i"), FragLimit );
+    else
+        appStrcpy( RuleText, TEXT("STANDARD RULES") );
+    if( TimeLimit > 0 )
+    {
+        TCHAR Temp[96];
+        appSprintf( Temp, TEXT("%s    %i MINUTES"), RuleText, TimeLimit );
+        appStrcpy( RuleText, Temp );
+    }
+
+    XboxMenuDrawChrome( Canvas, TEXT("TOURNAMENT"), 1 );
+    UFont* MenuFont = Canvas->MedFont;
+    UFont* SmallFont = Canvas->SmallFont ? Canvas->SmallFont : Canvas->MedFont;
+    XboxMenuText( Canvas, MenuFont, 46, 70, 255, 255, 255, TEXT("TOURNAMENT") );
+
+    XboxMenuDrawRect( Canvas, 382, 92, 590, 300, 25, 34, 48, 0.88f );
+    XboxMenuDrawRect( Canvas, 392, 102, 580, 290, 0, 0, 0, 0.88f );
+    if( Preview )
+    {
+        FLOAT SrcW = Max<FLOAT>( 1.0f, (FLOAT)Preview->USize );
+        FLOAT SrcH = Max<FLOAT>( 1.0f, (FLOAT)Preview->VSize );
+        FLOAT Scale = Min<FLOAT>( 188.0f / SrcW, 188.0f / SrcH );
+        FLOAT PW = SrcW * Scale;
+        FLOAT PH = SrcH * Scale;
+        XboxMenuDrawTexture( Canvas, Preview, 392.0f + (188.0f - PW) * 0.5f, 102.0f + (188.0f - PH) * 0.5f, PW, PH );
+    }
+    else
+    {
+        XboxMenuText( Canvas, MenuFont, 416, 180, 210, 230, 245, TEXT("NO PREVIEW") );
+    }
+
+    for( INT i=0; i<ARRAY_COUNT(Labels); i++ )
+    {
+        FLOAT Y = 162.0f + i * 36.0f;
+        if( i == GXboxMenu.TournamentFocus )
+        {
+            XboxMenuDrawRect( Canvas, 42, Y-6, 350, Y+18, 12, 82, 166, 0.55f );
+            if( i < 3 )
+            {
+                XboxMenuText( Canvas, MenuFont, 192, Y, 180, 215, 245, TEXT("<") );
+                XboxMenuText( Canvas, MenuFont, 334, Y, 180, 215, 245, TEXT(">") );
+            }
+            XboxMenuText( Canvas, MenuFont, 58, Y, 255, 255, 255, Labels[i] );
+            XboxMenuText( Canvas, MenuFont, 210, Y, 255, 255, 255, Values[i] );
+        }
+        else
+        {
+            XboxMenuText( Canvas, MenuFont, 58, Y, 140, 178, 212, Labels[i] );
+            XboxMenuText( Canvas, MenuFont, 210, Y, 180, 205, 230, Values[i] );
+        }
+    }
+
+    XboxMenuText( Canvas, SmallFont, 392, 318, 255, 255, 255, *Title );
+    XboxMenuText( Canvas, SmallFont, 392, 340, 180, 215, 245, *Map );
+    XboxMenuText( Canvas, SmallFont, 392, 362, 135, 170, 205, RuleText );
+    if( Description.Len() )
+        XboxMenuText( Canvas, SmallFont, 392, 386, 135, 170, 205, *Description.Left( 54 ) );
+
+    if( GXboxMenu.TournamentFocus == 3 )
+        XboxMenuText( Canvas, MenuFont, 58, 402, 135, 255, 120, TEXT("A STARTS THE TOURNAMENT MATCH") );
+    else
+        XboxMenuText( Canvas, MenuFont, 58, 402, 135, 170, 205, TEXT("DPAD LEFT/RIGHT CHANGES OPTIONS") );
+}
+
 static void XboxMenuDrawMutators( UCanvas* Canvas )
 {
     XboxMenuDrawInstantAction( Canvas );
@@ -5401,6 +6311,165 @@ static void XboxMenuDrawPlayerSetup( UXboxViewport* Viewport, UCanvas* Canvas )
     }
 
     XboxMenuText( Canvas, MenuFont, 58, 402, 135, 170, 205, TEXT("DPAD LEFT/RIGHT CHANGES SELECTION") );
+}
+
+static void XboxMenuDrawSplitReadySlot( UCanvas* Canvas, INT Port, FLOAT X, FLOAT Y, FLOAT W, FLOAT H )
+{
+    XboxSplitReadyEnsure();
+    UFont* MenuFont = Canvas->SmallFont ? Canvas->SmallFont : Canvas->MedFont;
+    FXboxSplitReadySlot& Slot = GXboxSplitReadySlots[Port];
+
+    XboxMenuDrawRect( Canvas, X, Y, X+W, Y+H, 25, 34, 48, Slot.Joined ? 0.72f : 0.46f );
+    XboxMenuDrawRect( Canvas, X+4, Y+4, X+W-4, Y+H-4, 0, 0, 0, Slot.Joined ? 0.50f : 0.34f );
+    XboxMenuDrawRect( Canvas, X, Y, X+W, Y+3, 31, 112, 205, Slot.Joined ? 0.85f : 0.40f );
+
+    if( !Slot.Joined )
+    {
+        XboxMenuText( Canvas, MenuFont, X+W*0.28f, Y+H*0.45f, 180, 215, 245, TEXT("PRESS A") );
+        XboxMenuText( Canvas, MenuFont, X+W*0.28f, Y+H*0.45f+20, 180, 215, 245, TEXT("TO JOIN") );
+        return;
+    }
+
+    const FXboxPlayerClassOption& Player = XboxSplitReadyPlayerClass( Port );
+    const TCHAR* TeamValue = (Slot.Team >= 0 && Slot.Team < ARRAY_COUNT(GXboxPlayerTeams))
+        ? GXboxPlayerTeams[Slot.Team]
+        : TEXT("NONE");
+
+    FLOAT PortraitX = X + 8.0f;
+    FLOAT PortraitY = Y + 20.0f;
+    FLOAT PortraitW = W - 16.0f;
+    FLOAT PortraitH = 206.0f;
+    if( Player.PortraitName[0] )
+        XboxRenderDrawMenuTexture( Canvas->Frame, Player.PortraitName, PortraitX, PortraitY, PortraitW, PortraitH, Slot.Locked ? 0.72f : 1.0f );
+
+    FLOAT RowY = Y + 232.0f;
+    if( !Slot.Locked && Slot.Focus == 0 )
+        XboxMenuDrawRect( Canvas, X+8, RowY-5, X+W-8, RowY+17, 12, 82, 166, 0.55f );
+    XboxMenuText( Canvas, MenuFont, X+12, RowY, Slot.Locked ? 120 : 255, Slot.Locked ? 150 : 255, Slot.Locked ? 180 : 255, *Player.Label );
+
+    RowY += 30.0f;
+    if( !Slot.Locked && Slot.Focus == 1 )
+        XboxMenuDrawRect( Canvas, X+8, RowY-5, X+W-8, RowY+17, 12, 82, 166, 0.55f );
+    XboxMenuText( Canvas, MenuFont, X+12, RowY, Slot.Locked ? 120 : 180, Slot.Locked ? 150 : 215, Slot.Locked ? 180 : 245, TEXT("TEAM") );
+    XboxMenuText( Canvas, MenuFont, X+74, RowY, Slot.Locked ? 120 : 255, Slot.Locked ? 150 : 255, Slot.Locked ? 180 : 255, TeamValue );
+
+    if( Slot.Locked )
+    {
+        XboxMenuDrawRect( Canvas, X+18, Y+H-44, X+W-18, Y+H-18, 18, 92, 48, 0.70f );
+        XboxMenuText( Canvas, MenuFont, X+40, Y+H-38, 135, 255, 120, TEXT("READY") );
+    }
+    else
+    {
+        XboxMenuText( Canvas, MenuFont, X+12, Y+H-38, 135, 170, 205, TEXT("A LOCKS IN") );
+    }
+}
+
+static void XboxMenuDrawSplitReady( UCanvas* Canvas )
+{
+    XboxMenuDrawChrome( Canvas, TEXT("SPLITSCREEN"), 1 );
+    UFont* MenuFont = Canvas->MedFont;
+    XboxMenuText( Canvas, MenuFont, 46, 64, 255, 255, 255, TEXT("SPLITSCREEN READY") );
+
+    FLOAT X = 22.0f;
+    FLOAT Y = 100.0f;
+    FLOAT W = 142.0f;
+    FLOAT H = 296.0f;
+    FLOAT Gap = 8.0f;
+    for( INT i=0; i<4; i++ )
+        XboxMenuDrawSplitReadySlot( Canvas, i, X + i * (W + Gap), Y, W, H );
+
+    if( XboxSplitReadyCanBegin() )
+        XboxMenuText( Canvas, MenuFont, 58, 406, 135, 255, 120, TEXT("PLAYER 1 START BEGINS MAP SELECTION") );
+    else
+        XboxMenuText( Canvas, MenuFont, 58, 406, 135, 170, 205, TEXT("JOINED PLAYERS MUST LOCK IN") );
+}
+
+static void XboxMenuDrawSplitMapSelect( UCanvas* Canvas )
+{
+    static const TCHAR* Labels[] =
+    {
+        TEXT("GAMETYPE"),
+        TEXT("ARENA"),
+        TEXT("FRAG LIMIT"),
+        TEXT("TIME LIMIT"),
+        TEXT("BEGIN MATCH")
+    };
+
+    GXboxMenu.InstantGameType = Clamp<INT>( GXboxMenu.InstantGameType, 0, XboxMenuGameTypeCount()-1 );
+    INT MapCount = XboxInstantMapList( GXboxMenu.InstantGameType );
+    const FXboxDiscoveredOption& Game = XboxMenuGameType( GXboxMenu.InstantGameType );
+    const FXboxDiscoveredOption* Map = NULL;
+    if( MapCount > 0 )
+    {
+        INT MapIndex = Clamp<INT>( GXboxMenu.InstantMap[GXboxMenu.InstantGameType], 0, MapCount-1 );
+        Map = &XboxMenuMap( GXboxMenu.InstantGameType, MapIndex );
+    }
+    UTexture* Preview = Map ? XboxMenuGetMapPreview( *Map->URLValue ) : NULL;
+
+    TCHAR FragValue[16];
+    TCHAR TimeValue[24];
+    INT FragLimit = GXboxFragLimits[Clamp<INT>(GXboxMenu.InstantFragLimit, 0, ARRAY_COUNT(GXboxFragLimits)-1)];
+    if( FragLimit > 0 )
+        appSprintf( FragValue, TEXT("%i"), FragLimit );
+    else
+        appStrcpy( FragValue, TEXT("NONE") );
+
+    INT TimeLimit = GXboxTimeLimits[Clamp<INT>(GXboxMenu.InstantTimeLimit, 0, ARRAY_COUNT(GXboxTimeLimits)-1)];
+    if( TimeLimit > 0 )
+        appSprintf( TimeValue, TEXT("%i MINUTES"), TimeLimit );
+    else
+        appStrcpy( TimeValue, TEXT("NONE") );
+
+    const TCHAR* Values[] =
+    {
+        *Game.Label,
+        Map ? *Map->Label : TEXT("NO MAPS"),
+        FragValue,
+        TimeValue,
+        TEXT("")
+    };
+
+    XboxMenuDrawChrome( Canvas, TEXT("SPLITSCREEN"), 1 );
+    UFont* MenuFont = Canvas->MedFont;
+    XboxMenuText( Canvas, MenuFont, 46, 70, 255, 255, 255, TEXT("SPLITSCREEN MATCH") );
+    XboxMenuDrawRect( Canvas, 382, 92, 590, 300, 25, 34, 48, 0.88f );
+    XboxMenuDrawRect( Canvas, 392, 102, 580, 290, 0, 0, 0, 0.88f );
+    if( Preview )
+    {
+        FLOAT SrcW = Max<FLOAT>( 1.0f, (FLOAT)Preview->USize );
+        FLOAT SrcH = Max<FLOAT>( 1.0f, (FLOAT)Preview->VSize );
+        FLOAT Scale = Min<FLOAT>( 188.0f / SrcW, 188.0f / SrcH );
+        FLOAT PW = SrcW * Scale;
+        FLOAT PH = SrcH * Scale;
+        XboxMenuDrawTexture( Canvas, Preview, 392.0f + (188.0f - PW) * 0.5f, 102.0f + (188.0f - PH) * 0.5f, PW, PH );
+    }
+    else
+    {
+        XboxMenuText( Canvas, MenuFont, 416, 180, 210, 230, 245, TEXT("NO PREVIEW") );
+    }
+
+    for( INT i=0; i<ARRAY_COUNT(Labels); i++ )
+    {
+        FLOAT Y = 164.0f + i * 36.0f;
+        if( i == GXboxMenu.SplitFocus )
+        {
+            XboxMenuDrawRect( Canvas, 42, Y-6, 350, Y+18, 12, 82, 166, 0.55f );
+            if( i < 4 )
+            {
+                XboxMenuText( Canvas, MenuFont, 192, Y, 180, 215, 245, TEXT("<") );
+                XboxMenuText( Canvas, MenuFont, 334, Y, 180, 215, 245, TEXT(">") );
+            }
+            XboxMenuText( Canvas, MenuFont, 58, Y, 255, 255, 255, Labels[i] );
+            XboxMenuText( Canvas, MenuFont, 210, Y, 255, 255, 255, Values[i] );
+        }
+        else
+        {
+            XboxMenuText( Canvas, MenuFont, 58, Y, 140, 178, 212, Labels[i] );
+            XboxMenuText( Canvas, MenuFont, 210, Y, 180, 205, 230, Values[i] );
+        }
+    }
+
+    XboxMenuText( Canvas, MenuFont, 58, 402, 135, 170, 205, TEXT("PLAYER 1 CONTROLS MATCH SETUP") );
 }
 
 static void XboxMenuDrawSettings( UXboxViewport* Viewport, UCanvas* Canvas )
@@ -5608,6 +6677,11 @@ void XboxMenuPostRender( UViewport* Viewport, UCanvas* Canvas )
     INT WheelViewportIndex = XboxViewport ? Clamp<INT>( XboxViewportIndex(XboxViewport), 0, 3 ) : 0;
     if( !Viewport || !Canvas )
         return;
+    if( GXboxTournamentLaunchPending )
+    {
+        XboxMenuPumpTournamentLaunch( XboxViewport, Canvas );
+        return;
+    }
     if( !GXboxMenu.Active )
     {
         if( XboxViewport && GXboxWeaponWheelActive[WheelViewportIndex] )
@@ -5631,6 +6705,12 @@ void XboxMenuPostRender( UViewport* Viewport, UCanvas* Canvas )
         XboxMenuDrawInstantAction( Canvas );
     else if( GXboxMenu.Screen == XMS_Mutators )
         XboxMenuDrawMutators( Canvas );
+    else if( GXboxMenu.Screen == XMS_Tournament )
+        XboxMenuDrawTournament( Canvas );
+    else if( GXboxMenu.Screen == XMS_SplitReady )
+        XboxMenuDrawSplitReady( Canvas );
+    else if( GXboxMenu.Screen == XMS_SplitMapSelect )
+        XboxMenuDrawSplitMapSelect( Canvas );
     else if( GXboxMenu.Screen == XMS_PlayerSetup )
         XboxMenuDrawPlayerSetup( XboxViewport, Canvas );
     else if( GXboxMenu.Screen == XMS_Settings )
@@ -5928,6 +7008,7 @@ void UXboxViewport::ProcessControllerInput( const XINPUT_GAMEPAD& Pad )
     UBOOL BlackPrev = PrevControllerState.Gamepad.bAnalogButtons[XINPUT_GAMEPAD_BLACK] > AnalogThreshold;
     UBOOL bWheelInputActive = Player && !GXboxMenu.Active && (GXboxWeaponWheelActive[WheelViewportIndex] || WhiteNow || WhitePrev || BlackNow || BlackPrev);
 
+    XboxTournamentSmokeTick( this );
     XboxMenuSmokeTick( this );
 
     if( GXboxSplitActive && GXboxMenu.Active )

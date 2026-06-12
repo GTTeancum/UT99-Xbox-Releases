@@ -3533,6 +3533,78 @@ extern "C" UBOOL XboxRenderDrawMenuTexture( FSceneNode* Frame, const char* Name,
     return 1;
 }
 
+extern "C" UBOOL XboxRenderDrawMenuUTexture( FSceneNode* Frame, UTexture* Texture, FLOAT X, FLOAT Y, FLOAT XL, FLOAT YL, FLOAT Alpha )
+{
+    UBOOL bDrawn = 0;
+    guard(XboxRenderDrawMenuUTexture);
+
+    UXboxRenderDevice* Ren = Cast<UXboxRenderDevice>( GRenderDevice );
+    if( !Ren || !Ren->Device || !Frame || !Texture )
+        return 0;
+
+    DOUBLE Time = (Frame->Viewport) ? Frame->Viewport->CurrentTime : 0.0;
+    UTexture* DrawTexture = GIsEditor ? Texture : Texture->Get( Time );
+    if( !DrawTexture )
+        return 0;
+
+    FTextureInfo Info;
+    DrawTexture->Lock( Info, Time, -1, Ren );
+
+    Ren->FlushDGPBatch( "menu-utexture" );
+    Ren->FlushDTBatch( "menu-utexture" );
+    XboxRenderFlushMenuRectBatch( Ren, "menu-utexture" );
+    Ren->DisableStage1();
+
+    if( Ren->SetTextureD3D( 0, Info, 0 ) )
+    {
+        BYTE A = (BYTE)Clamp<INT>( (INT)(Alpha * 255.0f), 0, 255 );
+        DWORD Clr = (A << 24) | 0x00FFFFFF;
+        FLOAT RHW = 1.0f;
+        FLOAT SZ  = Ren->ProjZRatio + Ren->ProjZOffset * RHW;
+        FLOAT UL = Info.UScale * (FLOAT)Info.USize;
+        FLOAT VL = Info.VScale * (FLOAT)Info.VSize;
+
+        FXboxTLVertex Verts[4];
+        Verts[0].x = X - 0.5f;      Verts[0].y = Y - 0.5f;      Verts[0].z = SZ; Verts[0].rhw = RHW; Verts[0].color = Clr; SetUV( Verts[0], 0, 0.0f, 0.0f, Ren->StageUScale, Ren->StageVScale, Ren->StageUIndex, Ren->StageVIndex );
+        Verts[1].x = X+XL - 0.5f;   Verts[1].y = Y - 0.5f;      Verts[1].z = SZ; Verts[1].rhw = RHW; Verts[1].color = Clr; SetUV( Verts[1], 0, UL,   0.0f, Ren->StageUScale, Ren->StageVScale, Ren->StageUIndex, Ren->StageVIndex );
+        Verts[2].x = X+XL - 0.5f;   Verts[2].y = Y+YL - 0.5f;   Verts[2].z = SZ; Verts[2].rhw = RHW; Verts[2].color = Clr; SetUV( Verts[2], 0, UL,   VL,   Ren->StageUScale, Ren->StageVScale, Ren->StageUIndex, Ren->StageVIndex );
+        Verts[3].x = X - 0.5f;      Verts[3].y = Y+YL - 0.5f;   Verts[3].z = SZ; Verts[3].rhw = RHW; Verts[3].color = Clr; SetUV( Verts[3], 0, 0.0f, VL,   Ren->StageUScale, Ren->StageVScale, Ren->StageUIndex, Ren->StageVIndex );
+
+        Ren->SetCachedRenderState( D3DRS_ALPHABLENDENABLE, A < 255 );
+        Ren->SetCachedRenderState( D3DRS_ALPHATESTENABLE, FALSE );
+        Ren->SetCachedRenderState( D3DRS_ZENABLE, D3DZB_FALSE );
+        Ren->SetCachedRenderState( D3DRS_ZWRITEENABLE, FALSE );
+        Ren->SetCachedRenderState( D3DRS_ZFUNC, D3DCMP_ALWAYS );
+        Ren->SetCachedRenderState( D3DRS_SRCBLEND, D3DBLEND_SRCALPHA );
+        Ren->SetCachedRenderState( D3DRS_DESTBLEND, D3DBLEND_INVSRCALPHA );
+        Ren->SetCachedTextureStageState( 0, D3DTSS_COLOROP, D3DTOP_MODULATE );
+        Ren->SetCachedTextureStageState( 0, D3DTSS_COLORARG1, D3DTA_TEXTURE );
+        Ren->SetCachedTextureStageState( 0, D3DTSS_COLORARG2, D3DTA_DIFFUSE );
+        Ren->SetCachedTextureStageState( 0, D3DTSS_ALPHAOP, D3DTOP_MODULATE );
+        Ren->SetCachedTextureStageState( 0, D3DTSS_ALPHAARG1, D3DTA_TEXTURE );
+        Ren->SetCachedTextureStageState( 0, D3DTSS_ALPHAARG2, D3DTA_DIFFUSE );
+        Ren->SetCachedTextureStageState( 0, D3DTSS_ADDRESSU, D3DTADDRESS_CLAMP );
+        Ren->SetCachedTextureStageState( 0, D3DTSS_ADDRESSV, D3DTADDRESS_CLAMP );
+        Ren->SetCachedTextureStageState( 0, D3DTSS_TEXTURETRANSFORMFLAGS, D3DTTFF_DISABLE );
+        Ren->SetCachedTextureStageState( 0, D3DTSS_MINFILTER, D3DTEXF_LINEAR );
+        Ren->SetCachedTextureStageState( 0, D3DTSS_MAGFILTER, D3DTEXF_LINEAR );
+        Ren->SetCachedTextureStageState( 0, D3DTSS_MIPFILTER, D3DTEXF_NONE );
+        Ren->SetCachedVertexShader( XBOX_FVF_TLVERTEX );
+        Ren->DrawPrimitiveVB( D3DPT_TRIANGLEFAN, 2, Verts, sizeof(FXboxTLVertex), "menu-utexture" );
+        Ren->Device->SetTexture( 0, NULL );
+        Ren->BoundCacheID[0] = 0;
+        Ren->RestoreDefaultTextureStages();
+        Ren->SetCachedRenderState( D3DRS_ALPHABLENDENABLE, FALSE );
+        Ren->SetCachedRenderState( D3DRS_ALPHATESTENABLE, FALSE );
+        Ren->CurrentPolyFlags = 0xFFFFFFFF;
+        bDrawn = 1;
+    }
+
+    DrawTexture->Unlock( Info );
+    unguard;
+    return bDrawn;
+}
+
 // ============================================================================
 // ClearZ
 // ============================================================================

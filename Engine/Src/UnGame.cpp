@@ -358,6 +358,17 @@ void UGameEngine::BuildServerMasterMap( UNetDriver* NetDriver, ULevel* InLevel )
 		// Load server-required packages.
 		for( INT i=0; i<ServerPackages.Num(); i++ )
 		{
+#if TARGET_XBOX
+			if( appStricmp(*ServerPackages(i),TEXT("SoldierSkins"))==0
+			||	appStricmp(*ServerPackages(i),TEXT("CommandoSkins"))==0
+			||	appStricmp(*ServerPackages(i),TEXT("FCommandoSkins"))==0
+			||	appStricmp(*ServerPackages(i),TEXT("SGirlSkins"))==0
+			||	appStricmp(*ServerPackages(i),TEXT("BossSkins"))==0 )
+			{
+				debugf( TEXT("Xbox skipping cosmetic server package: %s"), *ServerPackages(i) );
+				continue;
+			}
+#endif
 			debugf( TEXT("Server Package: %s"), *ServerPackages(i) );
 			ULinkerLoad* Linker = GetPackageLinker( NULL, *ServerPackages(i), LOAD_NoFail, NULL, NULL );
 			if( NetDriver->MasterMap->AddLinker( Linker )==INDEX_NONE )

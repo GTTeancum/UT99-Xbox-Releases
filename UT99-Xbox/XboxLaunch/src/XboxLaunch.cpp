@@ -25,6 +25,7 @@ extern "C" TCHAR GPackage_Core[64]      = TEXT("Core");
 extern "C" TCHAR GPackage_Engine[64]    = TEXT("Engine");
 extern "C" TCHAR GPackage_Render[64]    = TEXT("Render");
 extern "C" TCHAR GPackage_Fire[64]      = TEXT("Fire");
+extern "C" TCHAR GPackage_IpDrv[64]     = TEXT("IpDrv");
 extern "C" TCHAR GPackage_XboxDrv[64]   = TEXT("XboxDrv");
 extern "C" TCHAR GPackage_XboxRender[64]= TEXT("XboxRender");
 extern "C" TCHAR GPackage_XboxAudio[64] = TEXT("XboxAudio");

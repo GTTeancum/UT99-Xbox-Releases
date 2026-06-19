@@ -21,9 +21,17 @@ Revision history:
 
 // WinSock includes.
 #if __WINSOCK__
-	#include <windows.h>
-	#include <winsock.h>
-	#include <conio.h>
+	#if TARGET_XBOX
+		#include <xtl.h>
+		#include <winsockx.h>
+		#ifndef MSG_PEEK
+			#define MSG_PEEK 0x2
+		#endif
+	#else
+		#include <windows.h>
+		#include <winsock.h>
+		#include <conio.h>
+	#endif
 #endif
 
 // BSD socket includes.
@@ -183,6 +191,11 @@ inline int getlocalhostaddr( FOutputDevice& Out, in_addr &HostAddr )
 	guard(getlocalhostaddr);
 	int CanBindAll = 0;
 	IpSetInt( HostAddr, INADDR_ANY );
+#if TARGET_XBOX
+	// The XDK WinSock surface does not expose PC DNS/hostname helpers.
+	// System Link uses lobby-advertised numeric IPs, so listeners bind all.
+	return 1;
+#else
 	TCHAR Home[256]=TEXT(""), HostName[256]=TEXT("");
 	ANSICHAR AnsiHostName[256]="";
 	if( gethostname( AnsiHostName, 256 ) )
@@ -230,6 +243,7 @@ inline int getlocalhostaddr( FOutputDevice& Out, in_addr &HostAddr )
 		}
 	}
 	return CanBindAll;
+#endif
 	unguard;
 }
 

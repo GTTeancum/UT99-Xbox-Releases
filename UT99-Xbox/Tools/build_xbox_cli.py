@@ -343,6 +343,71 @@ def build_xmp_library(build_root):
     return out_lib
 
 
+def build_ipdrv_library(build_root):
+    name = "IpDrv"
+    src_dir = os.path.join(ROOT_DIR, "IpDrv", "Src")
+    obj_dir = os.path.join(build_root, "obj", name)
+    lib_dir = os.path.join(build_root, "lib")
+    out_lib = os.path.join(lib_dir, name + ".lib")
+
+    if not os.path.isdir(obj_dir):
+        os.makedirs(obj_dir)
+    if not os.path.isdir(lib_dir):
+        os.makedirs(lib_dir)
+
+    include_5558 = os.path.join(XDK_DIR, "xbox", "include")
+    include_5849 = os.path.join(XDK_FALLBACK_DIR, "xbox", "include")
+    sources = [
+        "IpDrv.cpp",
+        "UnSocket.cpp",
+        "InternetLink.cpp",
+        "UdpLink.cpp",
+        "TcpLink.cpp",
+        "TcpNetDriver.cpp",
+    ]
+    flags = [
+        "/nologo", "/c", "/TP", "/O2", "/W2", "/MT", "/EHsc",
+        "/I" + include_5558,
+        "/I" + include_5849,
+        "/I" + os.path.join(ROOT_DIR, "Core", "Inc"),
+        "/I" + os.path.join(ROOT_DIR, "Engine", "Inc"),
+        "/I" + os.path.join(ROOT_DIR, "IpDrv", "Inc"),
+        "/I" + src_dir,
+        "/DWIN32",
+        "/D_XBOX",
+        "/DTARGET_XBOX=1",
+        "/DASM=0",
+        "/DASM3DNOW=0",
+        "/DASMKNI=0",
+        "/DIPDRV_API=",
+        "/DGPackage=GPackage_IpDrv",
+        "/FICoreXboxCompat.h",
+        "/wd4005", "/wd4244", "/wd4267", "/wd4996", "/wd4018", "/wd4305",
+    ]
+
+    objects = []
+    print("")
+    print("== Building IpDrv ==")
+    for rel in sources:
+        src = os.path.join(src_dir, rel)
+        obj = os.path.join(obj_dir, rel.replace(".", "_") + ".obj")
+        cmd = [CL] + flags + ["/Fo" + obj, src]
+        if run_command(cmd, src_dir) != 0:
+            fail("Compile failed: " + src)
+        objects.append(obj)
+
+    rsp = os.path.join(obj_dir, "lib.rsp")
+    with open(rsp, "w") as f:
+        f.write('/OUT:"{}"\n'.format(out_lib))
+        for obj in objects:
+            f.write('"{}"\n'.format(obj))
+
+    if run_command([LIB, "@" + rsp], src_dir) != 0:
+        fail("Library failed: " + out_lib)
+
+    return out_lib
+
+
 def build_launch(vcproj, config_name, build_root, built_libs):
     project_dir = os.path.dirname(vcproj)
     tree = ET.parse(vcproj)
@@ -384,6 +449,7 @@ def build_launch(vcproj, config_name, build_root, built_libs):
         built_libs["XboxDrv"],
         built_libs["XboxRender"],
         built_libs["XboxAudio"],
+        built_libs["IpDrv"],
         built_libs["XboxXmp"],
         # 5558's d3d8.lib is the full 2.1 MB retail static lib (xQuake's
         # link target). Lacks the debug DbgPrint+int3 validator that
@@ -458,8 +524,11 @@ def copy_runtime_assets(build_root):
     if os.path.isfile(default_ini):
         if not os.path.isdir(system_dst):
             os.makedirs(system_dst)
+        runtime_ini = os.path.join(system_dst, "UnrealTournament.ini")
+        if os.path.isfile(runtime_ini):
+            os.remove(runtime_ini)
         shutil.copy2(default_ini, os.path.join(system_dst, "Default.ini"))
-        shutil.copy2(default_ini, os.path.join(system_dst, "UnrealTournament.ini"))
+        shutil.copy2(default_ini, runtime_ini)
         print("Copied Xbox System ini files to " + system_dst)
 
     menu_src = os.path.join(XBOX_DIR, "MenuAssets")
@@ -522,6 +591,7 @@ def main():
 
     built_libs = {}
     built_libs["XboxXmp"] = build_xmp_library(build_root)
+    built_libs["IpDrv"] = build_ipdrv_library(build_root)
     for name, vcproj, kind in PROJECTS:
         if kind == "lib":
             built_libs[name] = build_library(name, vcproj, args.config, build_root)

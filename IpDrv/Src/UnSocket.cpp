@@ -20,6 +20,15 @@ DWORD STDCALL ResolveThreadEntry( void* Arg )
 {
 	FResolveInfo* Info = (FResolveInfo*)Arg;
 	IpSetInt( Info->Addr, 0 );
+#if TARGET_XBOX
+	DWORD NumericAddr = inet_addr( appToAnsi(Info->HostName) );
+	if( NumericAddr != INADDR_NONE )
+		IpSetInt( Info->Addr, NumericAddr );
+	else
+		appSprintf( Info->Error, TEXT("Xbox DNS unavailable for %s"), Info->HostName );
+	Info->ThreadId = 0;
+	return 0;
+#else
 	HOSTENT* HostEnt = NULL;
 	INT e = 0;
 	for( INT i=0; i<3; i++)
@@ -39,6 +48,7 @@ DWORD STDCALL ResolveThreadEntry( void* Arg )
 		Info->Addr = *(in_addr*)( *HostEnt->h_addr_list );
 	Info->ThreadId = 0;
 	return 0;
+#endif
 }
 
 /*----------------------------------------------------------------------------

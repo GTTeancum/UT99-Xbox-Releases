@@ -178,6 +178,14 @@
 #pragma comment(linker, "/include:_autoclassUPackageMapLevel")
 #pragma comment(linker, "/include:_autoclassUNetDriver")
 
+// System Link final travel uses NetworkDevice=IpDrv.TcpNetDriver. Force the
+// static net package/class objects in so StaticLoadClass can resolve it.
+#pragma comment(linker, "/include:_autoclassUTcpNetDriver")
+#pragma comment(linker, "/include:_autoclassUTcpipConnection")
+#pragma comment(linker, "/include:_autoclassAInternetLink")
+#pragma comment(linker, "/include:_autoclassAUdpLink")
+#pragma comment(linker, "/include:_autoclassATcpLink")
+
 // ── UnMover.cpp ──────────────────────────────────────────────────────────────
 #pragma comment(linker, "/include:_autoclassAMover")
 

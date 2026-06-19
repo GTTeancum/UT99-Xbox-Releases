@@ -450,6 +450,15 @@ UBOOL ULevel::Listen( FString& Error )
 		const TCHAR* Ptr = *GameEngine->ServerActors(i);
 		if( ParseToken( Ptr, Str, ARRAY_COUNT(Str), 1 ) )
 		{
+#if TARGET_XBOX
+			if( appStricmp(Str,TEXT("IpDrv.UdpBeacon"))==0
+			||	appStrnicmp(Str,TEXT("IpServer."),9)==0
+			||	appStrnicmp(Str,TEXT("UWeb."),5)==0 )
+			{
+				debugf( TEXT("Xbox skipping PC server actor: %s"), Str );
+				continue;
+			}
+#endif
 			debugf( TEXT("Spawning: %s"), Str );
 			UClass* HelperClass = StaticLoadClass( AActor::StaticClass(), NULL, Str, NULL, LOAD_NoFail, NULL );
 			AActor* Actor = SpawnActor( HelperClass );

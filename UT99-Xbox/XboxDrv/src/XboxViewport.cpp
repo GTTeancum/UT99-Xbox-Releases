@@ -94,6 +94,7 @@ enum EXboxMenuScreen
     XMS_InstantAction,
     XMS_Mutators,
     XMS_SystemLink,
+    XMS_SystemLinkMapSelect,
     XMS_Tournament,
     XMS_SplitReady,
     XMS_SplitMapSelect,
@@ -173,6 +174,50 @@ static INT   GXboxWeaponWheelSpriteFailLogCount = 0;
 static AActor* GXboxWeaponWheelPreviewActor = NULL;
 static ULevel* GXboxWeaponWheelPreviewLevel = NULL;
 static INT   GXboxMenuVoiceSampleBypass = 0;
+static UBOOL GXboxFrontendMenuOpenPending = 0;
+static ULevel* GXboxTournamentLastLoggedLevel = NULL;
+static APlayerPawn* GXboxTournamentLastLoggedPlayer = NULL;
+
+static const TCHAR* XboxPlayerStateName( APlayerPawn* Player )
+{
+    return (Player && Player->GetStateFrame() && Player->GetStateFrame()->StateNode)
+        ? *Player->GetStateFrame()->StateNode->GetFName()
+        : TEXT("None");
+}
+
+static UBOOL XboxClassIsNamed( UClass* Class, const TCHAR* Name )
+{
+    if( !Name )
+        return 0;
+
+    for( UClass* Test=Class; Test; Test=Test->GetSuperClass() )
+        if( appStricmp( Test->GetName(), Name ) == 0 )
+            return 1;
+    return 0;
+}
+
+static UBOOL XboxIsFrontendLevel( ULevel* Level )
+{
+    if( !Level )
+        return 0;
+
+    if( Level->URL.Map.Len()
+    && (appStricmp( *Level->URL.Map, TEXT("CityIntro") ) == 0
+    ||  appStricmp( *Level->URL.Map, TEXT("CityIntro.unr") ) == 0
+    ||  appStricmp( *Level->URL.Map, TEXT("UT-Logo-Map") ) == 0
+    ||  appStricmp( *Level->URL.Map, TEXT("UT-Logo-Map.unr") ) == 0) )
+        return 1;
+
+    ALevelInfo* Info = Level->GetLevelInfo();
+    UObject* Game = Info ? Info->Game : NULL;
+    UClass* GameClass = Game ? Game->GetClass() : NULL;
+    return GameClass && appStricmp( GameClass->GetName(), TEXT("UTIntro") ) == 0;
+}
+
+static UBOOL XboxIsTournamentLevel( ULevel* Level )
+{
+    return Level && Level->URL.GetOption( TEXT("Tournament="), NULL ) != NULL;
+}
 
 static DWORD XboxMenuAvailPhysKB()
 {
@@ -461,7 +506,29 @@ static INT GXboxPlayerPreviewChangesSinceGC = 0;
 static const INT GXboxSystemLinkBasePort = 9777;
 static const INT GXboxSystemLinkPortCount = 4;
 static const INT GXboxSystemLinkMaxPeers = 8;
+static const FLOAT GXboxSystemLinkHostClaimSeconds = 1.5f;
+static const FLOAT GXboxSystemLinkPeerTimeoutSeconds = 8.0f;
+static const FLOAT GXboxSystemLinkLaunchHostDelaySeconds = 1.0f;
+static const FLOAT GXboxSystemLinkLaunchDeadlineSeconds = 5.0f;
+static const FLOAT GXboxSystemLinkLaunchClientDelaySeconds = 1.5f;
+static const INT GXboxSystemLinkGamePort = 7777;
 static const FLOAT GXboxSplitDummyRespawnSeconds = 3.0f;
+
+enum EXboxSystemLinkRole
+{
+    XSLR_Seeking = 0,
+    XSLR_Host    = 1,
+    XSLR_Client  = 2
+};
+
+enum EXboxSystemLinkPhase
+{
+    XSLP_Discovery       = 0,
+    XSLP_Ready           = 1,
+    XSLP_ReadyConfirmed  = 2,
+    XSLP_MapSelect       = 3,
+    XSLP_Launching       = 4
+};
 
 static UBOOL GXboxSplitPending = 0;
 static UBOOL GXboxSplitActive = 0;
@@ -474,7 +541,6 @@ static UBOOL GXboxSplitSmokeFinished = 0;
 static DOUBLE GXboxSplitSmokeStartTime = 0.0;
 static FVector GXboxSplitSmokeStartLocation(0,0,0);
 static UBOOL GXboxSplitUseReadySlots = 0;
-static UBOOL GXboxTournamentLaunchPending = 0;
 
 struct FXboxSplitReadySlot
 {
@@ -493,13 +559,43 @@ static UBOOL GXboxSplitReadyInitialized = 0;
 
 static UBOOL XboxSetObjectPropertyText( UObject* Object, const TCHAR* PropertyName, const TCHAR* Value );
 static UBOOL XboxSetClassDefaultPropertyText( const TCHAR* ClassName, const TCHAR* PropertyName, const TCHAR* Value );
+static INT XboxSplitReadyJoinedCount();
+static UBOOL XboxSplitReadyCanBegin();
+static void XboxSplitReadyEnsure();
+static const FXboxPlayerClassOption& XboxSplitReadyPlayerClass( INT Port );
 static void XboxSplitBuildPlayerURLForSlot( INT Port, TCHAR* Out, INT OutCount, UBOOL bForceDummy );
+static void XboxMenuClose( UXboxViewport* Viewport );
+static INT XboxMenuGameTypeCount();
+static INT XboxInstantMapList( INT GameType );
+static const FXboxDiscoveredOption& XboxMenuGameType( INT Index );
+static const FXboxDiscoveredOption& XboxMenuMap( INT GameType, INT Index );
 
 struct FXboxSystemLinkPeer
 {
     DWORD Id;
     DWORD Address;
+    DWORD SecureAddress;
     INT Port;
+    DWORD HostId;
+    INT Role;
+    INT Phase;
+    INT ReadyMask;
+    INT LockedMask;
+    INT Confirmed;
+    INT GameType;
+    INT MapIndex;
+    INT FragLimitIndex;
+    INT TimeLimitIndex;
+    INT SkillIndex;
+    DWORD LaunchId;
+    DWORD LaunchAckId;
+    UBOOL HasSecureInfo;
+    UBOOL HasSecureAddress;
+    UBOOL VerifiedSecurePeer;
+    XNADDR XnAddr;
+    XNKID SessionKeyId;
+    XNKEY SessionKey;
+    FLOAT FirstSeen;
     FLOAT LastSeen;
     INT Packets;
 };
@@ -512,6 +608,37 @@ struct FXboxSystemLinkProbe
     INT LocalPort;
     DWORD LocalId;
     DWORD SendCounter;
+    DWORD HostId;
+    INT Role;
+    INT Phase;
+    INT ReadyConfirmed;
+    INT LastReadyMask;
+    INT LastLockedMask;
+    INT GameType;
+    INT MapIndex;
+    INT FragLimitIndex;
+    INT TimeLimitIndex;
+    INT SkillIndex;
+    DWORD LaunchId;
+    DWORD LaunchAckId;
+    DWORD LastSeenLaunchId;
+    UBOOL PendingTravel;
+    FLOAT PendingTravelTime;
+    FLOAT PendingTravelDeadline;
+    DWORD PendingHostAddress;
+    DWORD SecureHostAddress;
+    UBOOL HasSecureHostAddress;
+    UBOOL HasLocalXnAddr;
+    DWORD LocalXnAddrStatus;
+    XNADDR LocalXnAddr;
+    UBOOL SessionRegistered;
+    UBOOL SessionIsHost;
+    DWORD SessionHostId;
+    XNKID SessionKeyId;
+    XNKEY SessionKey;
+    INT LastLoggedRole;
+    DWORD LastLoggedHostId;
+    FLOAT EnterTime;
     FLOAT LastSendTime;
     FLOAT LastLogTime;
     INT LastError;
@@ -526,6 +653,9 @@ static void XboxSystemLinkEnsureState()
     if( GXboxSystemLinkStateInitialized )
         return;
     GXboxSystemLink.Socket = INVALID_SOCKET;
+    GXboxSystemLink.Role = XSLR_Seeking;
+    GXboxSystemLink.Phase = XSLP_Discovery;
+    GXboxSystemLink.LastLoggedRole = -1;
     GXboxSystemLinkStateInitialized = 1;
 }
 
@@ -534,6 +664,335 @@ static void XboxSystemLinkFormatAddress( DWORD Address, TCHAR* Out, INT OutCount
     BYTE* B = (BYTE*)&Address;
     appSprintf( Out, TEXT("%u.%u.%u.%u"), B[0], B[1], B[2], B[3] );
     Out[OutCount-1] = 0;
+}
+
+static char XboxSystemLinkHexDigit( INT Value )
+{
+    Value &= 15;
+    return (char)(Value < 10 ? ('0' + Value) : ('A' + Value - 10));
+}
+
+static INT XboxSystemLinkHexValue( char Ch )
+{
+    if( Ch >= '0' && Ch <= '9' )
+        return Ch - '0';
+    if( Ch >= 'A' && Ch <= 'F' )
+        return Ch - 'A' + 10;
+    if( Ch >= 'a' && Ch <= 'f' )
+        return Ch - 'a' + 10;
+    return -1;
+}
+
+static void XboxSystemLinkHexEncode( const BYTE* Data, INT Count, char* Out, INT OutCount )
+{
+    if( !Out || OutCount <= 0 )
+        return;
+
+    INT Pos = 0;
+    for( INT i=0; i<Count && Pos+2<OutCount; i++ )
+    {
+        Out[Pos++] = XboxSystemLinkHexDigit( Data[i] >> 4 );
+        Out[Pos++] = XboxSystemLinkHexDigit( Data[i] );
+    }
+    Out[Pos] = 0;
+}
+
+static UBOOL XboxSystemLinkHexDecode( const char* In, BYTE* Out, INT Count )
+{
+    if( !In || !Out )
+        return 0;
+
+    for( INT i=0; i<Count; i++ )
+    {
+        INT Hi = XboxSystemLinkHexValue( In[i*2] );
+        INT Lo = XboxSystemLinkHexValue( In[i*2+1] );
+        if( Hi < 0 || Lo < 0 )
+            return 0;
+        Out[i] = (BYTE)((Hi << 4) | Lo);
+    }
+    return In[Count*2] == 0;
+}
+
+static UBOOL XboxSystemLinkSameKeyId( const XNKID* A, const XNKID* B )
+{
+    return A && B && appMemcmp( A, B, sizeof(XNKID) ) == 0;
+}
+
+static void XboxSystemLinkUnregisterSession( const char* Reason )
+{
+    XboxSystemLinkEnsureState();
+    if( !GXboxSystemLink.SessionRegistered )
+        return;
+
+    INT Result = XNetUnregisterKey( &GXboxSystemLink.SessionKeyId );
+    GXboxLog.Write( "XSL session unregister reason=%s host=%d hostId=0x%08X result=%d",
+        Reason ? Reason : "unknown",
+        GXboxSystemLink.SessionIsHost ? 1 : 0,
+        GXboxSystemLink.SessionHostId,
+        Result );
+
+    GXboxSystemLink.SessionRegistered = 0;
+    GXboxSystemLink.SessionIsHost = 0;
+    GXboxSystemLink.SessionHostId = 0;
+    GXboxSystemLink.HasSecureHostAddress = 0;
+    GXboxSystemLink.SecureHostAddress = 0;
+    appMemzero( &GXboxSystemLink.SessionKeyId, sizeof(GXboxSystemLink.SessionKeyId) );
+    appMemzero( &GXboxSystemLink.SessionKey, sizeof(GXboxSystemLink.SessionKey) );
+}
+
+static UBOOL XboxSystemLinkUpdateLocalXnAddr()
+{
+    XboxSystemLinkEnsureState();
+    if( !GXboxSystemLink.SocketsReady )
+        return 0;
+
+    DWORD Status = XNetGetTitleXnAddr( &GXboxSystemLink.LocalXnAddr );
+    GXboxSystemLink.LocalXnAddrStatus = Status;
+    GXboxSystemLink.HasLocalXnAddr =
+        (Status & (XNET_GET_XNADDR_STATIC | XNET_GET_XNADDR_DHCP | XNET_GET_XNADDR_PPPOE | XNET_GET_XNADDR_ONLINE)) != 0
+    &&  (Status & XNET_GET_XNADDR_TROUBLESHOOT) == 0;
+    return GXboxSystemLink.HasLocalXnAddr;
+}
+
+static UBOOL XboxSystemLinkEnsureHostSession()
+{
+    XboxSystemLinkEnsureState();
+    if( GXboxSystemLink.SessionRegistered && GXboxSystemLink.SessionIsHost )
+        return 1;
+
+    if( GXboxSystemLink.SessionRegistered )
+        XboxSystemLinkUnregisterSession( "host role change" );
+
+    INT KeyCreated = XNetCreateKey( &GXboxSystemLink.SessionKeyId, &GXboxSystemLink.SessionKey );
+    INT KeyRegistered = (KeyCreated == 0)
+        ? XNetRegisterKey( &GXboxSystemLink.SessionKeyId, &GXboxSystemLink.SessionKey )
+        : KeyCreated;
+
+    if( KeyCreated != 0 || KeyRegistered != 0 )
+    {
+        GXboxSystemLink.LastError = KeyRegistered ? KeyRegistered : KeyCreated;
+        GXboxLog.Write( "XSL host session failed create=%d register=%d", KeyCreated, KeyRegistered );
+        return 0;
+    }
+
+    GXboxSystemLink.SessionRegistered = 1;
+    GXboxSystemLink.SessionIsHost = 1;
+    GXboxSystemLink.SessionHostId = GXboxSystemLink.LocalId;
+    GXboxLog.Write( "XSL host session registered id=0x%08X", GXboxSystemLink.LocalId );
+    return 1;
+}
+
+static UBOOL XboxSystemLinkResolveHostSecureAddress( const FXboxSystemLinkPeer* HostPeer, DWORD* OutAddress )
+{
+    XboxSystemLinkEnsureState();
+    if( OutAddress )
+        *OutAddress = 0;
+    if( !HostPeer || !HostPeer->HasSecureInfo )
+        return 0;
+
+    if( GXboxSystemLink.SessionRegistered
+    && (!XboxSystemLinkSameKeyId( &GXboxSystemLink.SessionKeyId, &HostPeer->SessionKeyId )
+    ||  GXboxSystemLink.SessionIsHost
+    ||  GXboxSystemLink.SessionHostId != HostPeer->Id) )
+    {
+        XboxSystemLinkUnregisterSession( "client host change" );
+    }
+
+    if( !GXboxSystemLink.SessionRegistered )
+    {
+        INT Result = XNetRegisterKey( &HostPeer->SessionKeyId, &HostPeer->SessionKey );
+        if( Result != 0 )
+        {
+            GXboxSystemLink.LastError = Result;
+            GXboxLog.Write( "XSL client session register failed host=0x%08X result=%d", HostPeer->Id, Result );
+            return 0;
+        }
+
+        GXboxSystemLink.SessionRegistered = 1;
+        GXboxSystemLink.SessionIsHost = 0;
+        GXboxSystemLink.SessionHostId = HostPeer->Id;
+        appMemcpy( &GXboxSystemLink.SessionKeyId, &HostPeer->SessionKeyId, sizeof(GXboxSystemLink.SessionKeyId) );
+        appMemcpy( &GXboxSystemLink.SessionKey, &HostPeer->SessionKey, sizeof(GXboxSystemLink.SessionKey) );
+        GXboxLog.Write( "XSL client session registered host=0x%08X", HostPeer->Id );
+    }
+
+    IN_ADDR SecureAddr;
+    appMemzero( &SecureAddr, sizeof(SecureAddr) );
+    INT Result = XNetXnAddrToInAddr( &HostPeer->XnAddr, &HostPeer->SessionKeyId, &SecureAddr );
+    if( Result != 0 )
+    {
+        GXboxSystemLink.LastError = Result;
+        GXboxLog.Write( "XSL host address translation failed host=0x%08X result=%d", HostPeer->Id, Result );
+        return 0;
+    }
+
+    GXboxSystemLink.SecureHostAddress = SecureAddr.s_addr;
+    GXboxSystemLink.HasSecureHostAddress = 1;
+    if( OutAddress )
+        *OutAddress = SecureAddr.s_addr;
+    return 1;
+}
+
+static void XboxSystemLinkVerifySecurePeer( FXboxSystemLinkPeer& Peer )
+{
+    if( GXboxSystemLink.Role != XSLR_Host || Peer.VerifiedSecurePeer )
+        return;
+
+    IN_ADDR PeerAddr;
+    PeerAddr.s_addr = Peer.Address;
+    XNADDR XnAddr;
+    appMemzero( &XnAddr, sizeof(XnAddr) );
+    INT Result = XNetInAddrToXnAddr( PeerAddr, &XnAddr, NULL );
+    if( Result == 0 )
+    {
+        Peer.VerifiedSecurePeer = 1;
+        Peer.HasSecureAddress = 1;
+        Peer.SecureAddress = Peer.Address;
+        GXboxLog.Write( "XSL secure peer verified id=0x%08X addr=0x%08X", Peer.Id, Peer.Address );
+    }
+}
+
+static const TCHAR* XboxSystemLinkRoleText( INT Role )
+{
+    switch( Role )
+    {
+        case XSLR_Host:   return TEXT("HOST");
+        case XSLR_Client: return TEXT("JOINED");
+        default:          return TEXT("SEARCHING");
+    }
+}
+
+static const TCHAR* XboxSystemLinkPhaseText( INT Phase )
+{
+    switch( Phase )
+    {
+        case XSLP_Ready:          return TEXT("READY SELECT");
+        case XSLP_ReadyConfirmed: return TEXT("CONFIRMED");
+        case XSLP_MapSelect:      return TEXT("MAP SELECT");
+        case XSLP_Launching:      return TEXT("LAUNCHING");
+        default:                  return TEXT("DISCOVERY");
+    }
+}
+
+static UBOOL XboxSystemLinkMenuActive()
+{
+    return GXboxMenu.Screen == XMS_SystemLink || GXboxMenu.Screen == XMS_SystemLinkMapSelect;
+}
+
+static void XboxSystemLinkClampLocalReadySlots( const char* Reason )
+{
+    XboxSplitReadyEnsure();
+
+    UBOOL bChanged = 0;
+    for( INT i=1; i<4; i++ )
+    {
+        if( GXboxSplitReadySlots[i].Joined || GXboxSplitReadySlots[i].Locked )
+        {
+            const FXboxPlayerClassOption& Player = XboxSplitReadyPlayerClass( i );
+            if( Player.PortraitName[0] )
+                XboxRenderReleaseMenuTexture( Player.PortraitName );
+            GXboxSplitReadySlots[i].Joined = 0;
+            GXboxSplitReadySlots[i].Locked = 0;
+            GXboxSplitReadySlots[i].Focus = 0;
+            bChanged = 1;
+        }
+    }
+
+    if( bChanged )
+        GXboxLog.Write( "XSL local ready clamped to one player reason=%s", Reason ? Reason : "unknown" );
+}
+
+static UBOOL XboxSystemLinkLocalReadyCanConfirm()
+{
+    XboxSplitReadyEnsure();
+    XboxSystemLinkClampLocalReadySlots( "confirm check" );
+    return GXboxSplitReadySlots[0].Joined && GXboxSplitReadySlots[0].Locked;
+}
+
+static INT XboxSystemLinkReadyMask()
+{
+    XboxSplitReadyEnsure();
+    if( XboxSystemLinkMenuActive() )
+    {
+        XboxSystemLinkClampLocalReadySlots( "ready mask" );
+        return GXboxSplitReadySlots[0].Joined ? 1 : 0;
+    }
+
+    INT Mask = 0;
+    for( INT i=0; i<4; i++ )
+        if( GXboxSplitReadySlots[i].Joined )
+            Mask |= (1 << i);
+    return Mask;
+}
+
+static INT XboxSystemLinkLockedMask()
+{
+    XboxSplitReadyEnsure();
+    if( XboxSystemLinkMenuActive() )
+    {
+        XboxSystemLinkClampLocalReadySlots( "locked mask" );
+        return (GXboxSplitReadySlots[0].Joined && GXboxSplitReadySlots[0].Locked) ? 1 : 0;
+    }
+
+    INT Mask = 0;
+    for( INT i=0; i<4; i++ )
+        if( GXboxSplitReadySlots[i].Joined && GXboxSplitReadySlots[i].Locked )
+            Mask |= (1 << i);
+    return Mask;
+}
+
+static UBOOL XboxSystemLinkPeerInGroup( const FXboxSystemLinkPeer& Peer )
+{
+    if( !GXboxSystemLink.HostId )
+        return 0;
+    return Peer.Id == GXboxSystemLink.HostId || Peer.HostId == GXboxSystemLink.HostId;
+}
+
+static INT XboxSystemLinkGroupMachineCount()
+{
+    if( !GXboxSystemLink.HostId )
+        return 0;
+
+    INT Count = 1;
+    for( INT i=0; i<GXboxSystemLink.Peers.Num(); i++ )
+        if( XboxSystemLinkPeerInGroup(GXboxSystemLink.Peers(i)) )
+            Count++;
+    return Count;
+}
+
+static INT XboxSystemLinkConfirmedMachineCount()
+{
+    if( !GXboxSystemLink.HostId )
+        return 0;
+
+    INT Count = GXboxSystemLink.ReadyConfirmed ? 1 : 0;
+    for( INT i=0; i<GXboxSystemLink.Peers.Num(); i++ )
+    {
+        const FXboxSystemLinkPeer& Peer = GXboxSystemLink.Peers(i);
+        if( XboxSystemLinkPeerInGroup(Peer) && Peer.Confirmed && Peer.ReadyMask && ((Peer.ReadyMask & Peer.LockedMask) == Peer.ReadyMask) )
+            Count++;
+    }
+    return Count;
+}
+
+static UBOOL XboxSystemLinkAllMachinesConfirmed()
+{
+    INT Machines = XboxSystemLinkGroupMachineCount();
+    if( Machines < 2 )
+        return 0;
+    if( !GXboxSystemLink.ReadyConfirmed || !XboxSystemLinkLocalReadyCanConfirm() )
+        return 0;
+    return XboxSystemLinkConfirmedMachineCount() == Machines;
+}
+
+static void XboxSystemLinkMarkLocalReadyChanged()
+{
+    if( GXboxMenu.Screen != XMS_SystemLink && GXboxMenu.Screen != XMS_SystemLinkMapSelect )
+        return;
+    GXboxSystemLink.ReadyConfirmed = 0;
+    GXboxSystemLink.Phase = GXboxSystemLink.HostId ? XSLP_Ready : XSLP_Discovery;
+    GXboxLog.Write( "XSL local ready changed readyMask=0x%X lockedMask=0x%X",
+        XboxSystemLinkReadyMask(), XboxSystemLinkLockedMask() );
 }
 
 extern "C" UBOOL XboxSplitIsActive()
@@ -671,6 +1130,28 @@ static void XboxViewportInputAxis( UXboxViewport* Viewport, const TCHAR* AxisNam
     Viewport->Input->SetInputAction( IST_None );
 }
 
+static UBOOL XboxViewportEnsureInputInitialized( UXboxViewport* Viewport, const char* Reason )
+{
+    if( !Viewport )
+        return 0;
+
+    if( !Viewport->Input )
+    {
+        GXboxLog.Write( "XSPLIT input init failed reason=%s viewport=0x%08X input=NULL",
+            Reason ? Reason : "unknown", (DWORD)Viewport );
+        return 0;
+    }
+
+    if( Viewport->Input->Viewport != Viewport )
+    {
+        Viewport->Input->Init( Viewport );
+        GXboxLog.Write( "XSPLIT input initialized reason=%s viewport=0x%08X input=0x%08X",
+            Reason ? Reason : "unknown", (DWORD)Viewport, (DWORD)Viewport->Input );
+    }
+
+    return 1;
+}
+
 static void XboxSplitSmokeFeedInput( UXboxViewport* Viewport )
 {
     if( !GXboxSplitActive || !XboxSplitSmokeEnabled() || !Viewport || Viewport->bXboxSplitDummy || !Viewport->Actor )
@@ -761,6 +1242,7 @@ static void XboxSplitConfigureViewports( UXboxClient* Client )
         VP->ViewX = (i & 1) ? HalfW : 0;
         VP->ViewY = (i & 2) ? HalfH : 0;
         VP->ColorBytes = Primary->ColorBytes ? Primary->ColorBytes : 4;
+        XboxViewportEnsureInputInitialized( VP, "SplitConfigure" );
         if( GXboxSplitUseReadySlots )
             VP->bXboxSplitDummy = !GXboxSplitReadySlots[i].Joined;
         else
@@ -1103,11 +1585,18 @@ static UBOOL XboxSystemLinkInitSockets()
     INT WsaResult = WSAStartup( MAKEWORD(2,2), &WsaData );
     GXboxSystemLink.SocketsReady = (XNetResult == 0 && WsaResult == 0);
     GXboxSystemLink.LastError = GXboxSystemLink.SocketsReady ? 0 : (WsaResult ? WsaResult : XNetResult);
+    if( !GXboxSystemLink.SocketsReady )
+    {
+        if( WsaResult == 0 )
+            WSACleanup();
+        if( XNetResult == 0 )
+            XNetCleanup();
+    }
     GXboxLog.Write( "XSL probe net init xnet=%d wsa=%d ready=%d", XNetResult, WsaResult, GXboxSystemLink.SocketsReady );
     return GXboxSystemLink.SocketsReady;
 }
 
-static void XboxSystemLinkStop()
+static void XboxSystemLinkStopLobby( UBOOL bKeepNetwork )
 {
     XboxSystemLinkEnsureState();
     if( GXboxSystemLink.Socket != INVALID_SOCKET )
@@ -1117,7 +1606,34 @@ static void XboxSystemLinkStop()
     }
     GXboxSystemLink.Started = 0;
     GXboxSystemLink.LocalPort = 0;
-    GXboxLog.Write( "XSL probe stopped" );
+    GXboxSystemLink.Role = XSLR_Seeking;
+    GXboxSystemLink.HostId = 0;
+    GXboxSystemLink.Phase = XSLP_Discovery;
+    GXboxSystemLink.ReadyConfirmed = 0;
+    GXboxSystemLink.PendingTravel = 0;
+    GXboxSystemLink.PendingTravelDeadline = 0.0f;
+    GXboxSystemLink.LaunchAckId = 0;
+    GXboxSystemLink.Peers.Empty();
+
+    if( !bKeepNetwork )
+    {
+        XboxSystemLinkUnregisterSession( "lobby stop" );
+        GXboxLog.Write( "XSL network stack kept alive for process lifetime ready=%d xnaddr=0x%08X",
+            GXboxSystemLink.SocketsReady ? 1 : 0,
+            GXboxSystemLink.LocalXnAddrStatus );
+    }
+
+    GXboxLog.Write( "XSL lobby stopped keepNetwork=%d", bKeepNetwork ? 1 : 0 );
+}
+
+static void XboxSystemLinkStop()
+{
+    XboxSystemLinkStopLobby( 0 );
+}
+
+static void XboxSystemLinkStopForTravel()
+{
+    XboxSystemLinkStopLobby( 1 );
 }
 
 static UBOOL XboxSystemLinkStart()
@@ -1128,6 +1644,9 @@ static UBOOL XboxSystemLinkStart()
 
     if( !XboxSystemLinkInitSockets() )
         return 0;
+
+    if( GXboxSystemLink.SessionRegistered )
+        XboxSystemLinkUnregisterSession( "fresh lobby" );
 
     GXboxSystemLink.Socket = socket( AF_INET, SOCK_DGRAM, IPPROTO_UDP );
     if( GXboxSystemLink.Socket == INVALID_SOCKET )
@@ -1169,13 +1688,77 @@ static UBOOL XboxSystemLinkStart()
     }
 
     if( !GXboxSystemLink.LocalId )
-        GXboxSystemLink.LocalId = GetTickCount() ^ (DWORD)&GXboxSystemLink;
+    {
+        DWORD RandomId = 0;
+        if( XNetRandom( (BYTE*)&RandomId, sizeof(RandomId) ) == 0 && RandomId )
+            GXboxSystemLink.LocalId = RandomId;
+        else
+            GXboxSystemLink.LocalId = GetTickCount() ^ (DWORD)&GXboxSystemLink;
+    }
     GXboxSystemLink.Started = 1;
+    GXboxSystemLink.Role = XSLR_Seeking;
+    GXboxSystemLink.HostId = 0;
+    GXboxSystemLink.Phase = XSLP_Discovery;
+    GXboxSystemLink.ReadyConfirmed = 0;
+    GXboxSystemLink.LastReadyMask = 0;
+    GXboxSystemLink.LastLockedMask = 0;
+    GXboxSystemLink.GameType = GXboxMenu.InstantGameType;
+    GXboxSystemLink.MapIndex = GXboxMenu.InstantMap[Clamp<INT>(GXboxMenu.InstantGameType, 0, 63)];
+    GXboxSystemLink.FragLimitIndex = GXboxMenu.InstantFragLimit;
+    GXboxSystemLink.TimeLimitIndex = GXboxMenu.InstantTimeLimit;
+    GXboxSystemLink.SkillIndex = GXboxMenu.InstantSkill;
+    GXboxSystemLink.LastSeenLaunchId = GXboxSystemLink.LaunchId;
+    GXboxSystemLink.PendingTravel = 0;
+    GXboxSystemLink.PendingTravelTime = 0.0f;
+    GXboxSystemLink.PendingTravelDeadline = 0.0f;
+    GXboxSystemLink.PendingHostAddress = 0;
+    GXboxSystemLink.SecureHostAddress = 0;
+    GXboxSystemLink.HasSecureHostAddress = 0;
+    GXboxSystemLink.LaunchAckId = 0;
+    GXboxSystemLink.LastLoggedRole = -1;
+    GXboxSystemLink.LastLoggedHostId = 0;
+    GXboxSystemLink.EnterTime = appSeconds();
     GXboxSystemLink.LastSendTime = 0.0f;
     GXboxSystemLink.LastLogTime = 0.0f;
+    GXboxSystemLink.SendCounter = 0;
     GXboxSystemLink.Peers.Empty();
-    GXboxLog.Write( "XSL probe started id=0x%08X port=%d", GXboxSystemLink.LocalId, GXboxSystemLink.LocalPort );
+    XboxSystemLinkUpdateLocalXnAddr();
+    GXboxLog.Write( "XSL lobby started id=0x%08X port=%d xnaddr=0x%08X",
+        GXboxSystemLink.LocalId, GXboxSystemLink.LocalPort, GXboxSystemLink.LocalXnAddrStatus );
     return 1;
+}
+
+static void XboxSystemLinkUpdateLocalAdvertisement()
+{
+    GXboxSystemLink.LastReadyMask = XboxSystemLinkReadyMask();
+    GXboxSystemLink.LastLockedMask = XboxSystemLinkLockedMask();
+
+    if( GXboxSystemLink.Role == XSLR_Host )
+    {
+        XboxSystemLinkEnsureHostSession();
+        XboxSystemLinkUpdateLocalXnAddr();
+    }
+
+    if( GXboxMenu.Screen == XMS_SystemLinkMapSelect && GXboxSystemLink.Role == XSLR_Host )
+    {
+        GXboxSystemLink.GameType = Clamp<INT>( GXboxMenu.InstantGameType, 0, 63 );
+        GXboxSystemLink.MapIndex = GXboxMenu.InstantMap[GXboxSystemLink.GameType];
+        GXboxSystemLink.FragLimitIndex = GXboxMenu.InstantFragLimit;
+        GXboxSystemLink.TimeLimitIndex = GXboxMenu.InstantTimeLimit;
+        GXboxSystemLink.SkillIndex = GXboxMenu.InstantSkill;
+    }
+
+    if( GXboxSystemLink.Phase == XSLP_Launching )
+        return;
+
+    if( !GXboxSystemLink.HostId )
+        GXboxSystemLink.Phase = XSLP_Discovery;
+    else if( GXboxMenu.Screen == XMS_SystemLinkMapSelect && GXboxSystemLink.Role == XSLR_Host )
+        GXboxSystemLink.Phase = XSLP_MapSelect;
+    else if( GXboxSystemLink.ReadyConfirmed )
+        GXboxSystemLink.Phase = XSLP_ReadyConfirmed;
+    else
+        GXboxSystemLink.Phase = XSLP_Ready;
 }
 
 static void XboxSystemLinkSendProbe()
@@ -1183,8 +1766,54 @@ static void XboxSystemLinkSendProbe()
     if( !GXboxSystemLink.Started || GXboxSystemLink.Socket == INVALID_SOCKET )
         return;
 
-    char Packet[96];
-    sprintf( Packet, "UTXSL1|%08X|%d|%lu", GXboxSystemLink.LocalId, GXboxSystemLink.LocalPort, GXboxSystemLink.SendCounter++ );
+    XboxSystemLinkUpdateLocalAdvertisement();
+
+    char XnAddrHex[sizeof(XNADDR)*2 + 1];
+    char KeyIdHex[sizeof(XNKID)*2 + 1];
+    char KeyHex[sizeof(XNKEY)*2 + 1];
+    appMemzero( XnAddrHex, sizeof(XnAddrHex) );
+    appMemzero( KeyIdHex, sizeof(KeyIdHex) );
+    appMemzero( KeyHex, sizeof(KeyHex) );
+
+    UBOOL bAdvertiseSecure =
+        GXboxSystemLink.Role == XSLR_Host
+    &&  GXboxSystemLink.SessionRegistered
+    &&  GXboxSystemLink.SessionIsHost
+    &&  GXboxSystemLink.HasLocalXnAddr;
+
+    if( bAdvertiseSecure )
+    {
+        XboxSystemLinkHexEncode( (const BYTE*)&GXboxSystemLink.LocalXnAddr, sizeof(GXboxSystemLink.LocalXnAddr), XnAddrHex, sizeof(XnAddrHex) );
+        XboxSystemLinkHexEncode( (const BYTE*)&GXboxSystemLink.SessionKeyId, sizeof(GXboxSystemLink.SessionKeyId), KeyIdHex, sizeof(KeyIdHex) );
+        XboxSystemLinkHexEncode( (const BYTE*)&GXboxSystemLink.SessionKey, sizeof(GXboxSystemLink.SessionKey), KeyHex, sizeof(KeyHex) );
+    }
+
+    char Packet[512];
+    sprintf
+    (
+        Packet,
+        "UTXSL4|%08X|%d|%lu|%d|%08X|%d|%d|%d|%d|%d|%d|%d|%d|%d|%08X|%08X|%d|%s|%s|%s",
+        GXboxSystemLink.LocalId,
+        GXboxSystemLink.LocalPort,
+        GXboxSystemLink.SendCounter++,
+        GXboxSystemLink.Role,
+        GXboxSystemLink.HostId,
+        GXboxSystemLink.Phase,
+        GXboxSystemLink.LastReadyMask,
+        GXboxSystemLink.LastLockedMask,
+        GXboxSystemLink.ReadyConfirmed ? 1 : 0,
+        GXboxSystemLink.GameType,
+        GXboxSystemLink.MapIndex,
+        GXboxSystemLink.FragLimitIndex,
+        GXboxSystemLink.TimeLimitIndex,
+        GXboxSystemLink.SkillIndex,
+        GXboxSystemLink.LaunchId,
+        GXboxSystemLink.LaunchAckId,
+        bAdvertiseSecure ? 1 : 0,
+        XnAddrHex,
+        KeyIdHex,
+        KeyHex
+    );
     INT PacketLen = 0;
     while( Packet[PacketLen] )
         PacketLen++;
@@ -1200,22 +1829,81 @@ static void XboxSystemLinkSendProbe()
         if( Sent == SOCKET_ERROR )
             GXboxSystemLink.LastError = WSAGetLastError();
     }
+
+    if( GXboxSystemLink.Role == XSLR_Client && GXboxSystemLink.HasSecureHostAddress && GXboxSystemLink.HostId )
+    {
+        INT HostPort = 0;
+        for( INT i=0; i<GXboxSystemLink.Peers.Num(); i++ )
+        {
+            if( GXboxSystemLink.Peers(i).Id == GXboxSystemLink.HostId )
+            {
+                HostPort = GXboxSystemLink.Peers(i).Port;
+                break;
+            }
+        }
+
+        if( HostPort )
+        {
+            sockaddr_in To;
+            appMemzero( &To, sizeof(To) );
+            To.sin_family = AF_INET;
+            To.sin_addr.s_addr = GXboxSystemLink.SecureHostAddress;
+            To.sin_port = htons( (u_short)HostPort );
+            INT Sent = sendto( GXboxSystemLink.Socket, Packet, PacketLen, 0, (sockaddr*)&To, sizeof(To) );
+            if( Sent == SOCKET_ERROR )
+                GXboxSystemLink.LastError = WSAGetLastError();
+        }
+    }
 }
 
-static void XboxSystemLinkRecordPeer( DWORD Id, DWORD Address, INT Port, FLOAT Now )
+static void XboxSystemLinkApplyPeerSecurity( FXboxSystemLinkPeer& Peer, UBOOL HasSecureInfo, const XNADDR* XnAddr, const XNKID* SessionKeyId, const XNKEY* SessionKey )
+{
+    Peer.HasSecureInfo = HasSecureInfo ? 1 : 0;
+    if( Peer.HasSecureInfo && XnAddr && SessionKeyId && SessionKey )
+    {
+        appMemcpy( &Peer.XnAddr, XnAddr, sizeof(Peer.XnAddr) );
+        appMemcpy( &Peer.SessionKeyId, SessionKeyId, sizeof(Peer.SessionKeyId) );
+        appMemcpy( &Peer.SessionKey, SessionKey, sizeof(Peer.SessionKey) );
+    }
+}
+
+static void XboxSystemLinkRecordPeer( DWORD Id, DWORD Address, INT Port, INT Role, DWORD HostId, INT Phase, INT ReadyMask, INT LockedMask, INT Confirmed, INT GameType, INT MapIndex, INT FragLimitIndex, INT TimeLimitIndex, INT SkillIndex, DWORD LaunchId, DWORD LaunchAckId, UBOOL HasSecureInfo, const XNADDR* XnAddr, const XNKID* SessionKeyId, const XNKEY* SessionKey, FLOAT Now )
 {
     if( Id == GXboxSystemLink.LocalId )
         return;
 
+    Role = Clamp<INT>( Role, XSLR_Seeking, XSLR_Client );
+    Phase = Clamp<INT>( Phase, XSLP_Discovery, XSLP_Launching );
     for( INT i=0; i<GXboxSystemLink.Peers.Num(); i++ )
     {
         FXboxSystemLinkPeer& Peer = GXboxSystemLink.Peers(i);
         if( Peer.Id == Id )
         {
+            if( Peer.Address != Address )
+            {
+                Peer.VerifiedSecurePeer = 0;
+                Peer.HasSecureAddress = 0;
+                Peer.SecureAddress = 0;
+            }
             Peer.Address = Address;
             Peer.Port = Port;
+            Peer.Role = Role;
+            Peer.HostId = HostId;
+            Peer.Phase = Phase;
+            Peer.ReadyMask = ReadyMask;
+            Peer.LockedMask = LockedMask;
+            Peer.Confirmed = Confirmed ? 1 : 0;
+            Peer.GameType = GameType;
+            Peer.MapIndex = MapIndex;
+            Peer.FragLimitIndex = FragLimitIndex;
+            Peer.TimeLimitIndex = TimeLimitIndex;
+            Peer.SkillIndex = SkillIndex;
+            Peer.LaunchId = LaunchId;
+            Peer.LaunchAckId = LaunchAckId;
+            XboxSystemLinkApplyPeerSecurity( Peer, HasSecureInfo, XnAddr, SessionKeyId, SessionKey );
             Peer.LastSeen = Now;
             Peer.Packets++;
+            XboxSystemLinkVerifySecurePeer( Peer );
             return;
         }
     }
@@ -1224,21 +1912,392 @@ static void XboxSystemLinkRecordPeer( DWORD Id, DWORD Address, INT Port, FLOAT N
         GXboxSystemLink.Peers.Remove( 0 );
 
     FXboxSystemLinkPeer& Peer = *new(GXboxSystemLink.Peers)FXboxSystemLinkPeer;
+    appMemzero( &Peer, sizeof(Peer) );
     Peer.Id = Id;
     Peer.Address = Address;
+    Peer.SecureAddress = 0;
     Peer.Port = Port;
+    Peer.Role = Role;
+    Peer.HostId = HostId;
+    Peer.Phase = Phase;
+    Peer.ReadyMask = ReadyMask;
+    Peer.LockedMask = LockedMask;
+    Peer.Confirmed = Confirmed ? 1 : 0;
+    Peer.GameType = GameType;
+    Peer.MapIndex = MapIndex;
+    Peer.FragLimitIndex = FragLimitIndex;
+    Peer.TimeLimitIndex = TimeLimitIndex;
+    Peer.SkillIndex = SkillIndex;
+    Peer.LaunchId = LaunchId;
+    Peer.LaunchAckId = LaunchAckId;
+    XboxSystemLinkApplyPeerSecurity( Peer, HasSecureInfo, XnAddr, SessionKeyId, SessionKey );
+    Peer.FirstSeen = Now;
     Peer.LastSeen = Now;
     Peer.Packets = 1;
+    XboxSystemLinkVerifySecurePeer( Peer );
 
     TCHAR AddrText[32];
     XboxSystemLinkFormatAddress( Address, AddrText, ARRAY_COUNT(AddrText) );
-    GXboxLog.Write( "XSL peer discovered id=0x%08X addr=%s port=%d", Id, TCHAR_TO_ANSI(AddrText), Port );
+    GXboxLog.Write( "XSL peer discovered id=0x%08X addr=%s port=%d role=%s host=0x%08X phase=%s ready=0x%X locked=0x%X confirmed=%d secure=%d",
+        Id, TCHAR_TO_ANSI(AddrText), Port, TCHAR_TO_ANSI(XboxSystemLinkRoleText(Role)), HostId,
+        TCHAR_TO_ANSI(XboxSystemLinkPhaseText(Phase)), ReadyMask, LockedMask, Confirmed ? 1 : 0, HasSecureInfo ? 1 : 0 );
 }
 
-static void XboxSystemLinkTick()
+static void XboxSystemLinkExpirePeers( FLOAT Now )
+{
+    for( INT i=GXboxSystemLink.Peers.Num()-1; i>=0; i-- )
+    {
+        FXboxSystemLinkPeer& Peer = GXboxSystemLink.Peers(i);
+        if( Now - Peer.LastSeen > GXboxSystemLinkPeerTimeoutSeconds )
+        {
+            GXboxLog.Write( "XSL peer expired id=0x%08X role=%s host=0x%08X packets=%d",
+                Peer.Id, TCHAR_TO_ANSI(XboxSystemLinkRoleText(Peer.Role)), Peer.HostId, Peer.Packets );
+            GXboxSystemLink.Peers.Remove( i );
+        }
+    }
+}
+
+static void XboxSystemLinkUpdateElection( FLOAT Now )
+{
+    DWORD BestHost = 0;
+    FLOAT BestHostSeen = 0.0f;
+
+    if( GXboxSystemLink.Role == XSLR_Host )
+    {
+        BestHost = GXboxSystemLink.LocalId;
+        BestHostSeen = GXboxSystemLink.EnterTime;
+    }
+
+    for( INT i=0; i<GXboxSystemLink.Peers.Num(); i++ )
+    {
+        const FXboxSystemLinkPeer& Peer = GXboxSystemLink.Peers(i);
+        if( Peer.Role == XSLR_Host
+        && (!BestHost || Peer.FirstSeen < BestHostSeen || (Peer.FirstSeen == BestHostSeen && Peer.Id < BestHost)) )
+        {
+            BestHost = Peer.Id;
+            BestHostSeen = Peer.FirstSeen;
+        }
+    }
+
+    if( !BestHost )
+    {
+        if( GXboxSystemLink.Peers.Num() == 0 )
+        {
+            if( Now - GXboxSystemLink.EnterTime >= GXboxSystemLinkHostClaimSeconds )
+                BestHost = GXboxSystemLink.LocalId;
+        }
+        else
+        {
+            BestHost = GXboxSystemLink.LocalId;
+            for( INT i=0; i<GXboxSystemLink.Peers.Num(); i++ )
+                if( GXboxSystemLink.Peers(i).Id < BestHost )
+                    BestHost = GXboxSystemLink.Peers(i).Id;
+        }
+    }
+
+    INT NewRole = XSLR_Seeking;
+    if( BestHost )
+        NewRole = (BestHost == GXboxSystemLink.LocalId) ? XSLR_Host : XSLR_Client;
+
+    if( NewRole != GXboxSystemLink.Role || BestHost != GXboxSystemLink.HostId )
+    {
+        INT OldRole = GXboxSystemLink.Role;
+        GXboxSystemLink.Role = NewRole;
+        GXboxSystemLink.HostId = BestHost;
+        if( OldRole == XSLR_Host && NewRole != XSLR_Host && GXboxSystemLink.SessionRegistered && GXboxSystemLink.SessionIsHost )
+            XboxSystemLinkUnregisterSession( "lost host election" );
+        if( NewRole != XSLR_Client && GXboxSystemLink.SessionRegistered && !GXboxSystemLink.SessionIsHost )
+            XboxSystemLinkUnregisterSession( "left client role" );
+        if( NewRole == XSLR_Host )
+            XboxSystemLinkEnsureHostSession();
+    }
+
+    if( GXboxSystemLink.Role != GXboxSystemLink.LastLoggedRole || GXboxSystemLink.HostId != GXboxSystemLink.LastLoggedHostId )
+    {
+        GXboxSystemLink.LastLoggedRole = GXboxSystemLink.Role;
+        GXboxSystemLink.LastLoggedHostId = GXboxSystemLink.HostId;
+        GXboxLog.Write( "XSL lobby role local=0x%08X role=%s host=0x%08X peers=%d",
+            GXboxSystemLink.LocalId,
+            TCHAR_TO_ANSI(XboxSystemLinkRoleText(GXboxSystemLink.Role)),
+            GXboxSystemLink.HostId,
+            GXboxSystemLink.Peers.Num() );
+    }
+}
+
+static const FXboxSystemLinkPeer* XboxSystemLinkFindPeerById( DWORD Id )
+{
+    for( INT i=0; i<GXboxSystemLink.Peers.Num(); i++ )
+        if( GXboxSystemLink.Peers(i).Id == Id )
+            return &GXboxSystemLink.Peers(i);
+    return NULL;
+}
+
+static UBOOL XboxSystemLinkAllLaunchAcksReceived()
+{
+    if( GXboxSystemLink.Role != XSLR_Host || !GXboxSystemLink.LaunchId )
+        return 0;
+
+    for( INT i=0; i<GXboxSystemLink.Peers.Num(); i++ )
+    {
+        const FXboxSystemLinkPeer& Peer = GXboxSystemLink.Peers(i);
+        if( !XboxSystemLinkPeerInGroup(Peer) || Peer.Id == GXboxSystemLink.LocalId )
+            continue;
+        if( Peer.Confirmed && Peer.ReadyMask && ((Peer.ReadyMask & Peer.LockedMask) == Peer.ReadyMask) )
+        {
+            if( !Peer.VerifiedSecurePeer )
+                return 0;
+            if( Peer.LaunchAckId != GXboxSystemLink.LaunchId )
+                return 0;
+        }
+    }
+    return 1;
+}
+
+static UBOOL XboxSystemLinkBuildSelectedMapURL( TCHAR* Out, INT OutCount, UBOOL bListen, DWORD HostAddress )
+{
+    INT GameTypeCount = XboxMenuGameTypeCount();
+    if( GameTypeCount <= 0 )
+        return 0;
+
+    INT GameType = Clamp<INT>( GXboxSystemLink.GameType, 0, GameTypeCount-1 );
+    INT MapCount = XboxInstantMapList( GameType );
+    if( MapCount <= 0 )
+        return 0;
+
+    INT MapIndex = Clamp<INT>( GXboxSystemLink.MapIndex, 0, MapCount-1 );
+    const FXboxDiscoveredOption& Map = XboxMenuMap( GameType, MapIndex );
+    const FXboxDiscoveredOption& Game = XboxMenuGameType( GameType );
+    INT FragLimit = GXboxFragLimits[Clamp<INT>(GXboxSystemLink.FragLimitIndex, 0, ARRAY_COUNT(GXboxFragLimits)-1)];
+    INT TimeLimit = GXboxTimeLimits[Clamp<INT>(GXboxSystemLink.TimeLimitIndex, 0, ARRAY_COUNT(GXboxTimeLimits)-1)];
+    INT Skill = Clamp<INT>( GXboxSystemLink.SkillIndex, 0, ARRAY_COUNT(GXboxSkillLabels)-1 );
+
+    TCHAR PlayerURL[512];
+    XboxSplitBuildPlayerURLForSlot( 0, PlayerURL, ARRAY_COUNT(PlayerURL), !GXboxSplitReadySlots[0].Joined );
+
+    if( bListen )
+    {
+        XboxSetClassDefaultPropertyText( *Game.URLValue, TEXT("InitialBots"), TEXT("0") );
+        XboxSetClassDefaultPropertyText( *Game.URLValue, TEXT("MinPlayers"), TEXT("0") );
+        appSprintf
+        (
+            Out,
+            TEXT("%s?Game=%s?FragLimit=%i?TimeLimit=%i?MinPlayers=0?MaxPlayers=16?Difficulty=%i?Listen%s"),
+            *Map.URLValue,
+            *Game.URLValue,
+            FragLimit,
+            TimeLimit,
+            Skill,
+            PlayerURL
+        );
+    }
+    else
+    {
+        TCHAR HostAddr[32];
+        XboxSystemLinkFormatAddress( HostAddress, HostAddr, ARRAY_COUNT(HostAddr) );
+        appSprintf
+        (
+            Out,
+            TEXT("%s:%i%s"),
+            HostAddr,
+            GXboxSystemLinkGamePort,
+            PlayerURL
+        );
+    }
+    Out[OutCount-1] = 0;
+    return 1;
+}
+
+static void XboxSystemLinkStartTravel( UXboxViewport* Viewport )
+{
+    UXboxClient* Client = Viewport ? (UXboxClient*)Viewport->GetOuter() : NULL;
+    if( !Client || !Client->Engine )
+        return;
+
+    UBOOL bHost = GXboxSystemLink.Role == XSLR_Host;
+    DWORD HostAddress = GXboxSystemLink.PendingHostAddress;
+    if( !bHost && !HostAddress )
+    {
+        const FXboxSystemLinkPeer* HostPeer = XboxSystemLinkFindPeerById( GXboxSystemLink.HostId );
+        if( !HostPeer || !XboxSystemLinkResolveHostSecureAddress( HostPeer, &HostAddress ) )
+        {
+            GXboxLog.Write( "XSL launch failed: secure host address unavailable host=0x%08X secure=%d",
+                GXboxSystemLink.HostId, HostPeer && HostPeer->HasSecureInfo ? 1 : 0 );
+            GXboxSystemLink.Phase = XSLP_ReadyConfirmed;
+            GXboxSystemLink.PendingTravel = 0;
+            return;
+        }
+    }
+
+    TCHAR URL[1024];
+    if( !XboxSystemLinkBuildSelectedMapURL( URL, ARRAY_COUNT(URL), bHost, HostAddress ) )
+    {
+        GXboxLog.Write( "XSL launch failed: cannot build travel url role=%s host=0x%08X addr=0x%08X",
+            TCHAR_TO_ANSI(XboxSystemLinkRoleText(GXboxSystemLink.Role)), GXboxSystemLink.HostId, HostAddress );
+        GXboxSystemLink.Phase = XSLP_ReadyConfirmed;
+        GXboxSystemLink.PendingTravel = 0;
+        return;
+    }
+
+    XboxSplitResetRuntime( Client, bHost ? "SystemLinkHostLaunch" : "SystemLinkClientLaunch" );
+    GXboxSplitUseReadySlots = 0;
+    GXboxSplitPending = 0;
+
+    GXboxLog.Write( "XSL launch travel role=%s launch=0x%08X url=%s localReady=%d readyMask=0x%X lockedMask=0x%X",
+        TCHAR_TO_ANSI(XboxSystemLinkRoleText(GXboxSystemLink.Role)),
+        GXboxSystemLink.LaunchId,
+        TCHAR_TO_ANSI(URL),
+        XboxSystemLinkLocalReadyCanConfirm() ? 1 : 0,
+        XboxSystemLinkReadyMask(),
+        XboxSystemLinkLockedMask() );
+
+    XboxMenuClose( Viewport );
+    XboxSystemLinkStopForTravel();
+    Client->Engine->SetClientTravel( Viewport, URL, 0, TRAVEL_Absolute );
+}
+
+static void XboxSystemLinkScheduleHostLaunch()
+{
+    if( GXboxSystemLink.Role != XSLR_Host )
+        return;
+    if( !XboxSystemLinkAllMachinesConfirmed() )
+    {
+        GXboxLog.Write( "XSL host launch blocked confirmed=%d/%d localReady=%d",
+            XboxSystemLinkConfirmedMachineCount(), XboxSystemLinkGroupMachineCount(), XboxSystemLinkLocalReadyCanConfirm() ? 1 : 0 );
+        return;
+    }
+
+    if( !XboxSystemLinkLocalReadyCanConfirm() )
+    {
+        GXboxLog.Write( "XSL host launch blocked: local player not joined and locked" );
+        return;
+    }
+
+    if( !XboxSystemLinkEnsureHostSession() || !XboxSystemLinkUpdateLocalXnAddr() )
+    {
+        GXboxLog.Write( "XSL host launch blocked: secure session not ready xnaddr=0x%08X",
+            GXboxSystemLink.LocalXnAddrStatus );
+        return;
+    }
+
+    XboxSystemLinkUpdateLocalAdvertisement();
+    GXboxSystemLink.Phase = XSLP_Launching;
+    GXboxSystemLink.LaunchId++;
+    if( !GXboxSystemLink.LaunchId )
+        GXboxSystemLink.LaunchId = 1;
+    GXboxSystemLink.PendingTravel = 1;
+    GXboxSystemLink.PendingTravelTime = appSeconds() + GXboxSystemLinkLaunchHostDelaySeconds;
+    GXboxSystemLink.PendingTravelDeadline = appSeconds() + GXboxSystemLinkLaunchDeadlineSeconds;
+    GXboxSystemLink.PendingHostAddress = 0;
+    GXboxSystemLink.LaunchAckId = GXboxSystemLink.LaunchId;
+    GXboxLog.Write( "XSL host launch scheduled launch=0x%08X mapGame=%d map=%d fragIdx=%d timeIdx=%d skill=%d machines=%d",
+        GXboxSystemLink.LaunchId,
+        GXboxSystemLink.GameType,
+        GXboxSystemLink.MapIndex,
+        GXboxSystemLink.FragLimitIndex,
+        GXboxSystemLink.TimeLimitIndex,
+        GXboxSystemLink.SkillIndex,
+        XboxSystemLinkGroupMachineCount() );
+    XboxSystemLinkSendProbe();
+}
+
+static void XboxSystemLinkCheckRemoteLaunch( FLOAT Now )
+{
+    if( GXboxSystemLink.Role != XSLR_Client || !GXboxSystemLink.HostId )
+        return;
+
+    const FXboxSystemLinkPeer* HostPeer = XboxSystemLinkFindPeerById( GXboxSystemLink.HostId );
+    if( !HostPeer )
+        return;
+
+    if( HostPeer->Phase == XSLP_MapSelect )
+    {
+        GXboxSystemLink.GameType = HostPeer->GameType;
+        GXboxSystemLink.MapIndex = HostPeer->MapIndex;
+        GXboxSystemLink.FragLimitIndex = HostPeer->FragLimitIndex;
+        GXboxSystemLink.TimeLimitIndex = HostPeer->TimeLimitIndex;
+        GXboxSystemLink.SkillIndex = HostPeer->SkillIndex;
+    }
+
+    if( HostPeer->Phase != XSLP_Launching || !HostPeer->LaunchId || HostPeer->LaunchId == GXboxSystemLink.LastSeenLaunchId )
+        return;
+
+    DWORD SecureHostAddress = 0;
+    if( !XboxSystemLinkResolveHostSecureAddress( HostPeer, &SecureHostAddress ) )
+    {
+        GXboxLog.Write( "XSL client launch waiting: secure host session unavailable host=0x%08X secure=%d",
+            HostPeer->Id, HostPeer->HasSecureInfo ? 1 : 0 );
+        return;
+    }
+
+    GXboxSystemLink.GameType = HostPeer->GameType;
+    GXboxSystemLink.MapIndex = HostPeer->MapIndex;
+    GXboxSystemLink.FragLimitIndex = HostPeer->FragLimitIndex;
+    GXboxSystemLink.TimeLimitIndex = HostPeer->TimeLimitIndex;
+    GXboxSystemLink.SkillIndex = HostPeer->SkillIndex;
+    GXboxSystemLink.LaunchId = HostPeer->LaunchId;
+    GXboxSystemLink.LastSeenLaunchId = HostPeer->LaunchId;
+    GXboxSystemLink.PendingHostAddress = SecureHostAddress;
+    GXboxSystemLink.PendingTravel = 1;
+    GXboxSystemLink.PendingTravelTime = Now + GXboxSystemLinkLaunchClientDelaySeconds;
+    GXboxSystemLink.PendingTravelDeadline = 0.0f;
+    GXboxSystemLink.LaunchAckId = HostPeer->LaunchId;
+    GXboxSystemLink.Phase = XSLP_Launching;
+    GXboxLog.Write( "XSL client launch scheduled launch=0x%08X host=0x%08X addr=0x%08X delay=%.1f",
+        GXboxSystemLink.LaunchId, GXboxSystemLink.HostId, GXboxSystemLink.PendingHostAddress, GXboxSystemLinkLaunchClientDelaySeconds );
+    XboxSystemLinkSendProbe();
+}
+
+static void XboxSystemLinkUpdateProgress( UXboxViewport* Viewport, FLOAT Now )
+{
+    XboxSystemLinkUpdateLocalAdvertisement();
+
+    if( GXboxSystemLink.Role == XSLR_Host
+    &&  GXboxMenu.Screen == XMS_SystemLink
+    &&  XboxSystemLinkAllMachinesConfirmed() )
+    {
+        GXboxMenu.Screen = XMS_SystemLinkMapSelect;
+        GXboxMenu.SplitFocus = 0;
+        GXboxSystemLink.Phase = XSLP_MapSelect;
+        GXboxLog.Write( "XSL all machines confirmed -> host map select machines=%d", XboxSystemLinkGroupMachineCount() );
+    }
+    else if( GXboxSystemLink.Role == XSLR_Host
+    &&  GXboxMenu.Screen == XMS_SystemLinkMapSelect
+    &&  GXboxSystemLink.Phase != XSLP_Launching
+    &&  !XboxSystemLinkAllMachinesConfirmed() )
+    {
+        GXboxMenu.Screen = XMS_SystemLink;
+        GXboxSystemLink.Phase = XSLP_Ready;
+        GXboxLog.Write( "XSL host map select cancelled: machines confirmed=%d/%d",
+            XboxSystemLinkConfirmedMachineCount(), XboxSystemLinkGroupMachineCount() );
+    }
+
+    XboxSystemLinkCheckRemoteLaunch( Now );
+
+    if( GXboxSystemLink.PendingTravel
+    &&  GXboxSystemLink.Role == XSLR_Host
+    &&  GXboxSystemLink.Phase == XSLP_Launching
+    &&  Now >= GXboxSystemLink.PendingTravelTime )
+    {
+        UBOOL bAcksReady = XboxSystemLinkAllLaunchAcksReceived();
+        if( bAcksReady || Now >= GXboxSystemLink.PendingTravelDeadline )
+        {
+            GXboxLog.Write( "XSL host launch commit launch=0x%08X acks=%d deadline=%d",
+                GXboxSystemLink.LaunchId,
+                bAcksReady ? 1 : 0,
+                Now >= GXboxSystemLink.PendingTravelDeadline ? 1 : 0 );
+            XboxSystemLinkStartTravel( Viewport );
+        }
+        return;
+    }
+
+    if( GXboxSystemLink.PendingTravel && Now >= GXboxSystemLink.PendingTravelTime )
+        XboxSystemLinkStartTravel( Viewport );
+}
+
+static void XboxSystemLinkTick( UXboxViewport* Viewport )
 {
     XboxSystemLinkEnsureState();
-    if( GXboxMenu.Screen != XMS_SystemLink )
+    if( GXboxMenu.Screen != XMS_SystemLink && GXboxMenu.Screen != XMS_SystemLinkMapSelect )
         return;
 
     if( !GXboxSystemLink.Started )
@@ -1247,7 +2306,10 @@ static void XboxSystemLinkTick()
         return;
 
     FLOAT Now = appSeconds();
-    if( Now - GXboxSystemLink.LastSendTime >= 1.0f )
+    XboxSystemLinkExpirePeers( Now );
+    XboxSystemLinkUpdateElection( Now );
+
+    if( Now - GXboxSystemLink.LastSendTime >= 0.5f )
     {
         XboxSystemLinkSendProbe();
         GXboxSystemLink.LastSendTime = Now;
@@ -1255,7 +2317,7 @@ static void XboxSystemLinkTick()
 
     for( ;; )
     {
-        char Buffer[128];
+        char Buffer[512];
         sockaddr_in From;
         INT FromSize = sizeof(From);
         INT Count = recvfrom( GXboxSystemLink.Socket, Buffer, sizeof(Buffer)-1, 0, (sockaddr*)&From, &FromSize );
@@ -1271,17 +2333,69 @@ static void XboxSystemLinkTick()
         DWORD Id = 0;
         INT Port = 0;
         DWORD Counter = 0;
-        if( sscanf( Buffer, "UTXSL1|%08X|%d|%lu", &Id, &Port, &Counter ) == 3 )
-            XboxSystemLinkRecordPeer( Id, From.sin_addr.s_addr, Port, Now );
+        INT Role = XSLR_Seeking;
+        DWORD HostId = 0;
+        INT Phase = XSLP_Discovery;
+        INT ReadyMask = 0;
+        INT LockedMask = 0;
+        INT Confirmed = 0;
+        INT GameType = 0;
+        INT MapIndex = 0;
+        INT FragLimitIndex = 0;
+        INT TimeLimitIndex = 0;
+        INT SkillIndex = 0;
+        DWORD LaunchId = 0;
+        DWORD LaunchAckId = 0;
+        INT SecureInfo = 0;
+        char XnAddrHex[sizeof(XNADDR)*2 + 1];
+        char KeyIdHex[sizeof(XNKID)*2 + 1];
+        char KeyHex[sizeof(XNKEY)*2 + 1];
+        appMemzero( XnAddrHex, sizeof(XnAddrHex) );
+        appMemzero( KeyIdHex, sizeof(KeyIdHex) );
+        appMemzero( KeyHex, sizeof(KeyHex) );
+        XNADDR PacketXnAddr;
+        XNKID PacketKeyId;
+        XNKEY PacketKey;
+        appMemzero( &PacketXnAddr, sizeof(PacketXnAddr) );
+        appMemzero( &PacketKeyId, sizeof(PacketKeyId) );
+        appMemzero( &PacketKey, sizeof(PacketKey) );
+
+        if( sscanf( Buffer, "UTXSL4|%08X|%d|%lu|%d|%08X|%d|%d|%d|%d|%d|%d|%d|%d|%d|%08X|%08X|%d|%72s|%16s|%32s",
+            &Id, &Port, &Counter, &Role, &HostId, &Phase, &ReadyMask, &LockedMask, &Confirmed,
+            &GameType, &MapIndex, &FragLimitIndex, &TimeLimitIndex, &SkillIndex, &LaunchId,
+            &LaunchAckId, &SecureInfo, XnAddrHex, KeyIdHex, KeyHex ) == 20 )
+        {
+            UBOOL bDecodedSecure = SecureInfo
+                && XboxSystemLinkHexDecode( XnAddrHex, (BYTE*)&PacketXnAddr, sizeof(PacketXnAddr) )
+                && XboxSystemLinkHexDecode( KeyIdHex, (BYTE*)&PacketKeyId, sizeof(PacketKeyId) )
+                && XboxSystemLinkHexDecode( KeyHex, (BYTE*)&PacketKey, sizeof(PacketKey) );
+            XboxSystemLinkRecordPeer( Id, From.sin_addr.s_addr, Port, Role, HostId, Phase, ReadyMask, LockedMask, Confirmed, GameType, MapIndex, FragLimitIndex, TimeLimitIndex, SkillIndex, LaunchId, LaunchAckId, bDecodedSecure, &PacketXnAddr, &PacketKeyId, &PacketKey, Now );
+        }
+        else if( sscanf( Buffer, "UTXSL3|%08X|%d|%lu|%d|%08X|%d|%d|%d|%d|%d|%d|%d|%d|%d|%08X",
+            &Id, &Port, &Counter, &Role, &HostId, &Phase, &ReadyMask, &LockedMask, &Confirmed,
+            &GameType, &MapIndex, &FragLimitIndex, &TimeLimitIndex, &SkillIndex, &LaunchId ) == 15 )
+            XboxSystemLinkRecordPeer( Id, From.sin_addr.s_addr, Port, Role, HostId, Phase, ReadyMask, LockedMask, Confirmed, GameType, MapIndex, FragLimitIndex, TimeLimitIndex, SkillIndex, LaunchId, 0, 0, NULL, NULL, NULL, Now );
+        else if( sscanf( Buffer, "UTXSL2|%08X|%d|%lu|%d|%08X", &Id, &Port, &Counter, &Role, &HostId ) == 5 )
+            XboxSystemLinkRecordPeer( Id, From.sin_addr.s_addr, Port, Role, HostId, XSLP_Discovery, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, NULL, NULL, NULL, Now );
+        else if( sscanf( Buffer, "UTXSL1|%08X|%d|%lu", &Id, &Port, &Counter ) == 3 )
+            XboxSystemLinkRecordPeer( Id, From.sin_addr.s_addr, Port, XSLR_Seeking, 0, XSLP_Discovery, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, NULL, NULL, NULL, Now );
     }
+
+    XboxSystemLinkUpdateElection( Now );
+    XboxSystemLinkUpdateProgress( Viewport, Now );
 
     if( Now - GXboxSystemLink.LastLogTime >= 5.0f )
     {
         GXboxSystemLink.LastLogTime = Now;
-        GXboxLog.Write( "XSL probe status id=0x%08X port=%d peers=%d sent=%lu lastErr=%d",
+        GXboxLog.Write( "XSL lobby status id=0x%08X role=%s phase=%s host=0x%08X port=%d peers=%d machines=%d confirmed=%d sent=%lu lastErr=%d",
             GXboxSystemLink.LocalId,
+            TCHAR_TO_ANSI(XboxSystemLinkRoleText(GXboxSystemLink.Role)),
+            TCHAR_TO_ANSI(XboxSystemLinkPhaseText(GXboxSystemLink.Phase)),
+            GXboxSystemLink.HostId,
             GXboxSystemLink.LocalPort,
             GXboxSystemLink.Peers.Num(),
+            XboxSystemLinkGroupMachineCount(),
+            XboxSystemLinkConfirmedMachineCount(),
             GXboxSystemLink.SendCounter,
             GXboxSystemLink.LastError );
     }
@@ -2101,6 +3215,93 @@ static UBOOL XboxSetObjectPropertyInt( UObject* Object, const TCHAR* PropertyNam
     TCHAR Temp[32];
     appSprintf( Temp, TEXT("%i"), Value );
     return XboxSetObjectPropertyText( Object, PropertyName, Temp );
+}
+
+static void XboxTournamentLogReadyState( UXboxViewport* Viewport, const char* Reason, UBOOL bForce )
+{
+    APlayerPawn* Player = Viewport ? Viewport->Actor : NULL;
+    ULevel* Level = Player ? Player->GetLevel() : NULL;
+    if( !Player || !XboxIsTournamentLevel(Level) )
+        return;
+
+    if( !bForce && GXboxTournamentLastLoggedLevel == Level && GXboxTournamentLastLoggedPlayer == Player )
+        return;
+
+    GXboxTournamentLastLoggedLevel = Level;
+    GXboxTournamentLastLoggedPlayer = Player;
+
+    UObject* Game = (Level->GetLevelInfo() && Level->GetLevelInfo()->Game) ? Level->GetLevelInfo()->Game : NULL;
+    FString bRequireReady;
+    FString bRatedGame;
+    XboxGetObjectPropertyString( Game, TEXT("bRequireReady"), bRequireReady );
+    XboxGetObjectPropertyString( Game, TEXT("bRatedGame"), bRatedGame );
+    INT CountDown = XboxGetObjectPropertyInt( Game, TEXT("CountDown"), -1 );
+    INT NumPlayers = XboxGetObjectPropertyInt( Game, TEXT("NumPlayers"), -1 );
+    INT RemainingBots = XboxGetObjectPropertyInt( Game, TEXT("RemainingBots"), -1 );
+    GXboxLog.Write( "XTOUR ready state reason=%s url=%s playerClass=%s state=%s ready=%d showMenu=%d specialMenu=%d game=%s requireReady=%s rated=%s countDown=%d numPlayers=%d remainingBots=%d actualSpectator=%d",
+        Reason ? Reason : "",
+        Level->URL.Map.Len() ? TCHAR_TO_ANSI(*Level->URL.String()) : "",
+        Player->GetClass() ? TCHAR_TO_ANSI(Player->GetClass()->GetName()) : "None",
+        TCHAR_TO_ANSI(XboxPlayerStateName(Player)),
+        Player->bReadyToPlay ? 1 : 0,
+        Player->bShowMenu ? 1 : 0,
+        Player->bSpecialMenu ? 1 : 0,
+        Game && Game->GetClass() ? TCHAR_TO_ANSI(Game->GetClass()->GetName()) : "None",
+        bRequireReady.Len() ? TCHAR_TO_ANSI(*bRequireReady) : "",
+        bRatedGame.Len() ? TCHAR_TO_ANSI(*bRatedGame) : "",
+        CountDown,
+        NumPlayers,
+        RemainingBots,
+        XboxClassIsNamed( Player->GetClass(), TEXT("Spectator") ) ? 1 : 0 );
+}
+
+static void XboxTournamentHandleReadyInput( UXboxViewport* Viewport, UBOOL bFireEdge, UBOOL bAltFireEdge )
+{
+    if( !bFireEdge && !bAltFireEdge )
+        return;
+
+    APlayerPawn* Player = Viewport ? Viewport->Actor : NULL;
+    ULevel* Level = Player ? Player->GetLevel() : NULL;
+    if( !Player || !XboxIsTournamentLevel(Level) )
+        return;
+
+    UObject* Game = (Level->GetLevelInfo() && Level->GetLevelInfo()->Game) ? Level->GetLevelInfo()->Game : NULL;
+    FString bRequireReady;
+    XboxGetObjectPropertyString( Game, TEXT("bRequireReady"), bRequireReady );
+    INT CountDown = XboxGetObjectPropertyInt( Game, TEXT("CountDown"), 0 );
+    UBOOL bWaiting = appStricmp( XboxPlayerStateName(Player), TEXT("PlayerWaiting") ) == 0;
+    UBOOL bRequiresReady = bRequireReady.Len() && appStricmp( *bRequireReady, TEXT("True") ) == 0;
+    if( !bWaiting && !bRequiresReady && CountDown <= 0 )
+        return;
+
+    Player->bReadyToPlay = 1;
+    Player->bShowMenu = 0;
+    Player->bSpecialMenu = 0;
+    XboxTournamentLogReadyState( Viewport, bFireEdge ? "fire-ready" : "alt-ready", 1 );
+
+    if( XboxClassIsNamed( Player->GetClass(), TEXT("Spectator") ) )
+    {
+        GXboxLog.Write( "XTOUR ready blocked: player is actual Spectator class, not PlayerWaiting tournament pawn" );
+        return;
+    }
+
+    XboxSetObjectPropertyText( Game, TEXT("bRequireReady"), TEXT("False") );
+    XboxSetObjectPropertyInt( Game, TEXT("CountDown"), 0 );
+    UFunction* StartMatch = Game ? Game->FindFunction( FName(TEXT("StartMatch"), FNAME_Find) ) : NULL;
+    if( StartMatch )
+    {
+        Game->ProcessEvent( StartMatch, NULL );
+        GXboxLog.Write( "XTOUR StartMatch forced from controller ready fire=%d alt=%d state=%s class=%s",
+            bFireEdge ? 1 : 0,
+            bAltFireEdge ? 1 : 0,
+            TCHAR_TO_ANSI(XboxPlayerStateName(Player)),
+            Player->GetClass() ? TCHAR_TO_ANSI(Player->GetClass()->GetName()) : "None" );
+    }
+    else
+    {
+        GXboxLog.Write( "XTOUR ready failed: StartMatch function missing game=%s",
+            Game && Game->GetClass() ? TCHAR_TO_ANSI(Game->GetClass()->GetName()) : "None" );
+    }
 }
 
 static UBOOL XboxSetClassDefaultPropertyText( const TCHAR* ClassName, const TCHAR* PropertyName, const TCHAR* Value )
@@ -3875,6 +5076,26 @@ static void XboxMenuOpen( UXboxViewport* Viewport )
     }
 }
 
+static void XboxMenuTickPendingFrontendOpen( UXboxViewport* Viewport )
+{
+    if( !GXboxFrontendMenuOpenPending || !Viewport || !Viewport->Actor )
+        return;
+
+    ULevel* Level = Viewport->Actor->GetLevel();
+    if( !XboxIsFrontendLevel(Level) )
+        return;
+
+    GXboxFrontendMenuOpenPending = 0;
+    XboxMenuOpen( Viewport );
+    GXboxMenu.Screen = XMS_Main;
+    GXboxMenu.MainFocus = 0;
+    GXboxMenu.PauseFocus = 0;
+    GXboxMenu.PausedMatch = 0;
+    GXboxLog.Write( "XMENU frontend reopened after travel map=%s availKB=%u",
+        Level && Level->URL.Map.Len() ? TCHAR_TO_ANSI(*Level->URL.Map) : "",
+        (unsigned)XboxMenuAvailPhysKB() );
+}
+
 static void XboxMenuSmokeTick( UXboxViewport* Viewport )
 {
     static INT SmokeStage = 0;
@@ -3995,9 +5216,17 @@ static void XboxMenuBack( UXboxViewport* Viewport )
     }
     else if( GXboxMenu.Screen == XMS_SystemLink )
     {
+        XboxSplitReadyReleaseControllers();
         XboxSystemLinkStop();
         GXboxMenu.Screen = XMS_Main;
-        GXboxLog.Write( "XMENU back from System Link probe" );
+        GXboxLog.Write( "XMENU back from System Link alpha" );
+    }
+    else if( GXboxMenu.Screen == XMS_SystemLinkMapSelect )
+    {
+        GXboxMenu.Screen = XMS_SystemLink;
+        GXboxSystemLink.ReadyConfirmed = 0;
+        GXboxSystemLink.Phase = XSLP_Ready;
+        GXboxLog.Write( "XMENU back from System Link map select" );
     }
     else if( GXboxMenu.Screen == XMS_Tournament )
     {
@@ -4034,63 +5263,6 @@ static void XboxMenuComingSoon( const TCHAR* Title )
     appStrncpy( GXboxMenu.ComingSoonTitle, Title, ARRAY_COUNT(GXboxMenu.ComingSoonTitle) );
     GXboxMenu.ComingSoonTitle[ARRAY_COUNT(GXboxMenu.ComingSoonTitle)-1] = 0;
     GXboxLog.Write( "XMENU coming soon: %s", TCHAR_TO_ANSI(Title) );
-}
-
-static UBOOL XboxMenuCallConsoleFunction( UXboxViewport* Viewport, const TCHAR* FunctionName, void* Parms )
-{
-    if( !Viewport || !Viewport->Console || !FunctionName || !FunctionName[0] )
-        return 0;
-
-    UObject* ConsoleObject = (UObject*)Viewport->Console;
-    UFunction* Function = ConsoleObject->FindFunction( FName(FunctionName, FNAME_Find) );
-    if( !Function )
-    {
-        GXboxLog.Write( "XMENU console function missing %s", TCHAR_TO_ANSI(FunctionName) );
-        return 0;
-    }
-
-    ConsoleObject->ProcessEvent( Function, Parms );
-    return 1;
-}
-
-static void XboxMenuPumpTournamentLaunch( UXboxViewport* Viewport, UCanvas* Canvas )
-{
-    if( !GXboxTournamentLaunchPending )
-        return;
-
-    UXboxClient* Client = Viewport ? (UXboxClient*)Viewport->GetOuter() : NULL;
-    if( !Viewport || !Canvas || !Client || !Client->Engine )
-        return;
-
-    GXboxTournamentLaunchPending = 0;
-    XboxSplitResetRuntime( Client, "Tournament" );
-    XboxSplitReadyReleaseControllers();
-    XboxMenuReleaseCurrentPlayerPortrait();
-    XboxMenuDestroyPlayerPreview();
-    XboxMenuReleaseMapPreviewTexture();
-    XboxMenuReleaseMatchPause( Viewport );
-
-    if( !XboxMenuEnsureConsoleClass( Viewport, TEXT("UTMenu.UTConsole"), "Tournament" ) )
-    {
-        GXboxLog.Write( "XMENU Tournament blocked: UTConsole unavailable" );
-        return;
-    }
-
-    XboxMenuCallConsoleFunction( Viewport, TEXT("ResetUWindow"), NULL );
-    struct FCreateRootWindowParms
-    {
-        UCanvas* Canvas;
-    } CreateRootParms;
-    CreateRootParms.Canvas = Canvas;
-    XboxMenuCallConsoleFunction( Viewport, TEXT("CreateRootWindow"), &CreateRootParms );
-
-    GXboxMenu.Active = 0;
-    if( Client->Engine->Audio )
-        Client->Engine->Audio->Exec( TEXT("XAUDIOSETMENUMODE 0") );
-
-    GXboxLog.Write( "XMENU Tournament travel with UTConsole root: UT-Logo-Map.unr?Game=Botpack.LadderNewGame" );
-    GXboxLog.Flush();
-    Client->Engine->SetClientTravel( Viewport, TEXT("UT-Logo-Map.unr?Game=Botpack.LadderNewGame"), 0, TRAVEL_Absolute );
 }
 
 static UClass* XboxTournamentLadderClass( INT Index )
@@ -4301,22 +5473,26 @@ static void XboxMenuStartTournamentMatch( UXboxViewport* Viewport )
 
     TCHAR PlayerURL[512];
     TCHAR URL[1024];
+    const TCHAR* PlayerName = TEXT("Player");
+    if( Viewport->Actor && Viewport->Actor->PlayerReplicationInfo && Viewport->Actor->PlayerReplicationInfo->PlayerName.Len() )
+        PlayerName = *Viewport->Actor->PlayerReplicationInfo->PlayerName;
     XboxMenuBuildPlayerURL( PlayerURL, ARRAY_COUNT(PlayerURL) );
     appSprintf
     (
         URL,
-        TEXT("%s?Game=%s?Tournament=%i%s"),
+        TEXT("%s?Game=%s?Tournament=%i?Name=%s%s"),
         *Map,
         GXboxTournamentLadders[GXboxMenu.TournamentLadder].GameClass,
         GXboxMenu.TournamentMatch,
+        PlayerName,
         PlayerURL
     );
 
     XboxMenuClose( Viewport );
     XboxSplitResetRuntime( Client, "TournamentMatch" );
-    GXboxLog.Write( "XMENU Tournament match travel: %s", TCHAR_TO_ANSI(URL) );
+    GXboxLog.Write( "XMENU Tournament match travel with items: %s", TCHAR_TO_ANSI(URL) );
     GXboxLog.Flush();
-    Client->Engine->SetClientTravel( Viewport, URL, 0, TRAVEL_Absolute );
+    Client->Engine->SetClientTravel( Viewport, URL, 1, TRAVEL_Absolute );
 }
 
 static void XboxMenuStartTournament( UXboxViewport* Viewport )
@@ -4325,7 +5501,6 @@ static void XboxMenuStartTournament( UXboxViewport* Viewport )
     if( !Client || !Client->Engine )
         return;
 
-    GXboxTournamentLaunchPending = 0;
     XboxTournamentClampSelection( Viewport );
     GXboxMenu.Screen = XMS_Tournament;
     GXboxMenu.TournamentFocus = 0;
@@ -4498,19 +5673,19 @@ static void XboxMenuReturnToFrontend( UXboxViewport* Viewport )
     XboxMenuReleaseMatchPause( Viewport );
     XboxSplitResetRuntime( Client, "ReturnToFrontend" );
     XboxMenuEnsureConsoleClass( Viewport, TEXT("Engine.Console"), "ReturnToFrontend" );
-    Client->Engine->Flush( 0 );
-    GXboxMenu.Active = 1;
+    GXboxMenu.Active = 0;
     GXboxMenu.Screen = XMS_Main;
     GXboxMenu.MainFocus = 0;
     GXboxMenu.PauseFocus = 0;
+    GXboxFrontendMenuOpenPending = 1;
 
     if( Client->Engine->Audio )
     {
-        Client->Engine->Audio->Exec( TEXT("XAUDIOSETMENUMODE 1") );
+        Client->Engine->Audio->Exec( TEXT("XAUDIOSETMENUMODE 0") );
         Client->Engine->Audio->Exec( TEXT("XAUDIOSTOPFX") );
     }
 
-    GXboxLog.Write( "XMENU return to frontend: CityIntro.unr" );
+    GXboxLog.Write( "XMENU return to frontend queued: CityIntro.unr" );
     Client->Engine->SetClientTravel( Viewport, TEXT("CityIntro.unr"), 0, TRAVEL_Absolute );
 }
 
@@ -4554,9 +5729,10 @@ static void XboxMenuActivate( UXboxViewport* Viewport )
                 XboxMenuStartTournament( Viewport );
                 break;
             case 2:
+                XboxSplitReadyReset();
                 GXboxMenu.Screen = XMS_SystemLink;
                 XboxSystemLinkStart();
-                GXboxLog.Write( "XMENU screen: System Link probe" );
+                GXboxLog.Write( "XMENU screen: System Link alpha" );
                 break;
             case 3:
                 XboxMenuStartSplitScreen( Viewport );
@@ -4600,6 +5776,23 @@ static void XboxMenuActivate( UXboxViewport* Viewport )
         if( GXboxMenu.TournamentFocus == 3 )
             XboxMenuStartTournamentMatch( Viewport );
         else
+            XboxMenuMove( 1 );
+    }
+    else if( GXboxMenu.Screen == XMS_SystemLink )
+    {
+        GXboxLog.Write( "XSL activate role=%s phase=%s host=0x%08X peers=%d machines=%d confirmed=%d",
+            TCHAR_TO_ANSI(XboxSystemLinkRoleText(GXboxSystemLink.Role)),
+            TCHAR_TO_ANSI(XboxSystemLinkPhaseText(GXboxSystemLink.Phase)),
+            GXboxSystemLink.HostId,
+            GXboxSystemLink.Peers.Num(),
+            XboxSystemLinkGroupMachineCount(),
+            XboxSystemLinkConfirmedMachineCount() );
+    }
+    else if( GXboxMenu.Screen == XMS_SystemLinkMapSelect )
+    {
+        if( GXboxSystemLink.Role == XSLR_Host && GXboxMenu.SplitFocus == 4 )
+            XboxSystemLinkScheduleHostLaunch();
+        else if( GXboxSystemLink.Role == XSLR_Host )
             XboxMenuMove( 1 );
     }
     else if( GXboxMenu.Screen == XMS_SplitMapSelect )
@@ -4681,7 +5874,7 @@ static void XboxMenuAdjustTournament( UXboxViewport* Viewport, INT Delta )
 
 static void XboxMenuAdjustSplitMapSelect( INT Delta )
 {
-    if( GXboxMenu.Screen != XMS_SplitMapSelect || Delta == 0 )
+    if( (GXboxMenu.Screen != XMS_SplitMapSelect && GXboxMenu.Screen != XMS_SystemLinkMapSelect) || Delta == 0 )
         return;
 
     switch( GXboxMenu.SplitFocus )
@@ -4703,7 +5896,9 @@ static void XboxMenuAdjustSplitMapSelect( INT Delta )
             break;
     }
 
-    GXboxLog.Write( "XMENU split map adjust row=%d delta=%d", GXboxMenu.SplitFocus, Delta );
+    GXboxLog.Write( "%s map adjust row=%d delta=%d",
+        GXboxMenu.Screen == XMS_SystemLinkMapSelect ? "XSL" : "XMENU split",
+        GXboxMenu.SplitFocus, Delta );
 }
 
 static void XboxMenuAdjustPlayerSetup( UXboxViewport* Viewport, INT Delta )
@@ -4900,10 +6095,10 @@ static void XboxMenuMove( INT Delta )
         GXboxMenu.TournamentFocus = XboxMenuWrapInt( GXboxMenu.TournamentFocus, Delta, 4 );
         GXboxLog.Write( "XMENU tournament focus=%d", GXboxMenu.TournamentFocus );
     }
-    else if( GXboxMenu.Screen == XMS_SplitMapSelect )
+    else if( GXboxMenu.Screen == XMS_SplitMapSelect || GXboxMenu.Screen == XMS_SystemLinkMapSelect )
     {
         GXboxMenu.SplitFocus = XboxMenuWrapInt( GXboxMenu.SplitFocus, Delta, 5 );
-        GXboxLog.Write( "XMENU split map focus=%d", GXboxMenu.SplitFocus );
+        GXboxLog.Write( "%s map focus=%d", GXboxMenu.Screen == XMS_SystemLinkMapSelect ? "XSL" : "XMENU split", GXboxMenu.SplitFocus );
     }
     else if( GXboxMenu.Screen == XMS_PlayerSetup )
     {
@@ -4948,6 +6143,7 @@ static void XboxSplitReadyAdjustCharacter( INT Port, INT Delta )
     GXboxSplitReadySlots[Port].Character = XboxMenuWrapInt( GXboxSplitReadySlots[Port].Character, Delta, GXboxPlayerClasses.Num() );
     const FXboxPlayerClassOption& Player = XboxSplitReadyPlayerClass( Port );
     GXboxSplitReadySlots[Port].Team = Player.DefaultTeam;
+    XboxSystemLinkMarkLocalReadyChanged();
     GXboxLog.Write( "XSPLIT ready port=%d character=%d label=%s portrait=%s",
         Port + 1, GXboxSplitReadySlots[Port].Character, TCHAR_TO_ANSI(*Player.Label), Player.PortraitName );
 }
@@ -4969,6 +6165,7 @@ static void XboxSplitReadyAdjustTeam( INT Port, INT Delta )
         else if( GXboxSplitReadySlots[Port].Team < 0 )
             GXboxSplitReadySlots[Port].Team = 255;
     }
+    XboxSystemLinkMarkLocalReadyChanged();
     GXboxLog.Write( "XSPLIT ready port=%d team=%d", Port + 1, GXboxSplitReadySlots[Port].Team );
 }
 
@@ -4993,6 +6190,7 @@ static void XboxSplitReadyHandlePad( UXboxViewport* Viewport, INT Port, const XI
         if( GXboxSplitReadySlots[Port].Locked )
         {
             GXboxSplitReadySlots[Port].Locked = 0;
+            XboxSystemLinkMarkLocalReadyChanged();
             GXboxLog.Write( "XSPLIT ready unlocked port=%d", Port + 1 );
         }
         else if( GXboxSplitReadySlots[Port].Joined )
@@ -5001,6 +6199,7 @@ static void XboxSplitReadyHandlePad( UXboxViewport* Viewport, INT Port, const XI
             if( Player.PortraitName[0] )
                 XboxRenderReleaseMenuTexture( Player.PortraitName );
             GXboxSplitReadySlots[Port].Joined = 0;
+            XboxSystemLinkMarkLocalReadyChanged();
             GXboxLog.Write( "XSPLIT ready leave port=%d", Port + 1 );
         }
         else if( Port == 0 && XboxSplitReadyJoinedCount() == 0 )
@@ -5012,6 +6211,12 @@ static void XboxSplitReadyHandlePad( UXboxViewport* Viewport, INT Port, const XI
 
     if( XboxAnalogPressed( Pad, PrevPad, XINPUT_GAMEPAD_A ) )
     {
+        if( XboxSystemLinkMenuActive() && Port != 0 )
+        {
+            GXboxLog.Write( "XSL ready join ignored on port=%d; one local player per Xbox for network alpha", Port + 1 );
+            return;
+        }
+
         if( !GXboxSplitReadySlots[Port].Joined )
         {
             GXboxSplitReadySlots[Port].Joined = 1;
@@ -5019,12 +6224,14 @@ static void XboxSplitReadyHandlePad( UXboxViewport* Viewport, INT Port, const XI
             GXboxSplitReadySlots[Port].Focus = 0;
             const FXboxPlayerClassOption& Player = XboxSplitReadyPlayerClass( Port );
             GXboxSplitReadySlots[Port].Team = Player.DefaultTeam;
+            XboxSystemLinkMarkLocalReadyChanged();
             GXboxLog.Write( "XSPLIT ready join port=%d character=%d label=%s",
                 Port + 1, GXboxSplitReadySlots[Port].Character, TCHAR_TO_ANSI(*Player.Label) );
         }
         else if( !GXboxSplitReadySlots[Port].Locked )
         {
             GXboxSplitReadySlots[Port].Locked = 1;
+            XboxSystemLinkMarkLocalReadyChanged();
             GXboxLog.Write( "XSPLIT ready locked port=%d", Port + 1 );
         }
         return;
@@ -5032,7 +6239,30 @@ static void XboxSplitReadyHandlePad( UXboxViewport* Viewport, INT Port, const XI
 
     if( Port == 0 && XboxButtonPressed( CurDigital, PrevDigital, XINPUT_GAMEPAD_START ) )
     {
-        if( XboxSplitReadyCanBegin() )
+        if( GXboxMenu.Screen == XMS_SystemLink )
+        {
+            if( XboxSystemLinkGroupMachineCount() < 2 )
+            {
+                GXboxLog.Write( "XSL ready confirm blocked: waiting for another Xbox" );
+            }
+            else if( XboxSystemLinkLocalReadyCanConfirm() )
+            {
+                GXboxSystemLink.ReadyConfirmed = 1;
+                GXboxSystemLink.Phase = XSLP_ReadyConfirmed;
+                GXboxLog.Write( "XSL local machine confirmed ready joined=%d readyMask=0x%X lockedMask=0x%X confirmed=%d/%d",
+                    XboxSplitReadyJoinedCount(),
+                    XboxSystemLinkReadyMask(),
+                    XboxSystemLinkLockedMask(),
+                    XboxSystemLinkConfirmedMachineCount(),
+                    XboxSystemLinkGroupMachineCount() );
+                XboxSystemLinkSendProbe();
+            }
+            else
+            {
+                GXboxLog.Write( "XSL ready confirm blocked joined=%d localReady=0", XboxSplitReadyJoinedCount() );
+            }
+        }
+        else if( XboxSplitReadyCanBegin() )
         {
             GXboxMenu.Screen = XMS_SplitMapSelect;
             GXboxMenu.SplitFocus = 0;
@@ -5144,7 +6374,16 @@ static UBOOL XboxMenuHandleInput( UXboxViewport* Viewport, const XINPUT_GAMEPAD&
         return 1;
     }
 
-    if( GXboxMenu.Screen == XMS_SplitMapSelect && XboxViewportIndex(Viewport) != 0 )
+    if( GXboxMenu.Screen == XMS_SystemLink
+    &&  GXboxSystemLink.HostId
+    &&  XboxSystemLinkGroupMachineCount() >= 2
+    &&  GXboxSystemLink.Phase != XSLP_Launching )
+    {
+        XboxSplitReadyPollControllers( Viewport, Pad, PrevPad );
+        return 1;
+    }
+
+    if( (GXboxMenu.Screen == XMS_SplitMapSelect || GXboxMenu.Screen == XMS_SystemLinkMapSelect) && XboxViewportIndex(Viewport) != 0 )
         return 1;
 
     if( XboxButtonPressed( CurDigital, PrevDigital, XINPUT_GAMEPAD_DPAD_UP )
@@ -5249,6 +6488,110 @@ static void XboxMenuTextSize( UCanvas* Canvas, UFont* Font, const TCHAR* Text, I
         Canvas->WrappedStrLenf( Font, XL, YL, TEXT("%s"), Text );
         Canvas->CurX = OldCurX;
         Canvas->CurY = OldCurY;
+    }
+}
+
+static void XboxMenuTextFit( UCanvas* Canvas, UFont* Font, FLOAT X, FLOAT Y, FLOAT MaxWidth, BYTE R, BYTE G, BYTE B, const TCHAR* Text )
+{
+    if( !Text )
+        Text = TEXT("");
+
+    TCHAR Source[256];
+    appStrncpy( Source, Text, ARRAY_COUNT(Source) );
+    Source[ARRAY_COUNT(Source)-1] = 0;
+
+    TCHAR Buffer[256];
+    INT SourceLen = appStrlen( Source );
+    INT BestLen = SourceLen;
+    for( INT TestLen=SourceLen; TestLen>=0; TestLen-- )
+    {
+        INT CopyLen = Min<INT>( TestLen, ARRAY_COUNT(Buffer)-1 );
+        for( INT i=0; i<CopyLen; i++ )
+            Buffer[i] = Source[i];
+        Buffer[CopyLen] = 0;
+        if( TestLen < SourceLen && CopyLen > 3 )
+        {
+            Buffer[CopyLen-3] = '.';
+            Buffer[CopyLen-2] = '.';
+            Buffer[CopyLen-1] = '.';
+        }
+
+        INT XL = 0;
+        INT YL = 0;
+        XboxMenuTextSize( Canvas, Font, Buffer, XL, YL );
+        if( XL <= MaxWidth || TestLen == 0 )
+        {
+            BestLen = TestLen;
+            break;
+        }
+    }
+
+    INT CopyLen = Min<INT>( BestLen, ARRAY_COUNT(Buffer)-1 );
+    for( INT i=0; i<CopyLen; i++ )
+        Buffer[i] = Source[i];
+    Buffer[CopyLen] = 0;
+    if( BestLen < SourceLen && CopyLen > 3 )
+    {
+        Buffer[CopyLen-3] = '.';
+        Buffer[CopyLen-2] = '.';
+        Buffer[CopyLen-1] = '.';
+    }
+    XboxMenuText( Canvas, Font, X, Y, R, G, B, Buffer );
+}
+
+static void XboxMenuTextWrap( UCanvas* Canvas, UFont* Font, FLOAT X, FLOAT Y, FLOAT MaxWidth, INT MaxLines, FLOAT LineStep, BYTE R, BYTE G, BYTE B, const TCHAR* Text )
+{
+    if( !Canvas || !Font || !Text || MaxLines <= 0 )
+        return;
+
+    TCHAR Source[512];
+    appStrncpy( Source, Text, ARRAY_COUNT(Source) );
+    Source[ARRAY_COUNT(Source)-1] = 0;
+
+    TCHAR* Cursor = Source;
+    for( INT Line=0; Line<MaxLines && *Cursor; Line++ )
+    {
+        while( *Cursor == ' ' )
+            Cursor++;
+        if( !*Cursor )
+            break;
+
+        INT BestLen = 0;
+        INT LastSpace = -1;
+        TCHAR Buffer[256];
+        for( INT i=0; Cursor[i] && i<ARRAY_COUNT(Buffer)-1; i++ )
+        {
+            if( Cursor[i] == ' ' )
+                LastSpace = i;
+            Buffer[i] = Cursor[i];
+            Buffer[i+1] = 0;
+
+            INT XL = 0;
+            INT YL = 0;
+            XboxMenuTextSize( Canvas, Font, Buffer, XL, YL );
+            if( XL > MaxWidth )
+                break;
+            BestLen = i + 1;
+        }
+
+        if( Cursor[BestLen] && LastSpace > 0 )
+            BestLen = LastSpace;
+        if( BestLen <= 0 )
+            BestLen = Min<INT>( appStrlen(Cursor), ARRAY_COUNT(Buffer)-1 );
+
+        for( INT i=0; i<BestLen && i<ARRAY_COUNT(Buffer)-1; i++ )
+            Buffer[i] = Cursor[i];
+        Buffer[Min<INT>(BestLen, ARRAY_COUNT(Buffer)-1)] = 0;
+
+        if( Line == MaxLines-1 && Cursor[BestLen] && BestLen > 3 )
+        {
+            Buffer[BestLen-3] = '.';
+            Buffer[BestLen-2] = '.';
+            Buffer[BestLen-1] = '.';
+        }
+
+        XboxMenuText( Canvas, Font, X, Y + Line * LineStep, R, G, B, Buffer );
+        Cursor += BestLen;
     }
 }
 
@@ -6185,8 +7528,10 @@ static void XboxMenuDrawTournament( UXboxViewport* Viewport, UCanvas* Canvas )
     static const TCHAR* Labels[] =
     {
         TEXT("LADDER"),
-        TEXT("RUNG"),
+        TEXT("MATCH"),
         TEXT("SKILL"),
+        TEXT("RUNG"),
+        TEXT("FRAG LIMIT"),
         TEXT("BEGIN MATCH")
     };
 
@@ -6200,85 +7545,112 @@ static void XboxMenuDrawTournament( UXboxViewport* Viewport, UCanvas* Canvas )
     if( Title.Len() <= 0 )
         Title = Map;
 
-    FString MatchLabel = FString::Printf( TEXT("%02i  %s"), GXboxMenu.TournamentMatch + 1, *Title );
-    const TCHAR* Values[] =
-    {
-        GXboxTournamentLadders[GXboxMenu.TournamentLadder].Label,
-        *MatchLabel,
-        GXboxSkillLabels[Clamp<INT>(GXboxMenu.TournamentSkill, 0, ARRAY_COUNT(GXboxSkillLabels)-1)],
-        TEXT("")
-    };
+    INT FirstMatch = GXboxTournamentLadders[GXboxMenu.TournamentLadder].FirstRatedMatch;
+    INT MatchCount = XboxTournamentMatchCount( GXboxMenu.TournamentLadder );
+    INT RatedCount = Max<INT>( 1, MatchCount - FirstMatch );
+    INT DisplayRung = Clamp<INT>( GXboxMenu.TournamentMatch - FirstMatch + 1, 1, RatedCount );
+    TCHAR ProgressText[64];
+    appSprintf( ProgressText, TEXT("%02i OF %02i"), DisplayRung, RatedCount );
 
     UTexture* Preview = Map.Len() ? XboxMenuGetMapPreview( *Map ) : NULL;
     INT FragLimit = XboxMenuClassDefaultIntAt( LadderClass, TEXT("FragLimits"), GXboxMenu.TournamentMatch, 0 );
     INT GoalScore = XboxMenuClassDefaultIntAt( LadderClass, TEXT("GoalTeamScore"), GXboxMenu.TournamentMatch, 0 );
     INT TimeLimit = XboxMenuClassDefaultIntAt( LadderClass, TEXT("TimeLimits"), GXboxMenu.TournamentMatch, 0 );
+    TCHAR FragText[32];
     TCHAR RuleText[96];
     if( GoalScore > 0 )
+    {
+        appSprintf( FragText, TEXT("%i"), GoalScore );
         appSprintf( RuleText, TEXT("GOAL SCORE %i"), GoalScore );
+    }
     else if( FragLimit > 0 )
+    {
+        appSprintf( FragText, TEXT("%i"), FragLimit );
         appSprintf( RuleText, TEXT("FRAG LIMIT %i"), FragLimit );
+    }
     else
+    {
+        appStrcpy( FragText, TEXT("NONE") );
         appStrcpy( RuleText, TEXT("STANDARD RULES") );
+    }
     if( TimeLimit > 0 )
     {
         TCHAR Temp[96];
         appSprintf( Temp, TEXT("%s    %i MINUTES"), RuleText, TimeLimit );
         appStrcpy( RuleText, Temp );
     }
+    const TCHAR* Values[] =
+    {
+        GXboxTournamentLadders[GXboxMenu.TournamentLadder].Label,
+        *Title,
+        GXboxSkillLabels[Clamp<INT>(GXboxMenu.TournamentSkill, 0, ARRAY_COUNT(GXboxSkillLabels)-1)],
+        ProgressText,
+        FragText,
+        TEXT("")
+    };
 
     XboxMenuDrawChrome( Canvas, TEXT("TOURNAMENT"), 1 );
     UFont* MenuFont = Canvas->MedFont;
     UFont* SmallFont = Canvas->SmallFont ? Canvas->SmallFont : Canvas->MedFont;
     XboxMenuText( Canvas, MenuFont, 46, 70, 255, 255, 255, TEXT("TOURNAMENT") );
 
-    XboxMenuDrawRect( Canvas, 382, 92, 590, 300, 25, 34, 48, 0.88f );
-    XboxMenuDrawRect( Canvas, 392, 102, 580, 290, 0, 0, 0, 0.88f );
+    const FLOAT PreviewOuterX = 340.0f;
+    const FLOAT PreviewOuterY = 60.0f;
+    const FLOAT PreviewInnerX = 350.0f;
+    const FLOAT PreviewInnerY = 70.0f;
+    const FLOAT PreviewSize = 256.0f;
+    XboxMenuDrawRect( Canvas, PreviewOuterX, PreviewOuterY, PreviewOuterX+PreviewSize+20.0f, PreviewOuterY+PreviewSize+20.0f, 25, 34, 48, 0.88f );
+    XboxMenuDrawRect( Canvas, PreviewInnerX, PreviewInnerY, PreviewInnerX+PreviewSize, PreviewInnerY+PreviewSize, 0, 0, 0, 0.88f );
     if( Preview )
     {
         FLOAT SrcW = Max<FLOAT>( 1.0f, (FLOAT)Preview->USize );
         FLOAT SrcH = Max<FLOAT>( 1.0f, (FLOAT)Preview->VSize );
-        FLOAT Scale = Min<FLOAT>( 188.0f / SrcW, 188.0f / SrcH );
+        FLOAT Scale = Min<FLOAT>( PreviewSize / SrcW, PreviewSize / SrcH );
         FLOAT PW = SrcW * Scale;
         FLOAT PH = SrcH * Scale;
-        XboxMenuDrawTexture( Canvas, Preview, 392.0f + (188.0f - PW) * 0.5f, 102.0f + (188.0f - PH) * 0.5f, PW, PH );
+        XboxMenuDrawTexture( Canvas, Preview, PreviewInnerX + (PreviewSize - PW) * 0.5f, PreviewInnerY + (PreviewSize - PH) * 0.5f, PW, PH );
     }
     else
     {
-        XboxMenuText( Canvas, MenuFont, 416, 180, 210, 230, 245, TEXT("NO PREVIEW") );
+        XboxMenuText( Canvas, MenuFont, 382, 214, 210, 230, 245, TEXT("NO PREVIEW") );
     }
 
     for( INT i=0; i<ARRAY_COUNT(Labels); i++ )
     {
-        FLOAT Y = 162.0f + i * 36.0f;
-        if( i == GXboxMenu.TournamentFocus )
+        FLOAT Y = 124.0f + i * 39.0f;
+        INT FocusRow = GXboxMenu.TournamentFocus;
+        if( FocusRow == 3 )
+            FocusRow = 5;
+
+        if( i == FocusRow )
         {
-            XboxMenuDrawRect( Canvas, 42, Y-6, 350, Y+18, 12, 82, 166, 0.55f );
+            XboxMenuDrawRect( Canvas, 42, Y-6, 322, Y+18, 12, 82, 166, 0.55f );
             if( i == 0 || i == 2 )
             {
-                XboxMenuText( Canvas, MenuFont, 192, Y, 180, 215, 245, TEXT("<") );
-                XboxMenuText( Canvas, MenuFont, 334, Y, 180, 215, 245, TEXT(">") );
+                XboxMenuText( Canvas, MenuFont, 170, Y, 180, 215, 245, TEXT("<") );
+                XboxMenuText( Canvas, MenuFont, 304, Y, 180, 215, 245, TEXT(">") );
             }
             XboxMenuText( Canvas, MenuFont, 58, Y, 255, 255, 255, Labels[i] );
-            XboxMenuText( Canvas, MenuFont, 210, Y, 255, 255, 255, Values[i] );
+            XboxMenuTextFit( Canvas, MenuFont, 188, Y, 120.0f, 255, 255, 255, Values[i] );
         }
         else
         {
             XboxMenuText( Canvas, MenuFont, 58, Y, 140, 178, 212, Labels[i] );
-            XboxMenuText( Canvas, MenuFont, 210, Y, 180, 205, 230, Values[i] );
+            XboxMenuTextFit( Canvas, MenuFont, 188, Y, 120.0f, 180, 205, 230, Values[i] );
         }
     }
 
-    XboxMenuText( Canvas, SmallFont, 392, 318, 255, 255, 255, *Title );
-    XboxMenuText( Canvas, SmallFont, 392, 340, 180, 215, 245, *Map );
-    XboxMenuText( Canvas, SmallFont, 392, 362, 135, 170, 205, RuleText );
     if( Description.Len() )
-        XboxMenuText( Canvas, SmallFont, 392, 386, 135, 170, 205, *Description.Left( 54 ) );
+        XboxMenuTextWrap( Canvas, SmallFont, 350, 346, 254.0f, 4, 20.0f, 135, 170, 205, *Description );
+    else
+        XboxMenuText( Canvas, SmallFont, 350, 346, 135, 170, 205, RuleText );
 
     if( GXboxMenu.TournamentFocus == 3 )
         XboxMenuText( Canvas, MenuFont, 58, 402, 135, 255, 120, TEXT("A STARTS THE TOURNAMENT MATCH") );
+    else if( GXboxMenu.TournamentFocus == 1 )
+        XboxMenuText( Canvas, MenuFont, 58, 402, 135, 170, 205, TEXT("MATCH IS SET BY LADDER PROGRESS") );
     else
-        XboxMenuText( Canvas, MenuFont, 58, 402, 135, 170, 205, TEXT("NEXT MATCH IS SET BY TOURNAMENT PROGRESS") );
+        XboxMenuText( Canvas, MenuFont, 58, 402, 135, 170, 205, TEXT("DPAD LEFT/RIGHT CHANGES OPTIONS") );
 }
 
 static void XboxMenuDrawMutators( UCanvas* Canvas )
@@ -6387,10 +7759,18 @@ static void XboxMenuDrawSplitReadySlot( UCanvas* Canvas, INT Port, FLOAT X, FLOA
     XboxSplitReadyEnsure();
     UFont* MenuFont = Canvas->SmallFont ? Canvas->SmallFont : Canvas->MedFont;
     FXboxSplitReadySlot& Slot = GXboxSplitReadySlots[Port];
+    UBOOL bSystemLinkRemoteSlot = XboxSystemLinkMenuActive() && Port != 0;
 
     XboxMenuDrawRect( Canvas, X, Y, X+W, Y+H, 25, 34, 48, Slot.Joined ? 0.72f : 0.46f );
     XboxMenuDrawRect( Canvas, X+4, Y+4, X+W-4, Y+H-4, 0, 0, 0, Slot.Joined ? 0.50f : 0.34f );
     XboxMenuDrawRect( Canvas, X, Y, X+W, Y+3, 31, 112, 205, Slot.Joined ? 0.85f : 0.40f );
+
+    if( bSystemLinkRemoteSlot )
+    {
+        XboxMenuText( Canvas, MenuFont, X+W*0.20f, Y+H*0.42f, 135, 170, 205, TEXT("REMOTE") );
+        XboxMenuText( Canvas, MenuFont, X+W*0.22f, Y+H*0.42f+20, 135, 170, 205, TEXT("XBOX") );
+        return;
+    }
 
     if( !Slot.Joined )
     {
@@ -6498,9 +7878,10 @@ static void XboxMenuDrawSplitMapSelect( UCanvas* Canvas )
         TEXT("")
     };
 
-    XboxMenuDrawChrome( Canvas, TEXT("SPLITSCREEN"), 1 );
+    UBOOL bSystemLink = GXboxMenu.Screen == XMS_SystemLinkMapSelect;
+    XboxMenuDrawChrome( Canvas, bSystemLink ? TEXT("SYSTEM LINK") : TEXT("SPLITSCREEN"), 1 );
     UFont* MenuFont = Canvas->MedFont;
-    XboxMenuText( Canvas, MenuFont, 46, 70, 255, 255, 255, TEXT("SPLITSCREEN MATCH") );
+    XboxMenuText( Canvas, MenuFont, 46, 70, 255, 255, 255, bSystemLink ? TEXT("SYSTEM LINK MATCH") : TEXT("SPLITSCREEN MATCH") );
     XboxMenuDrawRect( Canvas, 382, 92, 590, 300, 25, 34, 48, 0.88f );
     XboxMenuDrawRect( Canvas, 392, 102, 580, 290, 0, 0, 0, 0.88f );
     if( Preview )
@@ -6538,7 +7919,7 @@ static void XboxMenuDrawSplitMapSelect( UCanvas* Canvas )
         }
     }
 
-    XboxMenuText( Canvas, MenuFont, 58, 402, 135, 170, 205, TEXT("PLAYER 1 CONTROLS MATCH SETUP") );
+    XboxMenuText( Canvas, MenuFont, 58, 402, 135, 170, 205, bSystemLink ? TEXT("HOST PLAYER 1 CONTROLS MATCH SETUP") : TEXT("PLAYER 1 CONTROLS MATCH SETUP") );
 }
 
 static void XboxMenuDrawSettings( UXboxViewport* Viewport, UCanvas* Canvas )
@@ -6701,35 +8082,115 @@ static void XboxMenuDrawSystemLink( UCanvas* Canvas )
     XboxMenuDrawChrome( Canvas, TEXT("SYSTEM LINK"), 1 );
     UFont* MenuFont = Canvas->MedFont;
 
-    XboxMenuText( Canvas, MenuFont, 58, 74, 255, 255, 255, TEXT("SYSTEM LINK TEST") );
-    XboxMenuText( Canvas, MenuFont, 58, 114, 135, 170, 205, TEXT("DISCOVERY PROBE") );
+    INT MachineCount = XboxSystemLinkGroupMachineCount();
+    INT ConfirmedCount = XboxSystemLinkConfirmedMachineCount();
+    if( GXboxSystemLink.HostId && MachineCount >= 2 )
+    {
+        XboxMenuText( Canvas, MenuFont, 46, 64, 255, 255, 255, TEXT("SYSTEM LINK READY") );
+
+        FLOAT X = 22.0f;
+        FLOAT Y = 100.0f;
+        FLOAT W = 142.0f;
+        FLOAT H = 296.0f;
+        FLOAT Gap = 8.0f;
+        for( INT i=0; i<4; i++ )
+            XboxMenuDrawSplitReadySlot( Canvas, i, X + i * (W + Gap), Y, W, H );
+
+        TCHAR Status[160];
+        appSprintf( Status, TEXT("%s    MACHINES %i    CONFIRMED %i/%i"),
+            XboxSystemLinkRoleText(GXboxSystemLink.Role), MachineCount, ConfirmedCount, MachineCount );
+        XboxMenuText( Canvas, MenuFont, 58, 404, 180, 215, 245, Status );
+
+        const FXboxSystemLinkPeer* HostPeer = XboxSystemLinkFindPeerById( GXboxSystemLink.HostId );
+        if( GXboxSystemLink.Phase == XSLP_Launching )
+            XboxMenuText( Canvas, MenuFont, 58, 426, 135, 255, 120, TEXT("LAUNCHING MATCH") );
+        else if( GXboxSystemLink.Role == XSLR_Client && HostPeer && HostPeer->Phase == XSLP_MapSelect )
+            XboxMenuText( Canvas, MenuFont, 58, 426, 135, 255, 120, TEXT("HOST IS CHOOSING THE MATCH") );
+        else if( GXboxSystemLink.ReadyConfirmed )
+            XboxMenuText( Canvas, MenuFont, 58, 426, 135, 170, 205, TEXT("WAITING FOR ALL MACHINES TO CONFIRM") );
+        else if( XboxSystemLinkLocalReadyCanConfirm() )
+            XboxMenuText( Canvas, MenuFont, 58, 426, 135, 255, 120, TEXT("PLAYER 1 START CONFIRMS THIS XBOX") );
+        else
+            XboxMenuText( Canvas, MenuFont, 58, 426, 135, 170, 205, TEXT("PLAYER 1 MUST JOIN AND LOCK IN") );
+        return;
+    }
+
+    XboxMenuText( Canvas, MenuFont, 58, 74, 255, 255, 255, TEXT("SYSTEM LINK") );
 
     TCHAR Status[128];
     if( GXboxSystemLink.Started )
-        appSprintf( Status, TEXT("LOCAL ID  %08X    PORT %i"), GXboxSystemLink.LocalId, GXboxSystemLink.LocalPort );
+        appSprintf( Status, TEXT("%s    LOCAL %08X    PORT %i"),
+            XboxSystemLinkRoleText(GXboxSystemLink.Role),
+            GXboxSystemLink.LocalId,
+            GXboxSystemLink.LocalPort );
     else
         appSprintf( Status, TEXT("NOT STARTED    ERROR %i"), GXboxSystemLink.LastError );
-    XboxMenuText( Canvas, MenuFont, 58, 146, 180, 215, 245, Status );
+    XboxMenuText( Canvas, MenuFont, 58, 114, 180, 215, 245, Status );
 
-    appSprintf( Status, TEXT("PEERS FOUND  %i"), GXboxSystemLink.Peers.Num() );
-    XboxMenuText( Canvas, MenuFont, 58, 186, 255, 255, 255, Status );
+    UBOOL bHostIsLocal = GXboxSystemLink.HostId && GXboxSystemLink.HostId == GXboxSystemLink.LocalId;
+    UBOOL bHostPeerFound = 0;
+    INT HostPort = 0;
+    TCHAR HostAddr[32];
+    HostAddr[0] = 0;
+    for( INT i=0; i<GXboxSystemLink.Peers.Num(); i++ )
+    {
+        const FXboxSystemLinkPeer& Peer = GXboxSystemLink.Peers(i);
+        if( Peer.Id == GXboxSystemLink.HostId )
+        {
+            XboxSystemLinkFormatAddress( Peer.Address, HostAddr, ARRAY_COUNT(HostAddr) );
+            HostPort = Peer.Port;
+            bHostPeerFound = 1;
+            break;
+        }
+    }
+
+    if( bHostIsLocal )
+        appSprintf( Status, TEXT("GROUP HOST    THIS XBOX") );
+    else if( bHostPeerFound )
+        appSprintf( Status, TEXT("GROUP HOST    %08X    %s:%i"), GXboxSystemLink.HostId, HostAddr, HostPort );
+    else if( GXboxSystemLink.HostId )
+        appSprintf( Status, TEXT("GROUP HOST    %08X"), GXboxSystemLink.HostId );
+    else
+        appSprintf( Status, TEXT("GROUP HOST    SEARCHING") );
+    XboxMenuText( Canvas, MenuFont, 58, 150, 255, 255, 255, Status );
+
+    appSprintf( Status, TEXT("GROUP MEMBERS  %i"), MachineCount );
+    XboxMenuText( Canvas, MenuFont, 58, 186, 135, 170, 205, Status );
 
     FLOAT Y = 222.0f;
+    if( GXboxSystemLink.Started )
+    {
+        appSprintf( Status, TEXT("%s    THIS XBOX    %08X"), XboxSystemLinkRoleText(GXboxSystemLink.Role), GXboxSystemLink.LocalId );
+        XboxMenuDrawRect( Canvas, 48, Y-5, 578, Y+20, 12, 82, 166, GXboxSystemLink.Role == XSLR_Host ? 0.45f : 0.28f );
+        XboxMenuText( Canvas, MenuFont, 62, Y, 255, 255, 255, Status );
+        Y += 32.0f;
+    }
+
     for( INT i=0; i<GXboxSystemLink.Peers.Num() && i<GXboxSystemLinkMaxPeers; i++ )
     {
         const FXboxSystemLinkPeer& Peer = GXboxSystemLink.Peers(i);
         TCHAR AddrText[32];
         XboxSystemLinkFormatAddress( Peer.Address, AddrText, ARRAY_COUNT(AddrText) );
-        appSprintf( Status, TEXT("%08X    %s:%i    PACKETS %i"), Peer.Id, AddrText, Peer.Port, Peer.Packets );
-        XboxMenuDrawRect( Canvas, 48, Y-5, 578, Y+20, 12, 82, 166, 0.22f );
+        appSprintf( Status, TEXT("%s    %08X    %s:%i    PINGS %i"),
+            XboxSystemLinkRoleText(Peer.Role),
+            Peer.Id,
+            AddrText,
+            Peer.Port,
+            Peer.Packets );
+        XboxMenuDrawRect( Canvas, 48, Y-5, 578, Y+20, 12, 82, 166, Peer.Role == XSLR_Host ? 0.40f : 0.22f );
         XboxMenuText( Canvas, MenuFont, 62, Y, 180, 215, 245, Status );
         Y += 32.0f;
     }
 
     if( GXboxSystemLink.Peers.Num() == 0 )
-        XboxMenuText( Canvas, MenuFont, 62, Y, 135, 170, 205, TEXT("WAITING FOR ANOTHER INSTANCE...") );
+        XboxMenuText( Canvas, MenuFont, 62, Y, 135, 170, 205, TEXT("WAITING FOR OTHER XBOXES") );
 
-    XboxMenuText( Canvas, MenuFont, 58, 402, 135, 170, 205, TEXT("OPEN THIS SCREEN ON BOTH INSTANCES") );
+    if( GXboxSystemLink.Role == XSLR_Host )
+        XboxMenuText( Canvas, MenuFont, 58, 402, 135, 255, 120, TEXT("HOSTING GROUP - WAITING FOR CLIENTS") );
+    else if( GXboxSystemLink.Role == XSLR_Client )
+        XboxMenuText( Canvas, MenuFont, 58, 402, 135, 255, 120, TEXT("JOINED GROUP - WAITING FOR HOST") );
+    else
+        XboxMenuText( Canvas, MenuFont, 58, 402, 135, 170, 205, TEXT("SEARCHING") );
 }
 
 static void XboxMenuDrawComingSoon( UCanvas* Canvas )
@@ -6746,11 +8207,6 @@ void XboxMenuPostRender( UViewport* Viewport, UCanvas* Canvas )
     INT WheelViewportIndex = XboxViewport ? Clamp<INT>( XboxViewportIndex(XboxViewport), 0, 3 ) : 0;
     if( !Viewport || !Canvas )
         return;
-    if( GXboxTournamentLaunchPending )
-    {
-        XboxMenuPumpTournamentLaunch( XboxViewport, Canvas );
-        return;
-    }
     if( !GXboxMenu.Active )
     {
         if( XboxViewport && GXboxWeaponWheelActive[WheelViewportIndex] )
@@ -6759,7 +8215,7 @@ void XboxMenuPostRender( UViewport* Viewport, UCanvas* Canvas )
     }
 
     GXboxMenu.Pulse += 0.04f;
-    XboxSystemLinkTick();
+    XboxSystemLinkTick( XboxViewport );
 
     if( GXboxMenu.Screen == XMS_Pause )
     {
@@ -6779,6 +8235,8 @@ void XboxMenuPostRender( UViewport* Viewport, UCanvas* Canvas )
     else if( GXboxMenu.Screen == XMS_SplitReady )
         XboxMenuDrawSplitReady( Canvas );
     else if( GXboxMenu.Screen == XMS_SplitMapSelect )
+        XboxMenuDrawSplitMapSelect( Canvas );
+    else if( GXboxMenu.Screen == XMS_SystemLinkMapSelect )
         XboxMenuDrawSplitMapSelect( Canvas );
     else if( GXboxMenu.Screen == XMS_PlayerSetup )
         XboxMenuDrawPlayerSetup( XboxViewport, Canvas );
@@ -7069,6 +8527,10 @@ void UXboxViewport::ProcessControllerInput( const XINPUT_GAMEPAD& Pad )
         return;
 
     APlayerPawn* Player = Actor;
+    if( GXboxSplitActive && !bXboxSplitDummy && !XboxViewportEnsureInputInitialized( this, "ProcessControllerInput" ) )
+        return;
+
+    XboxMenuTickPendingFrontendOpen( this );
     INT WheelViewportIndex = Clamp<INT>( XboxViewportIndex(this), 0, 3 );
     const BYTE AnalogThreshold = XINPUT_GAMEPAD_MAX_CROSSTALK; // 30
     UBOOL WhiteNow = Pad.bAnalogButtons[XINPUT_GAMEPAD_WHITE] > AnalogThreshold;
@@ -7098,6 +8560,9 @@ void UXboxViewport::ProcessControllerInput( const XINPUT_GAMEPAD& Pad )
         XboxMenuOpen( this );
         return;
     }
+
+    if( Player && !GXboxMenu.Active )
+        XboxTournamentLogReadyState( this, "poll", 0 );
 
     if( Player && !GXboxMenu.Active )
     {
@@ -7263,11 +8728,14 @@ void UXboxViewport::ProcessControllerInput( const XINPUT_GAMEPAD& Pad )
             : PrevControllerState.Gamepad.bAnalogButtons[XINPUT_GAMEPAD_A] > AnalogThreshold;
         UBOOL DodgeNow = Pad.bAnalogButtons[XINPUT_GAMEPAD_Y] > AnalogThreshold;
         UBOOL DodgePrev = PrevControllerState.Gamepad.bAnalogButtons[XINPUT_GAMEPAD_Y] > AnalogThreshold;
+        UBOOL FireEdge = FireNow && !FirePrev;
+        UBOOL AltFireEdge = AltFireNow && !AltFirePrev;
 
         XboxSendGameplayButton( this, IK_Joy1, FireNow, FirePrev );
         XboxSendGameplayButton( this, IK_Joy2, JumpNow, JumpPrev );
         XboxSendGameplayButton( this, IK_Joy3, AltFireNow, AltFirePrev );
         XboxSendGameplayButton( this, IK_Joy4, DuckNow, DuckPrev );
+        XboxTournamentHandleReadyInput( this, FireEdge, AltFireEdge );
         if( DodgeNow && !DodgePrev )
             XboxTriggerDodge( Player, Pad );
         if( FireNow || AltFireNow )

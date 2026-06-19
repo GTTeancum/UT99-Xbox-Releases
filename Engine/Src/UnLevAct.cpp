@@ -587,6 +587,7 @@ APlayerPawn* ULevel::SpawnPlayActor( UPlayer* Player, ENetRole RemoteRole, const
 	UClass* PlayerClass=NULL;
 	const TCHAR* Str = NULL;
 #if TARGET_XBOX
+	const FLOAT XboxFrontendIntroPhysRate = 0.5f;
 	UBOOL bXboxFrontendIntro =
 	(	(URL.Map.Len() && (appStricmp( *URL.Map, TEXT("CityIntro") ) == 0 || appStricmp( *URL.Map, TEXT("CityIntro.unr") ) == 0))
 	||	(GetLevelInfo()
@@ -662,7 +663,7 @@ APlayerPawn* ULevel::SpawnPlayActor( UPlayer* Player, ENetRole RemoteRole, const
 					Actor->SetCollision( 0, 0, 0 );
 					Actor->Target = IntroPathStart;
 					Actor->setPhysics( PHYS_Interpolating );
-					Actor->PhysRate = 1.0f;
+					Actor->PhysRate = XboxFrontendIntroPhysRate;
 					Actor->PhysAlpha = 0.0f;
 					Actor->bInterpolating = 1;
 				}
@@ -719,7 +720,7 @@ APlayerPawn* ULevel::SpawnPlayActor( UPlayer* Player, ENetRole RemoteRole, const
 		Actor->bCollideWorld = 0;
 		Actor->Target = XboxFrontendPathStart;
 		Actor->setPhysics( PHYS_Interpolating );
-		Actor->PhysRate = 1.0f;
+		Actor->PhysRate = XboxFrontendIntroPhysRate;
 		Actor->PhysAlpha = 0.0f;
 		Actor->bInterpolating = 1;
 		Actor->Velocity = FVector(0,0,0);

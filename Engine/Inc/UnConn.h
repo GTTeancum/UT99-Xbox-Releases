@@ -122,6 +122,9 @@ class ENGINE_API UNetConnection : public UPlayer
 	TArray<UChannel*> OpenChannels;
 	TArray<AActor*> SentTemporaries;
 	TMap<AActor*,UActorChannel*> ActorChannels;
+#if TARGET_XBOX
+	TArray<APlayerPawn*> XboxChildActors;
+#endif
 
 #if DO_ENABLE_NET_TEST
 	// For development.

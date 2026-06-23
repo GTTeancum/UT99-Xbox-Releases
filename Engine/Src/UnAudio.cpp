@@ -522,7 +522,17 @@ void UMusic::Serialize( FArchive& Ar )
 	Ar << FileType;
 	if( Ar.IsLoading() || Ar.IsSaving() )
 	{
+#if TARGET_XBOX
+		UBOOL SavedLazyLoad = GLazyLoad;
+		if( Ar.IsLoading() )
+			GLazyLoad = 1;
 		Ar << Data;
+		GLazyLoad = SavedLazyLoad;
+		if( Ar.IsLoading() )
+			debugf( NAME_Init, TEXT("Xbox: kept UMusic bulk lazy song=%s"), GetName() );
+#else
+		Ar << Data;
+#endif
 		if( Ar.IsLoading() )
 			OriginalSize = Data.Num();
 	}

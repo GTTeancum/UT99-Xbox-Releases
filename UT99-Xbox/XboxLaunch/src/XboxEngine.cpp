@@ -144,6 +144,8 @@ void MainLoop( UEngine* Engine )
 
 	while( GIsRunning && !GIsRequestingExit )
 	{
+		XboxDebugHeartbeat();
+
 		// Calculate delta time
 		DOUBLE NewTime = appSeconds();
 		FLOAT DeltaTime = (FLOAT)(NewTime - OldTime);
@@ -249,14 +251,30 @@ void MainLoop( UEngine* Engine )
 
 				if( CurrentURL != LastSmokeURL || (TickCount % 300) == 0 )
 				{
+					UViewport* LocalViewport = (GE && GE->Client && GE->Client->Viewports.Num() > 0) ? GE->Client->Viewports(0) : NULL;
+					APlayerPawn* LocalActor = LocalViewport ? LocalViewport->Actor : NULL;
+					ULevel* LocalLevel = LocalActor ? LocalActor->GetLevel() : NULL;
+					APlayerReplicationInfo* LocalPRI = LocalActor ? LocalActor->PlayerReplicationInfo : NULL;
 					LastSmokeURL = CurrentURL;
-					GXboxLog.Write( "SMOKE tick=%d url=%s actors=%d pawns=%d players=%d bots=%d availKB=%d heapLiveKB=%u heapPeakKB=%u heapTotalKB=%u largestKB=%u largestTag=%s lastLargeKB=%u lastLargeTag=%s",
+					GXboxLog.Write( "SMOKE tick=%d url=%s actors=%d pawns=%d players=%d bots=%d localVP=0x%08X localActor=0x%08X localClass=%s localLevel=%s localPlayer=0x%08X localPRI=%s localRole=%d/%d ready=%d showMenu=%d waiting=%d spectator=%d availKB=%d heapLiveKB=%u heapPeakKB=%u heapTotalKB=%u largestKB=%u largestTag=%s lastLargeKB=%u lastLargeTag=%s",
 						TickCount,
 						TCHAR_TO_ANSI(*CurrentURL),
 						Level->Actors.Num(),
 						PawnCount,
 						PlayerPawnCount,
 						BotPawnCount,
+						(DWORD)LocalViewport,
+						(DWORD)LocalActor,
+						(LocalActor && LocalActor->GetClass()) ? TCHAR_TO_ANSI(LocalActor->GetClass()->GetName()) : "(none)",
+						(LocalLevel && LocalLevel->URL.Map.Len()) ? TCHAR_TO_ANSI(*LocalLevel->URL.Map) : "(none)",
+						LocalActor ? (DWORD)LocalActor->Player : 0,
+						LocalPRI ? TCHAR_TO_ANSI(*LocalPRI->PlayerName) : "(none)",
+						LocalActor ? LocalActor->Role : -1,
+						LocalActor ? LocalActor->RemoteRole : -1,
+						LocalActor ? LocalActor->bReadyToPlay : 0,
+						LocalActor ? LocalActor->bShowMenu : 0,
+						LocalPRI ? LocalPRI->bWaitingPlayer : 0,
+						LocalPRI ? LocalPRI->bIsSpectator : 0,
 						MemStatus.dwAvailPhys / 1024,
 						(unsigned)(GXboxMallocLiveBytes / 1024),
 						(unsigned)(GXboxMallocPeakBytes / 1024),

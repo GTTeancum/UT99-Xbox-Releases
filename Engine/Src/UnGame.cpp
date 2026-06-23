@@ -1620,7 +1620,18 @@ ULevel* UGameEngine::LoadMap( const FURL& URL, UPendingLevel* Pending, const TMa
 	if( Client )
 	{
 		// Match Viewports to actors.
+#if TARGET_XBOX
+		ULevel* ViewLevel = GLevel->IsServer() ? GLevel : GEntry;
+		if( !ViewLevel )
+		{
+			Error = TEXT("Xbox network client viewport has no Entry holding level");
+			debugf( NAME_Log, TEXT("Xbox: aborting client viewport match because pending network map has no Entry level") );
+			return NULL;
+		}
+		MatchViewportsToActors( Client, ViewLevel, URL );
+#else
 		MatchViewportsToActors( Client, GLevel->IsServer() ? GLevel : GEntry, URL );
+#endif
 
 		// Init brush tracker.
 		if( appStricmp(GLevel->GetOuter()->GetName(),TEXT("Entry"))!=0 )//!!
@@ -2159,8 +2170,34 @@ void UGameEngine::Tick( FLOAT DeltaSeconds )
 		{
 			// Attempt to load the map.
 			FString Error;
+#if TARGET_XBOX
+			if( Client && !GEntry && !GPendingLevel->LonePlayer )
+			{
+				guard(RestoreEntryForPendingClient);
+				debugf( NAME_Log, TEXT("Xbox: restoring Entry holding level for pending network client") );
+				FString EntryError;
+				FURL EntryURL( TEXT("Entry") );
+				EntryURL.AddOption( TEXT("Game=Engine.GameInfo") );
+				EntryURL.AddOption( TEXT("Class=Engine.Spectator") );
+				EntryURL.AddOption( TEXT("Team=255") );
+				if( LoadMap( EntryURL, NULL, NULL, EntryError ) )
+				{
+					Exchange( GLevel, GEntry );
+					if( GEntry )
+						GEntry->GetLevelInfo()->LevelAction = LEVACT_Connecting;
+					XboxMemMark( TEXT("TickPending restored Entry for net client") );
+				}
+				else
+				{
+					Error = EntryError.Len() ? EntryError : TEXT("Xbox failed to restore Entry for network client");
+					debugf( NAME_Log, TEXT("Xbox: failed restoring Entry for pending network client: %s"), *Error );
+				}
+				unguard;
+			}
+#endif
 			guard(AttemptLoadPending);
-			LoadMap( GPendingLevel->URL, GPendingLevel, NULL, Error );
+			if( Error==TEXT("") )
+				LoadMap( GPendingLevel->URL, GPendingLevel, NULL, Error );
 			if( Error!=TEXT("") )
 			{
 				SetProgress( LocalizeError("ConnectionFailed"), *Error, 4.0 );
@@ -2169,7 +2206,10 @@ void UGameEngine::Tick( FLOAT DeltaSeconds )
 			{
 				// Show connecting message, cause precaching to occur.
 				GLevel->GetLevelInfo()->LevelAction = LEVACT_Connecting;
-				GEntry->GetLevelInfo()->LevelAction = LEVACT_Connecting;
+				if( GEntry )
+					GEntry->GetLevelInfo()->LevelAction = LEVACT_Connecting;
+				else
+					debugf( NAME_Log, TEXT("Xbox: pending network connect has no Entry level; using loaded level only") );
 				if( Client )
 					Client->Tick();
 

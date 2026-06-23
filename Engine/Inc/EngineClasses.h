@@ -1437,6 +1437,7 @@ public:
     class APlayerReplicationInfo* PlayerReplicationInfo;
     class ADecal* Shadow;
     DECLARE_FUNCTION(execClientHearSound);
+    DECLARE_FUNCTION(execCheckValidSkinPackage);
     DECLARE_FUNCTION(execStopWaiting);
     DECLARE_FUNCTION(execPickAnyTarget);
     DECLARE_FUNCTION(execPickTarget);
@@ -3180,6 +3181,7 @@ AUTOGENERATE_FUNCTION(APlayerPawn,546,execUpdateURL);
 AUTOGENERATE_FUNCTION(APlayerPawn,544,execResetKeyboard);
 AUTOGENERATE_FUNCTION(APlayerPawn,-1,execClientTravel);
 AUTOGENERATE_FUNCTION(APawn,-1,execClientHearSound);
+AUTOGENERATE_FUNCTION(APawn,-1,execCheckValidSkinPackage);
 AUTOGENERATE_FUNCTION(APawn,-1,execStopWaiting);
 AUTOGENERATE_FUNCTION(APawn,534,execPickAnyTarget);
 AUTOGENERATE_FUNCTION(APawn,531,execPickTarget);

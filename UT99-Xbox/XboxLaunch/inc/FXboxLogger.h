@@ -9,6 +9,12 @@
 #include <stdio.h>
 #include <stdarg.h>
 
+extern "C" void XboxDebugMirrorWriteAnsi( const char* Line );
+extern "C" void XboxDebugMirrorStart();
+extern "C" void XboxDebugMirrorStop();
+extern "C" void XboxDebugSetBootPhase( unsigned int Phase );
+extern "C" void XboxDebugHeartbeat();
+
 class FXboxLogger
 {
     HANDLE FileHandle;
@@ -65,9 +71,6 @@ public:
 
     void Write( const char* Fmt, ... )
     {
-        if( !IsOpen )
-            return;
-
         char Buf[1024];
         va_list Args;
         va_start( Args, Fmt );
@@ -83,14 +86,18 @@ public:
         // A separate FlushFileBuffers() call was redundant and dominated
         // GC time on Xbox (~10 ms per beacon for HDD sync × thousands of
         // beacons during the mark pass).  Trust WRITE_THROUGH and skip it.
-        DWORD Written;
-        WriteFile( FileHandle, Buf, Len+1, &Written, NULL );
+        if( IsOpen && FileHandle != INVALID_HANDLE_VALUE )
+        {
+            DWORD Written;
+            WriteFile( FileHandle, Buf, Len+1, &Written, NULL );
+        }
 
         // Echo to debug output WITHOUT the trailing \n.  CXBX-R adds its own
         // newline for each OutputDebugStringA call, so leaving the \n in Buf
         // produces a blank "DEBUG_PRINT:" line after every log entry.
         Buf[Len] = 0;
         OutputDebugStringA( Buf );
+        XboxDebugMirrorWriteAnsi( Buf );
     }
 
     // Call this from critical points (post-LoadMap, pre-GC, etc.) if you want

@@ -64,6 +64,9 @@ void UNetConnection::Serialize( FArchive& Ar )
 	Ar << PackageMap;
 	for( INT i=0; i<MAX_CHANNELS; i++ )
 		Ar << Channels[i];
+#if TARGET_XBOX
+	Ar << XboxChildActors;
+#endif
 
 	unguard;
 }
@@ -95,6 +98,22 @@ void UNetConnection::Destroy()
 
 	// Set to closed so the channels don't try to send data.
 	State = USOCK_Closed;
+
+#if TARGET_XBOX
+	for( INT ChildIndex=XboxChildActors.Num()-1; ChildIndex>=0; ChildIndex-- )
+	{
+		APlayerPawn* Child = XboxChildActors(ChildIndex);
+		if( Child && !Child->bDeleteMe )
+		{
+			debugf( NAME_Log, TEXT("XSL child destroying actor=%s remote=%s"),
+				Child->GetFullName(), *LowLevelGetRemoteAddress() );
+			Child->Player = NULL;
+			if( Child->GetLevel() )
+				Child->GetLevel()->DestroyActor( Child );
+		}
+	}
+	XboxChildActors.Empty();
+#endif
 
 	// Kill all channels.
 	for( INT i=OpenChannels.Num()-1; i>=0; i-- )

@@ -610,6 +610,11 @@ void ULevel::WelcomePlayer( UNetConnection* Connection, TCHAR* Optional )
 	else
 		Connection->Logf( TEXT("WELCOME LEVEL=%s LONE=%i"), GetOuter()->GetName(), GetLevelInfo()->bLonePlayer );
 	Connection->FlushNet();
+#if TARGET_XBOX
+	debugf( NAME_Log, TEXT("XNET server sent WELCOME remote=%s level=%s"),
+		*Connection->LowLevelGetRemoteAddress(),
+		GetOuter()->GetName() );
+#endif
 
 	unguard;
 }
@@ -645,6 +650,12 @@ void ULevel::NotifyReceivedText( UNetConnection* Connection, const TCHAR* Text )
 			INT RemoteMinVer=219, RemoteVer=219;
 			Parse( Text, TEXT("MINVER="), RemoteMinVer );
 			Parse( Text, TEXT("VER="),    RemoteVer    );
+#if TARGET_XBOX
+			debugf( NAME_Log, TEXT("XNET server received HELLO remote=%s min=%i ver=%i"),
+				*Connection->LowLevelGetRemoteAddress(),
+				RemoteMinVer,
+				RemoteVer );
+#endif
 			if( RemoteVer<ENGINE_MIN_NET_VERSION || RemoteMinVer>ENGINE_VERSION )
 			{
 				Connection->Logf( TEXT("UPGRADE MINVER=%i VER=%i"), ENGINE_MIN_NET_VERSION, ENGINE_VERSION );
@@ -659,6 +670,10 @@ void ULevel::NotifyReceivedText( UNetConnection* Connection, const TCHAR* Text )
 			Connection->Challenge = appCycles();
 			Connection->Logf( TEXT("CHALLENGE VER=%i CHALLENGE=%i STATS=%i"), Connection->NegotiatedVer, Connection->Challenge, Stats );
 			Connection->FlushNet();
+#if TARGET_XBOX
+			debugf( NAME_Log, TEXT("XNET server sent CHALLENGE remote=%s"),
+				*Connection->LowLevelGetRemoteAddress() );
+#endif
 		}
 		else if( ParseCommand(&Text,TEXT("NETSPEED")) )
 		{
@@ -680,6 +695,10 @@ void ULevel::NotifyReceivedText( UNetConnection* Connection, const TCHAR* Text )
 		{
 			// Admit or deny the player here.
 			INT Response=0;
+#if TARGET_XBOX
+			debugf( NAME_Log, TEXT("XNET server received LOGIN remote=%s"),
+				*Connection->LowLevelGetRemoteAddress() );
+#endif
 			if
 			(	!Parse(Text,TEXT("RESPONSE="),Response)
 			||	!Engine->ChallengeResponse(Connection->Challenge)==Response )
@@ -708,8 +727,58 @@ void ULevel::NotifyReceivedText( UNetConnection* Connection, const TCHAR* Text )
 			}
 			WelcomePlayer( Connection );
 		}
+		else if( ParseCommand(&Text,TEXT("XSLJOIN")) )
+		{
+#if TARGET_XBOX
+			INT Slot = -1;
+			TCHAR ChildOptions[1024]=TEXT("");
+			Parse( Text, TEXT("SLOT="), Slot );
+			Parse( Text, TEXT("URL="), ChildOptions, ARRAY_COUNT(ChildOptions) );
+			if( !Connection->Actor || Connection->State!=USOCK_Open )
+			{
+				debugf( NAME_Log, TEXT("XSLJOIN rejected slot=%i remote=%s actor=0x%08X state=%i"),
+					Slot, *Connection->LowLevelGetRemoteAddress(), (DWORD)Connection->Actor, (INT)Connection->State );
+			}
+			else if( Slot < 1 || Slot >= 4 || !ChildOptions[0] )
+			{
+				debugf( NAME_Log, TEXT("XSLJOIN rejected malformed slot=%i url=%s remote=%s"),
+					Slot, ChildOptions, *Connection->LowLevelGetRemoteAddress() );
+			}
+			else
+			{
+				FString ChildRequest = FString::Printf( TEXT("%s%s?XSLOT=%i"), *Connection->RequestURL, ChildOptions, Slot );
+				Connection->PackageMap->Compute();
+				FString Error;
+				debugf( NAME_Log, TEXT("XSLJOIN request slot=%i remote=%s url=%s"),
+					Slot, *Connection->LowLevelGetRemoteAddress(), *ChildRequest );
+				APlayerPawn* Child = SpawnPlayActor( Connection, ROLE_AutonomousProxy, FURL(NULL,*ChildRequest,TRAVEL_Absolute), Error );
+				if( !Child )
+				{
+					debugf( NAME_Log, TEXT("XSLJOIN failed slot=%i error=%s"), Slot, *Error );
+					Connection->Logf( TEXT("XSLJOINFAIL SLOT=%i ERROR=%s"), Slot, *Error );
+					Connection->FlushNet();
+				}
+				else
+				{
+					debugf( NAME_Log, TEXT("XSLJOIN succeeded slot=%i actor=%s pri=%s children=%i"),
+						Slot,
+						Child->GetFullName(),
+						Child->PlayerReplicationInfo ? *Child->PlayerReplicationInfo->PlayerName : TEXT("None"),
+						Connection->XboxChildActors.Num() );
+					Connection->Logf( TEXT("XSLJOINOK SLOT=%i"), Slot );
+					Connection->FlushNet();
+				}
+			}
+#else
+			debugf( NAME_DevNet, TEXT("Ignoring XSLJOIN on non-Xbox build") );
+#endif
+		}
 		else if( ParseCommand(&Text,TEXT("JOIN")) && !Connection->Actor )
 		{
+#if TARGET_XBOX
+			debugf( NAME_Log, TEXT("XNET server received JOIN remote=%s"),
+				*Connection->LowLevelGetRemoteAddress() );
+#endif
 			// Finish computing the package map.
 			Connection->PackageMap->Compute();
 

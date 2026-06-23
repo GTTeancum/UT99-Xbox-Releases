@@ -695,7 +695,23 @@ APlayerPawn* ULevel::SpawnPlayActor( UPlayer* Player, ENetRole RemoteRole, const
 				appErrorf( TEXT("%s"), LocalizeError("LoadPlayerClass") );
 		}
 #endif
+	#if TARGET_XBOX
+	debugf( NAME_Log, TEXT("XSPAWN before Login map=%s net=%i remoteRole=%i class=%s options=%s actors=%i"),
+		*URL.Map,
+		(INT)GetLevelInfo()->NetMode,
+		(INT)RemoteRole,
+		PlayerClass ? PlayerClass->GetName() : TEXT("NULL"),
+		Options,
+		Actors.Num() );
+	#endif
 	Actor = GetLevelInfo()->Game->eventLogin( *URL.Portal, Options, Error, PlayerClass );
+	#if TARGET_XBOX
+	debugf( NAME_Log, TEXT("XSPAWN after Login actor=0x%08X class=%s error=%s actors=%i"),
+		(DWORD)Actor,
+		(Actor && Actor->GetClass()) ? Actor->GetClass()->GetName() : TEXT("NULL"),
+		*Error,
+		Actors.Num() );
+	#endif
 	}
 	if( !Actor )
 	{
@@ -705,14 +721,61 @@ APlayerPawn* ULevel::SpawnPlayActor( UPlayer* Player, ENetRole RemoteRole, const
 	UBOOL AcceptInventory = (SavedActorCount!=Actors.Num());//oldver: Hack, accepts inventory iff actor was spawned.
 
 	// Possess the newly-spawned player.
+	#if TARGET_XBOX
+	const TCHAR* XboxSystemLinkSlotText = URL.GetOption( TEXT("XSLOT="), NULL );
+	INT XboxSystemLinkSlot = XboxSystemLinkSlotText ? appAtoi(XboxSystemLinkSlotText) : -1;
+	UBOOL bXboxSystemLinkChildPlayer =
+	(	Conn
+	&&	Conn->Actor
+	&&	XboxSystemLinkSlot >= 1
+	&&	XboxSystemLinkSlot < 4 );
+	debugf( NAME_Log, TEXT("XSPAWN before SetPlayer actor=0x%08X player=0x%08X pri=0x%08X savedActors=%i nowActors=%i acceptInventory=%i"),
+		(DWORD)Actor,
+		(DWORD)Player,
+		(DWORD)Actor->PlayerReplicationInfo,
+		SavedActorCount,
+		Actors.Num(),
+		AcceptInventory ? 1 : 0 );
+	if( bXboxSystemLinkChildPlayer )
+	{
+		Actor->Player = Player;
+		Conn->XboxChildActors.AddUniqueItem( Actor );
+		Actor->eventPossess();
+		Actor->bAlwaysRelevant = 1;
+		debugf( NAME_Log, TEXT("XSPAWN system-link child possessed slot=%i actor=0x%08X primary=0x%08X children=%i"),
+			XboxSystemLinkSlot,
+			(DWORD)Actor,
+			(DWORD)Conn->Actor,
+			Conn->XboxChildActors.Num() );
+	}
+	else
+	#endif
 	Actor->SetPlayer( Player );
+	#if TARGET_XBOX
+	debugf( NAME_Log, TEXT("XSPAWN after SetPlayer actor=0x%08X player=0x%08X viewportActor=0x%08X"),
+		(DWORD)Actor,
+		(DWORD)Actor->Player,
+		(DWORD)(Player ? Player->Actor : NULL) );
+	#endif
 	Actor->Role       = ROLE_Authority;
 	Actor->RemoteRole = RemoteRole;
 	Actor->ShowFlags  = SHOW_Backdrop | SHOW_Actors | SHOW_PlayerCtrl | SHOW_RealTime;
 	Actor->RendMap	  = REN_DynLight;
 	if( ParseParam(appCmdLine(),TEXT("alladmin")) || !NetDriver )
 		Actor->bAdmin = 1;
+	#if TARGET_XBOX
+	debugf( NAME_Log, TEXT("XSPAWN before TravelPreAccept actor=%s role=%i remoteRole=%i admin=%i"),
+		Actor->GetFullName(),
+		(INT)Actor->Role,
+		(INT)Actor->RemoteRole,
+		Actor->bAdmin ? 1 : 0 );
+	#endif
 	Actor->eventTravelPreAccept();
+	#if TARGET_XBOX
+	debugf( NAME_Log, TEXT("XSPAWN after TravelPreAccept actor=%s state=%s"),
+		Actor->GetFullName(),
+		(Actor->GetStateFrame() && Actor->GetStateFrame()->StateNode) ? Actor->GetStateFrame()->StateNode->GetName() : TEXT("None") );
+	#endif
 #if TARGET_XBOX
 	if( bXboxFrontendIntro && XboxFrontendPathStart && !Actor->ViewTarget )
 	{
@@ -845,11 +908,30 @@ APlayerPawn* ULevel::SpawnPlayActor( UPlayer* Player, ENetRole RemoteRole, const
 	// Call travel-acceptance functions in reverse order to avoid inventory flipping.
 	for( i=Accepted.Num()-1; i>=0; i-- )
 		Accepted(i).Actor->eventTravelPreAccept();
+	#if TARGET_XBOX
+	debugf( NAME_Log, TEXT("XSPAWN before AcceptInventory actor=%s accepted=%i inventory=0x%08X"),
+		Actor->GetFullName(),
+		Accepted.Num(),
+		(DWORD)Actor->Inventory );
+	#endif
 	GetLevelInfo()->Game->eventAcceptInventory( Actor );
 	for( i=Accepted.Num()-1; i>=0; i-- )
 		Accepted(i).Actor->eventTravelPostAccept();
 	Actor->eventTravelPostAccept();
+	#if TARGET_XBOX
+	debugf( NAME_Log, TEXT("XSPAWN before PostLogin actor=%s pri=0x%08X team=%i name=%s"),
+		Actor->GetFullName(),
+		(DWORD)Actor->PlayerReplicationInfo,
+		Actor->PlayerReplicationInfo ? Actor->PlayerReplicationInfo->Team : -1,
+		Actor->PlayerReplicationInfo ? *Actor->PlayerReplicationInfo->PlayerName : TEXT("NULL") );
+	#endif
 	GetLevelInfo()->Game->eventPostLogin( Actor );
+	#if TARGET_XBOX
+	debugf( NAME_Log, TEXT("XSPAWN after PostLogin actor=%s state=%s weapon=0x%08X"),
+		Actor->GetFullName(),
+		(Actor->GetStateFrame() && Actor->GetStateFrame()->StateNode) ? Actor->GetStateFrame()->StateNode->GetName() : TEXT("None"),
+		(DWORD)Actor->Weapon );
+	#endif
 
 	return Actor;
 	unguard;

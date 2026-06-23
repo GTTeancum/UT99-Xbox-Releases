@@ -22,6 +22,49 @@ CORE_API INT GNativeDuplicate=0;
 #define RUNAWAY_LIMIT 10000000
 #define RECURSE_LIMIT 250
 
+#if TARGET_XBOX
+static UBOOL XboxClassIsOrChildNamed( UClass* Class, const TCHAR* Name )
+{
+	for( UClass* It=Class; It; It=It->GetSuperClass() )
+		if( appStricmp( It->GetName(), Name )==0 )
+			return 1;
+	return 0;
+}
+
+static UBOOL XboxShouldSkipTournamentBossRefLoad( FFrame& Stack, const FString& Name )
+{
+	if( appStricmp( *Name, TEXT("Botpack.TBoss") )!=0 )
+		return 0;
+	if( !Stack.Object || !XboxClassIsOrChildNamed( Stack.Object->GetClass(), TEXT("TournamentPlayer") ) )
+		return 0;
+	UFunction* Function = Cast<UFunction>( Stack.Node );
+	if( !Function || !Function->GetOwnerClass()
+	||	appStricmp( Function->GetOwnerClass()->GetName(), TEXT("TournamentPlayer") )!=0 )
+		return 0;
+	// PostBeginPlay runs during real listen-server/player spawn. Skipping this
+	// load there can corrupt the scripted login path; only the client skin
+	// replication cache path is optional enough to suppress.
+	return appStricmp( Function->GetName(), TEXT("ClientReplicateSkins") )==0;
+}
+
+static UBOOL XboxShouldTraceLoginFrame( UObject* Object, UStruct* Node )
+{
+	UFunction* Function = Cast<UFunction>( Node );
+	if( !Object || !Function )
+		return 0;
+	if( appStricmp( Function->GetName(), TEXT("Login") )==0 )
+		return XboxClassIsOrChildNamed( Object->GetClass(), TEXT("DeathMatchPlus") );
+	if( appStricmp( Function->GetName(), TEXT("SetMultiSkin") )==0 )
+		return XboxClassIsOrChildNamed( Object->GetClass(), TEXT("TournamentPlayer") )
+			|| XboxClassIsOrChildNamed( Object->GetClass(), TEXT("Bot") );
+	if( appStricmp( Function->GetName(), TEXT("SetSkinElement") )==0 )
+		return XboxClassIsOrChildNamed( Object->GetClass(), TEXT("Pawn") );
+	if( appStricmp( Function->GetName(), TEXT("ClientSetRotation") )==0 )
+		return XboxClassIsOrChildNamed( Object->GetClass(), TEXT("PlayerPawn") );
+	return 0;
+}
+#endif
+
 #if DO_GUARD
 	static INT Runaway=0;
 	static INT Recurse=0;
@@ -625,8 +668,29 @@ void UObject::execContext( FFrame& Stack, RESULT_DECL )
 	guardSlow(UObject::execContext);
 
 	// Get actor variable.
+#if TARGET_XBOX
+	const UBOOL bXboxTraceLogin = XboxShouldTraceLoginFrame( Stack.Object, Stack.Node );
+	const INT XboxContextOffset = (bXboxTraceLogin && Stack.Node) ? Stack.Code - &Stack.Node->Script(0) - 1 : -1;
+#endif
 	UObject* NewContext=NULL;
 	Stack.Step( this, &NewContext );
+#if TARGET_XBOX
+	if( bXboxTraceLogin )
+	{
+		INT wSkipPeek = *(_WORD*)Stack.Code;
+		BYTE bSizePeek = *(Stack.Code + 2);
+		BYTE bNextPeek = *(Stack.Code + 3);
+		debugf( NAME_Log, TEXT("XCTX func=%s off=%i ctx=0x%08X ctxName=%s skip=%i size=%i next=0x%02X result=0x%08X"),
+			Stack.Node ? Stack.Node->GetFullName() : TEXT("None"),
+			XboxContextOffset,
+			(DWORD)NewContext,
+			NewContext ? NewContext->GetFullName() : TEXT("None"),
+			(INT)wSkipPeek,
+			(INT)bSizePeek,
+			(INT)bNextPeek,
+			(DWORD)Result );
+	}
+#endif
 
 	// Execute or skip the following expression in the actor's context.
 	if( NewContext != NULL )
@@ -3505,7 +3569,36 @@ void UObject::execDynamicLoadObject( FFrame& Stack, RESULT_DECL )
 	P_GET_UBOOL_OPTX(bMayFail,0);
 	P_FINISH;
 
-	*(UObject**)Result = StaticLoadObject( Class, NULL, *Name, NULL, LOAD_NoWarn | (bMayFail?LOAD_Quiet:0), NULL );
+#if TARGET_XBOX
+	const UBOOL bXboxTraceLoad = XboxShouldTraceLoginFrame( Stack.Object, Stack.Node );
+	if( bXboxTraceLoad )
+		debugf( NAME_Log, TEXT("XDYNLOAD begin obj=%s func=%s name=%s class=%s mayFail=%i result=0x%08X"),
+			Stack.Object ? Stack.Object->GetFullName() : TEXT("None"),
+			Stack.Node ? Stack.Node->GetFullName() : TEXT("None"),
+			*Name,
+			Class ? Class->GetFullName() : TEXT("None"),
+			(INT)bMayFail,
+			(DWORD)Result );
+	if( XboxShouldSkipTournamentBossRefLoad( Stack, Name ) )
+	{
+		debugf( NAME_Log, TEXT("Xbox: skipped cache-only TournamentPlayer BossRef dynamic load from %s.%s"),
+			Stack.Object ? Stack.Object->GetClass()->GetName() : TEXT("None"),
+			Stack.Node ? Stack.Node->GetName() : TEXT("None") );
+		*(UObject**)Result = NULL;
+		return;
+	}
+#endif
+
+	UObject* LoadedObject = StaticLoadObject( Class, NULL, *Name, NULL, LOAD_NoWarn | (bMayFail?LOAD_Quiet:0), NULL );
+	*(UObject**)Result = LoadedObject;
+#if TARGET_XBOX
+	if( bXboxTraceLoad )
+		debugf( NAME_Log, TEXT("XDYNLOAD end obj=%s func=%s name=%s loaded=%s"),
+			Stack.Object ? Stack.Object->GetFullName() : TEXT("None"),
+			Stack.Node ? Stack.Node->GetFullName() : TEXT("None"),
+			*Name,
+			LoadedObject ? LoadedObject->GetFullName() : TEXT("None") );
+#endif
 
 	unguardexecSlow;
 }
@@ -3631,6 +3724,21 @@ struct FOutParmRec
 void UObject::CallFunction( FFrame& Stack, RESULT_DECL, UFunction* Function )
 {
 	guardSlow(UObject::CallFunction);
+#if TARGET_XBOX
+	const UBOOL bXboxTraceCall = XboxShouldTraceLoginFrame( Stack.Object, Stack.Node )
+		|| XboxShouldTraceLoginFrame( this, Function );
+	if( bXboxTraceCall )
+		debugf( NAME_Log, TEXT("XCALL enter ctx=%s caller=%s callee=%s callerOff=%i flags=0x%08X native=%i props=%i parms=%i result=0x%08X"),
+			this ? GetFullName() : TEXT("None"),
+			Stack.Node ? Stack.Node->GetFullName() : TEXT("None"),
+			Function ? Function->GetFullName() : TEXT("None"),
+			(Stack.Node && Stack.Code) ? Stack.Code - &Stack.Node->Script(0) : -1,
+			Function ? (INT)Function->FunctionFlags : 0,
+			Function ? Function->iNative : -1,
+			Function ? Function->PropertiesSize : -1,
+			Function ? Function->ParmsSize : -1,
+			(DWORD)Result );
+#endif
 #if DO_GUARD_SLOW
 	DWORD Cycles=0; clock(Cycles);
 #endif
@@ -3665,10 +3773,35 @@ void UObject::CallFunction( FFrame& Stack, RESULT_DECL, UFunction* Function )
 		appMemzero( Frame, Function->PropertiesSize );
 		FFrame NewStack( this, Function, 0, Frame );
 		FOutParmRec Outs[MAX_FUNC_PARMS], *Out = Outs;
+#if TARGET_XBOX
+		INT XboxParamIndex = 0;
+#endif
 		for( UProperty* Property=(UProperty*)Function->Children; *Stack.Code!=EX_EndFunctionParms; Property=(UProperty*)Property->Next )
 		{
+#if TARGET_XBOX
+			if( bXboxTraceCall )
+				debugf( NAME_Log, TEXT("XCALL parm begin ctx=%s callee=%s idx=%i prop=%s propOff=%i callerOff=%i op=0x%02X"),
+					this ? GetFullName() : TEXT("None"),
+					Function ? Function->GetFullName() : TEXT("None"),
+					XboxParamIndex,
+					Property ? Property->GetFullName() : TEXT("None"),
+					Property ? Property->Offset : -1,
+					(Stack.Node && Stack.Code) ? Stack.Code - &Stack.Node->Script(0) : -1,
+					Stack.Code ? (INT)*Stack.Code : -1 );
+#endif
 			GPropAddr = NULL;
 			Stack.Step( Stack.Object, NewStack.Locals + Property->Offset );
+#if TARGET_XBOX
+			if( bXboxTraceCall )
+				debugf( NAME_Log, TEXT("XCALL parm end ctx=%s callee=%s idx=%i prop=%s gprop=%s out=%i"),
+					this ? GetFullName() : TEXT("None"),
+					Function ? Function->GetFullName() : TEXT("None"),
+					XboxParamIndex,
+					Property ? Property->GetFullName() : TEXT("None"),
+					GProperty ? GProperty->GetFullName() : TEXT("None"),
+					((Property->PropertyFlags & CPF_OutParm) && GPropAddr) ? 1 : 0 );
+			XboxParamIndex++;
+#endif
 			if( (Property->PropertyFlags & CPF_OutParm) && GPropAddr )
 			{
 				Out->PropAddr = GPropAddr;
@@ -3695,6 +3828,13 @@ void UObject::CallFunction( FFrame& Stack, RESULT_DECL, UFunction* Function )
 	Function->Cycles += Cycles;
 	Function->Calls++;
 #endif
+#if TARGET_XBOX
+	if( bXboxTraceCall )
+		debugf( NAME_Log, TEXT("XCALL exit ctx=%s caller=%s callee=%s"),
+			this ? GetFullName() : TEXT("None"),
+			Stack.Node ? Stack.Node->GetFullName() : TEXT("None"),
+			Function ? Function->GetFullName() : TEXT("None") );
+#endif
 	unguardSlow;
 }
 
@@ -3705,6 +3845,16 @@ void UObject::CallFunction( FFrame& Stack, RESULT_DECL, UFunction* Function )
 void UObject::ProcessInternal( FFrame& Stack, RESULT_DECL )
 {
 	guardSlow(UObject::ProcessInternal);
+#if TARGET_XBOX
+	const UBOOL bXboxTraceLogin = XboxShouldTraceLoginFrame( Stack.Object, Stack.Node );
+	if( bXboxTraceLogin )
+		debugf( NAME_Log, TEXT("XSCRIPT enter obj=%s func=%s scriptBytes=%i locals=0x%08X result=0x%08X"),
+			Stack.Object ? Stack.Object->GetFullName() : TEXT("None"),
+			Stack.Node ? Stack.Node->GetFullName() : TEXT("None"),
+			Stack.Node ? Stack.Node->Script.Num() : 0,
+			(DWORD)Stack.Locals,
+			(DWORD)Result );
+#endif
 	DWORD SingularFlag = ((UFunction*)Stack.Node)->FunctionFlags & FUNC_Singular;
 	if
 	(	!ProcessRemoteFunction( (UFunction*)Stack.Node, Stack.Locals, NULL )
@@ -3719,7 +3869,23 @@ void UObject::ProcessInternal( FFrame& Stack, RESULT_DECL )
 			Stack.Logf( NAME_Critical, TEXT("Infinite script recursion (%i calls) detected"), RECURSE_LIMIT );
 #endif
 		while( *Stack.Code != EX_Return )
+		{
+#if TARGET_XBOX
+			if( bXboxTraceLogin )
+				debugf( NAME_Log, TEXT("XSCRIPT step func=%s off=%i op=0x%02X"),
+					Stack.Node ? Stack.Node->GetFullName() : TEXT("None"),
+					Stack.Node ? Stack.Code - &Stack.Node->Script(0) : -1,
+					(INT)*Stack.Code );
+#endif
 			Stack.Step( Stack.Object, Buffer );
+		}
+#if TARGET_XBOX
+		if( bXboxTraceLogin )
+			debugf( NAME_Log, TEXT("XSCRIPT return func=%s off=%i op=0x%02X"),
+				Stack.Node ? Stack.Node->GetFullName() : TEXT("None"),
+				Stack.Node ? Stack.Code - &Stack.Node->Script(0) : -1,
+				(INT)*Stack.Code );
+#endif
 		Stack.Code++;
 		Stack.Step( Stack.Object, Result );
 		ObjectFlags &= ~SingularFlag;
@@ -3727,6 +3893,12 @@ void UObject::ProcessInternal( FFrame& Stack, RESULT_DECL )
 		--Recurse;
 #endif
 	}
+#if TARGET_XBOX
+	if( bXboxTraceLogin )
+		debugf( NAME_Log, TEXT("XSCRIPT exit obj=%s func=%s"),
+			Stack.Object ? Stack.Object->GetFullName() : TEXT("None"),
+			Stack.Node ? Stack.Node->GetFullName() : TEXT("None") );
+#endif
 	unguardSlow;
 }
 
@@ -3736,6 +3908,19 @@ void UObject::ProcessInternal( FFrame& Stack, RESULT_DECL )
 void UObject::ProcessEvent( UFunction* Function, void* Parms, void* UnusedResult )
 {
 	guard(UObject::ProcessEvent);
+#if TARGET_XBOX
+	const UBOOL bXboxTraceLogin = XboxShouldTraceLoginFrame( this, Function );
+	if( bXboxTraceLogin )
+		debugf( NAME_Log, TEXT("XPEVENT enter obj=%s func=%s parms=0x%08X parmsSize=%i propsSize=%i retOff=%i flags=0x%08X native=%i"),
+			GetFullName(),
+			Function ? Function->GetFullName() : TEXT("None"),
+			(DWORD)Parms,
+			Function ? Function->ParmsSize : -1,
+			Function ? Function->PropertiesSize : -1,
+			Function ? Function->ReturnValueOffset : -1,
+			Function ? (INT)Function->FunctionFlags : 0,
+			Function ? Function->iNative : -1 );
+#endif
 
 	// Reject.
 	if
@@ -3758,14 +3943,36 @@ void UObject::ProcessEvent( UFunction* Function, void* Parms, void* UnusedResult
 
 	// Call native function or UObject::ProcessInternal.
 	(this->*Function->Func)( NewStack, NewStack.Locals+Function->ReturnValueOffset );
+#if TARGET_XBOX
+	if( bXboxTraceLogin )
+		debugf( NAME_Log, TEXT("XPEVENT after Func obj=%s func=%s"), GetFullName(), Function->GetFullName() );
+#endif
 
 	// Copy everything back.
 	appMemcpy( Parms, NewStack.Locals, Function->ParmsSize );
+#if TARGET_XBOX
+	if( bXboxTraceLogin )
+		debugf( NAME_Log, TEXT("XPEVENT after copyback obj=%s func=%s"), GetFullName(), Function->GetFullName() );
+#endif
 
 	// Destroy local variables except function parameters.!! see also UObject::ScriptConsoleExec
 	for( UProperty* P=Function->ConstructorLink; P; P=P->ConstructorLinkNext )
 		if( P->Offset >= Function->ParmsSize )
+		{
+#if TARGET_XBOX
+			if( bXboxTraceLogin )
+				debugf( NAME_Log, TEXT("XPEVENT destroy local obj=%s func=%s prop=%s off=%i"),
+					GetFullName(),
+					Function->GetFullName(),
+					P->GetName(),
+					P->Offset );
+#endif
 			P->DestroyValue( NewStack.Locals + P->Offset );
+		}
+#if TARGET_XBOX
+	if( bXboxTraceLogin )
+		debugf( NAME_Log, TEXT("XPEVENT after destroy obj=%s func=%s"), GetFullName(), Function->GetFullName() );
+#endif
 
 	// Stop timer.
 	if( --GScriptEntryTag == 0 )

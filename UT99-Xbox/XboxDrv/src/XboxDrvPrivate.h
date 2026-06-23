@@ -25,6 +25,7 @@
 
 // Now safe to pull in our main header (which includes Engine.h etc.)
 #include "XboxDrv.h"
+#include "UnNet.h"
 
 // HDD logger — GXboxLog is defined in XboxLaunch.cpp
 #include "FXboxLogger.h"

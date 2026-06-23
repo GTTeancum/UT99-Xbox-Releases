@@ -55,6 +55,24 @@ DWORD STDCALL ResolveThreadEntry( void* Arg )
 	Initialization.
 ----------------------------------------------------------------------------*/
 
+#if TARGET_XBOX
+extern "C" void XboxDebugMirrorStart();
+
+static INT XboxInitXNetForIpDrv()
+{
+	XNetStartupParams Params;
+	appMemzero( &Params, sizeof(Params) );
+	Params.cfgSizeOfStruct = sizeof(Params);
+	Params.cfgPrivatePoolSizeInPages = 12;
+	Params.cfgSockMaxSockets = 16;
+	Params.cfgSockDefaultRecvBufsizeInK = 16;
+	Params.cfgSockDefaultSendBufsizeInK = 16;
+	Params.cfgKeyRegMax = 8;
+	Params.cfgSecRegMax = 32;
+	return XNetStartup( &Params );
+}
+#endif
+
 UBOOL InitSockets( FString& Error )
 {
 	guard(InitSockets);
@@ -73,11 +91,28 @@ UBOOL InitSockets( FString& Error )
 	if( !Tried )
 	{
 		Tried = 1;
+#if TARGET_XBOX
+		INT XNetCode = XboxInitXNetForIpDrv();
+		if( XNetCode != 0 )
+		{
+			Error = FString::Printf( TEXT("XNetStartup failed (%i)"), XNetCode );
+			return 0;
+		}
+#endif
 		WSADATA WSAData;
-		INT Code = WSAStartup( 0x0101, &WSAData );
+		INT Code = WSAStartup(
+#if TARGET_XBOX
+			MAKEWORD(2,2),
+#else
+			0x0101,
+#endif
+			&WSAData );
 		if( Code==0 )
 		{
 			GInitialized = 1;
+#if TARGET_XBOX
+			XboxDebugMirrorStart();
+#endif
 			debugf
 			(
 				NAME_Init,
@@ -91,6 +126,9 @@ UBOOL InitSockets( FString& Error )
 			TCHAR Error256[256];
 			appSprintf( Error256, TEXT("WSAStartup failed (%s)"), SocketError(Code) );
 			Error = FString::Printf( TEXT("%s"), Error256 );
+#if TARGET_XBOX
+			XNetCleanup();
+#endif
 		}
 	}
 #elif __BSD_SOCKETS__

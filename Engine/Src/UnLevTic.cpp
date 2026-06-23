@@ -669,6 +669,30 @@ INT ULevel::ServerTickClient( UNetConnection* Connection, FLOAT DeltaSeconds )
 		FRotator     Rotation  = InViewer->ViewRotation;
 		InViewer->eventPlayerCalcView( Viewer, Location, Rotation );
 		check(Viewer);
+#if TARGET_XBOX
+		AActor*      XboxChildViewer[4];
+		APlayerPawn* XboxChildInViewer[4];
+		FVector      XboxChildLocation[4];
+		INT          XboxChildViewCount = 0;
+		for( INT XboxChildIndex=0; XboxChildIndex<Connection->XboxChildActors.Num() && XboxChildViewCount<4; XboxChildIndex++ )
+		{
+			APlayerPawn* Child = Connection->XboxChildActors(XboxChildIndex);
+			if( !Child || Child->bDeleteMe || Child->Health <= 0 )
+				continue;
+
+			AActor* ChildViewer = Child;
+			FVector ChildLocation = Child->Location;
+			FRotator ChildRotation = Child->ViewRotation;
+			Child->eventPlayerCalcView( ChildViewer, ChildLocation, ChildRotation );
+			if( !ChildViewer )
+				continue;
+
+			XboxChildViewer[XboxChildViewCount] = ChildViewer;
+			XboxChildInViewer[XboxChildViewCount] = Child;
+			XboxChildLocation[XboxChildViewCount] = ChildLocation;
+			XboxChildViewCount++;
+		}
+#endif
 
 		// Compute ahead-vectors for prediction.
 		FVector Ahead = FVector(0,0,0);
@@ -731,6 +755,19 @@ INT ULevel::ServerTickClient( UNetConnection* Connection, FLOAT DeltaSeconds )
 			UActorChannel* Channel     = PriorityActors[j]->Channel;
 			TraceTime-=appSeconds();
 			UBOOL          CanSee      = ActorCanSee( Actor, InViewer, Viewer, Location );
+#if TARGET_XBOX
+			if( !CanSee && XboxChildViewCount > 0 )
+			{
+				for( INT XboxChildView=0; XboxChildView<XboxChildViewCount; XboxChildView++ )
+				{
+					if( ActorCanSee( Actor, XboxChildInViewer[XboxChildView], XboxChildViewer[XboxChildView], XboxChildLocation[XboxChildView] ) )
+					{
+						CanSee = 1;
+						break;
+					}
+				}
+			}
+#endif
 			TraceTime+=appSeconds();
 			if( CanSee || (Channel && NetDriver->Time-Channel->RelevantTime<NetDriver->RelevantTimeout) )
 			{

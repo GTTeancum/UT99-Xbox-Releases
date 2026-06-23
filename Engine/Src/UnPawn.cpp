@@ -364,6 +364,22 @@ void APawn::execStopWaiting( FFrame& Stack, RESULT_DECL )
 	unguardSlow;
 }
 
+void APawn::execCheckValidSkinPackage( FFrame& Stack, RESULT_DECL )
+{
+	guardSlow(APawn::execCheckValidSkinPackage);
+
+	P_GET_STR(SkinPack);
+	P_GET_STR(MeshName);
+	P_FINISH;
+
+#if TARGET_XBOX
+	debugf( NAME_Log, TEXT("XSKIN CheckValidSkinPackage allow skin=%s mesh=%s"), *SkinPack, *MeshName );
+#endif
+	*(DWORD*)Result = 1;
+
+	unguardSlow;
+}
+
 /* CanSee()
 returns true if LineOfSightto object and it is within creature's 
 peripheral vision

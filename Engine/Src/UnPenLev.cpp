@@ -107,6 +107,9 @@ void UNetPendingLevel::NotifyReceivedText( UNetConnection* Connection, const TCH
 	}
 	else if( ParseCommand(&Text,TEXT("FAILURE")) )
 	{
+#if TARGET_XBOX
+		debugf( NAME_Log, TEXT("XNET pending received FAILURE") );
+#endif
 		// Report problem to user.
 		Engine->SetProgress( TEXT("Rejected By Server"), Text, 10.0 );
 	}
@@ -144,6 +147,9 @@ void UNetPendingLevel::NotifyReceivedText( UNetConnection* Connection, const TCH
 	}
 	else if( ParseCommand( &Text, TEXT("CHALLENGE") ) )
 	{
+#if TARGET_XBOX
+		debugf( NAME_Log, TEXT("XNET pending received CHALLENGE") );
+#endif
 		// Challenged by server.
 		INT RemoteStats = 0, i=0;
 		Parse( Text, TEXT("VER="), Connection->NegotiatedVer );
@@ -192,6 +198,11 @@ void UNetPendingLevel::NotifyReceivedText( UNetConnection* Connection, const TCH
 		Parse( Text, TEXT("LEVEL="), URL.Map );
 		ParseUBOOL( Text, TEXT("LONE="), LonePlayer );
 		Parse( Text, TEXT("CHALLENGE="), Connection->Challenge );
+#if TARGET_XBOX
+		debugf( NAME_Log, TEXT("XNET pending received WELCOME level=%s lone=%i"),
+			*URL.Map,
+			LonePlayer ? 1 : 0 );
+#endif
 
 		// Make sure all packages we need are downloadable.
 		for( INT i=0; i<Connection->PackageMap->List.Num(); i++ )

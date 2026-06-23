@@ -6,12 +6,17 @@ class FFeedbackContextXbox : public FFeedbackContext
 public:
     void Serialize( const TCHAR* V, EName Event )
     {
+        if( Event==NAME_ScriptWarning
+        &&  GetFileAttributesA( "D:\\XboxSystemLinkSmoke.ini" ) != 0xFFFFFFFF
+        &&  ( appStrstr(V,TEXT("ChallengeHUD")) || appStrstr(V,TEXT("TournamentScoreBoard")) )
+        &&  appStrstr(V,TEXT("Accessed None")) )
+            return;
+
         const char* Ansi = (const char*)appToAnsi(V);
         // One OutputDebugStringA call per logical line.  GXboxLog.Write below
         // already echoes the line with a trailing newline via its own
         // OutputDebugStringA, so we don't need a separate "\n" call here —
         // that produced empty "DEBUG_PRINT:" lines in CXBX-R's console.
-        OutputDebugStringA( Ansi );
         GXboxLog.Write( "LOG: %s", Ansi );
     }
     UBOOL YesNof( const TCHAR* Fmt, ... )

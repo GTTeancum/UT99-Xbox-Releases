@@ -475,8 +475,10 @@ def build_launch(vcproj, config_name, build_root, built_libs):
     ]
 
     rsp = os.path.join(obj_dir, "link.rsp")
+    map_path = out_exe.replace(".exe", ".map")
     with open(rsp, "w") as f:
         f.write('/OUT:"{}"\n'.format(out_exe))
+        f.write('/MAP:"{}"\n'.format(map_path))
         # 5558 lib path first (full retail d3d8.lib lives here), 5849 as
         # fallback for libs 5558 doesn't ship (s3tc.lib in particular).
         f.write('/LIBPATH:"{}"\n'.format(os.path.join(XDK_DIR, "xbox", "lib")))
@@ -554,6 +556,10 @@ def copy_runtime_assets(build_root):
             if os.path.isfile(src):
                 shutil.copy2(src, dst)
         print("Copied MusicXbox to " + music_dst)
+
+    stale_debug_udp = os.path.join(build_root, "XboxDebugUDP.ini")
+    if os.path.isfile(stale_debug_udp):
+        os.remove(stale_debug_udp)
 
     cityintro = os.path.join(build_root, "Maps", "CityIntro.unr")
     if os.path.isfile(cityintro):

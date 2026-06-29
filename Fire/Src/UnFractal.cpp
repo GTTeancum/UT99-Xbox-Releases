@@ -4129,9 +4129,9 @@ void UFireTexture::PostLoad()
 	Super::PostLoad();
 	if( bXboxVerboseFireLayoutLog )
 		debugf( NAME_Init, TEXT("[FireBoot] %s: post Super::PostLoad()"), GetName() );
-	PolyFlagsRef() &= ~PF_Masked;
+	bMasked = 0;
 	if( bXboxVerboseFireLayoutLog )
-		debugf( NAME_Init, TEXT("[FireBoot] %s: PolyFlags cleared"), GetName() );
+		debugf( NAME_Init, TEXT("[FireBoot] %s: masked flag cleared"), GetName() );
 
 	// Make sure the texture has its _own_ copy of the palette.
 #if COPYPALETTE
@@ -4158,7 +4158,7 @@ void UFireTexture::PostLoad()
 	// Expand/shrink the dynamic array to become
 	// exactly SparksLimit elements.
 	// Acts both at load time and edit time.
-	
+
 	if( Sparks.Num() != SparksLimit )
 	{
 		// Make sure not TOO big...

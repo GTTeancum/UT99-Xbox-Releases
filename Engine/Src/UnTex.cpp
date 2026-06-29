@@ -106,6 +106,12 @@ void UTexture::ClearAllPolyFlags()
 		GTexturePolyFlagsPtr->Empty();
 }
 
+static void ClearTexturePolyFlags( UTexture* Texture )
+{
+	if( GTexturePolyFlagsPtr )
+		GTexturePolyFlagsPtr->Remove( Texture );
+}
+
 // Sub-structs used as field types throughout (StructProperty contents).
 typedef char _check_FVector_size  [(sizeof(FVector)  == 12) ? 1 : -1];
 typedef char _check_FRotator_size [(sizeof(FRotator) == 12) ? 1 : -1];
@@ -483,6 +489,7 @@ void UTexture::PostLoad()
 void UTexture::Destroy()
 {
 	guard(UTexture::Destroy);
+	ClearTexturePolyFlags( this );
 	Super::Destroy();
 	unguard;
 }

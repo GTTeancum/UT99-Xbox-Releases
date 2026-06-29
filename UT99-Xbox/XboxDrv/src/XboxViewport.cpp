@@ -9,6 +9,7 @@ extern "C" void  XboxRenderEndMenuMeshSlot( FSceneNode* Frame );
 extern "C" void  XboxRenderPrepareMenuText( FSceneNode* Frame, const char* Label );
 extern "C" void  XboxRenderFinishMenuText( FSceneNode* Frame );
 extern "C" void  XboxRenderSetPendingViewRegion( INT X, INT Y, INT W, INT H );
+extern "C" void  XboxRenderClearRegion( URenderDevice* RenderDevice, INT X, INT Y, INT W, INT H );
 extern "C" void  XboxRenderReleaseMenuTexture( const char* Name );
 extern "C" void  XboxRenderReleaseMenuTextures();
 extern "C" volatile LONG GXboxAudioToneSmokeState;
@@ -540,6 +541,8 @@ enum EXboxSystemLinkPhase
 
 static UBOOL GXboxSplitPending = 0;
 static UBOOL GXboxSplitActive = 0;
+static INT   GXboxSplitActiveMask = 1;
+static INT   GXboxSplitActivePlayerCount = 1;
 static INT   GXboxSplitRenderViewport = 0;
 static INT   GXboxSplitRenderViewportCount = 1;
 static FLOAT GXboxSplitDummyDeathTime[4] = { -1.0f, -1.0f, -1.0f, -1.0f };
@@ -1141,6 +1144,8 @@ static void XboxSplitResetRuntime( UXboxClient* Client, const char* Reason )
     GXboxSplitPending = 0;
     GXboxSplitActive = 0;
     GXboxSplitUseReadySlots = 0;
+    GXboxSplitActiveMask = 1;
+    GXboxSplitActivePlayerCount = 1;
     GXboxSplitRenderViewport = 0;
     GXboxSplitRenderViewportCount = 1;
     for( INT i=0; i<4; i++ )
@@ -1211,15 +1216,150 @@ static void XboxSplitSmokeMaybeQueue( UXboxClient* Client )
     Client->Engine->SetClientTravel( Client->Viewports(0), const_cast<TCHAR*>(URL), 0, TRAVEL_Absolute );
 }
 
+static INT XboxSplitCountActiveBits( INT Mask )
+{
+    INT Count = 0;
+    for( INT i=0; i<4; i++ )
+        if( Mask & (1 << i) )
+            Count++;
+    return Count;
+}
+
+static INT XboxSplitFirstActiveSlot()
+{
+    for( INT i=0; i<4; i++ )
+        if( GXboxSplitActiveMask & (1 << i) )
+            return i;
+    return 0;
+}
+
+static INT XboxSplitCurrentActiveMask()
+{
+    if( XboxSplitSmokeInputProofEnabled() )
+        return 0x0F;
+
+    INT Mask = 0;
+    if( GXboxSplitUseReadySlots )
+    {
+        XboxSplitReadyEnsure();
+        for( INT i=0; i<4; i++ )
+            if( GXboxSplitReadySlots[i].Joined )
+                Mask |= (1 << i);
+    }
+    else
+    {
+        DWORD DeviceMask = XGetDevices( XDEVICE_TYPE_GAMEPAD );
+        Mask = 1;
+        for( INT i=1; i<4; i++ )
+            if( DeviceMask & (1 << i) )
+                Mask |= (1 << i);
+    }
+
+    if( !Mask )
+        Mask = 1;
+    return Mask & 0x0F;
+}
+
+static INT XboxSplitActiveOrderForSlot( INT Slot )
+{
+    INT Order = 0;
+    for( INT i=0; i<Slot && i<4; i++ )
+        if( GXboxSplitActiveMask & (1 << i) )
+            Order++;
+    return Order;
+}
+
+static void XboxSplitSetDisabledViewRegion( UXboxViewport* VP )
+{
+    if( !VP )
+        return;
+
+    VP->ViewX = XBOX_SCREEN_WIDTH / 2;
+    VP->ViewY = XBOX_SCREEN_HEIGHT / 2;
+    VP->SizeX = VP->ViewWidth = XBOX_SCREEN_WIDTH / 2;
+    VP->SizeY = VP->ViewHeight = XBOX_SCREEN_HEIGHT / 2;
+}
+
+static void XboxSplitApplyActiveViewRegion( UXboxViewport* VP, INT Slot )
+{
+    if( !VP )
+        return;
+
+    INT Count = Clamp<INT>( GXboxSplitActivePlayerCount, 1, 4 );
+    INT Order = Clamp<INT>( XboxSplitActiveOrderForSlot( Slot ), 0, Count - 1 );
+    const INT HalfW = XBOX_SCREEN_WIDTH / 2;
+    const INT HalfH = XBOX_SCREEN_HEIGHT / 2;
+
+    if( Count <= 1 )
+    {
+        VP->ViewX = 0;
+        VP->ViewY = 0;
+        VP->SizeX = VP->ViewWidth = XBOX_SCREEN_WIDTH;
+        VP->SizeY = VP->ViewHeight = XBOX_SCREEN_HEIGHT;
+    }
+    else if( Count == 2 )
+    {
+        VP->ViewX = 0;
+        VP->ViewY = Order ? HalfH : 0;
+        VP->SizeX = VP->ViewWidth = XBOX_SCREEN_WIDTH;
+        VP->SizeY = VP->ViewHeight = HalfH;
+    }
+    else
+    {
+        VP->ViewX = (Order & 1) ? HalfW : 0;
+        VP->ViewY = (Order & 2) ? HalfH : 0;
+        VP->SizeX = VP->ViewWidth = HalfW;
+        VP->SizeY = VP->ViewHeight = HalfH;
+    }
+}
+
 extern "C" void XboxSplitBeginRenderFrame( INT ViewportCount )
 {
     GXboxSplitRenderViewport = 0;
-    GXboxSplitRenderViewportCount = Max<INT>( ViewportCount, 1 );
+    GXboxSplitRenderViewportCount = GXboxSplitActive
+        ? Max<INT>( GXboxSplitActivePlayerCount, 1 )
+        : Max<INT>( ViewportCount, 1 );
 }
 
 extern "C" void XboxSplitSetRenderViewport( INT ViewportIndex )
 {
     GXboxSplitRenderViewport = ViewportIndex;
+}
+
+extern "C" UBOOL XboxSplitShouldRenderViewport( UViewport* Viewport, INT ViewportIndex )
+{
+    if( !GXboxSplitActive )
+        return 1;
+
+    UXboxViewport* XboxViewport = Cast<UXboxViewport>( Viewport );
+    if( !XboxViewport || XboxViewport->bXboxSplitDummy )
+        return 0;
+
+    return (GXboxSplitActiveMask & (1 << Clamp<INT>(ViewportIndex,0,3))) ? 1 : 0;
+}
+
+extern "C" UBOOL XboxViewportShouldUpdateAudio( UViewport* Viewport )
+{
+    if( !GXboxSplitActive )
+        return 1;
+
+    UXboxViewport* XboxViewport = Cast<UXboxViewport>( Viewport );
+    if( !XboxViewport || XboxViewport->bXboxSplitDummy )
+        return 0;
+
+    return XboxViewportIndex( XboxViewport ) == XboxSplitFirstActiveSlot();
+}
+
+extern "C" void XboxSplitClearUnusedRenderRegions( UClient* Client )
+{
+    if( !GXboxSplitActive || GXboxSplitActivePlayerCount != 3 || !Client || Client->Viewports.Num() <= 0 )
+        return;
+
+    UXboxViewport* Primary = Cast<UXboxViewport>( Client->Viewports(0) );
+    if( !Primary || !Primary->RenDev )
+        return;
+
+    XboxRenderClearRegion( Primary->RenDev, XBOX_SCREEN_WIDTH / 2, XBOX_SCREEN_HEIGHT / 2, XBOX_SCREEN_WIDTH / 2, XBOX_SCREEN_HEIGHT / 2 );
 }
 
 extern "C" UBOOL XboxSplitShouldClearRenderLock()
@@ -1354,8 +1494,10 @@ static void XboxSplitConfigureViewports( UXboxClient* Client )
     }
 
     DWORD DeviceMask = XGetDevices( XDEVICE_TYPE_GAMEPAD );
-    const INT HalfW = XBOX_SCREEN_WIDTH / 2;
-    const INT HalfH = XBOX_SCREEN_HEIGHT / 2;
+    GXboxSplitActiveMask = XboxSplitCurrentActiveMask();
+    GXboxSplitActivePlayerCount = Clamp<INT>( XboxSplitCountActiveBits( GXboxSplitActiveMask ), 1, 4 );
+    GXboxSplitRenderViewportCount = GXboxSplitActivePlayerCount;
+
     for( INT i=0; i<Client->Viewports.Num() && i<4; i++ )
     {
         UXboxViewport* VP = Cast<UXboxViewport>( Client->Viewports(i) );
@@ -1371,25 +1513,27 @@ static void XboxSplitConfigureViewports( UXboxClient* Client )
         appMemzero( &VP->ControllerState,     sizeof(VP->ControllerState)     );
         appMemzero( &VP->PrevControllerState, sizeof(VP->PrevControllerState) );
         VP->RenDev = Primary->RenDev;
-        VP->SizeX = VP->ViewWidth = HalfW;
-        VP->SizeY = VP->ViewHeight = HalfH;
-        VP->ViewX = (i & 1) ? HalfW : 0;
-        VP->ViewY = (i & 2) ? HalfH : 0;
         VP->ColorBytes = Primary->ColorBytes ? Primary->ColorBytes : 4;
         XboxViewportEnsureInputInitialized( VP, "SplitConfigure" );
-        if( GXboxSplitUseReadySlots )
-            VP->bXboxSplitDummy = !GXboxSplitReadySlots[i].Joined;
+
+        UBOOL bActiveSlot = (GXboxSplitActiveMask & (1 << i)) ? 1 : 0;
+        VP->bXboxSplitDummy = !bActiveSlot;
+        if( bActiveSlot )
+            XboxSplitApplyActiveViewRegion( VP, i );
         else
-            VP->bXboxSplitDummy = (i > 0) && !(DeviceMask & (1 << i));
-        GXboxLog.Write( "XSPLIT viewport=%d controllerPort=%d devicePresent=%d joined=%d dummy=%d",
+            XboxSplitSetDisabledViewRegion( VP );
+
+        GXboxLog.Write( "XSPLIT viewport=%d controllerPort=%d devicePresent=%d joined=%d dummy=%d region=%d,%d %dx%d",
             i, VP->ControllerPort, (DeviceMask & (1 << i)) ? 1 : 0,
             GXboxSplitUseReadySlots ? (GXboxSplitReadySlots[i].Joined ? 1 : 0) : -1,
-            VP->bXboxSplitDummy ? 1 : 0 );
+            VP->bXboxSplitDummy ? 1 : 0,
+            VP->ViewX, VP->ViewY, VP->ViewWidth, VP->ViewHeight );
     }
 
     for( INT i=0; i<4; i++ )
         GXboxSplitDummyDeathTime[i] = -1.0f;
-    GXboxLog.Write( "XSPLIT configured viewports=%d layout=2x2", Client->Viewports.Num() );
+    GXboxLog.Write( "XSPLIT configured viewports=%d activeMask=0x%X activePlayers=%d",
+        Client->Viewports.Num(), GXboxSplitActiveMask, GXboxSplitActivePlayerCount );
 }
 
 static void XboxSplitSuppressBots( ULevel* Level )
@@ -1677,6 +1821,11 @@ extern "C" void XboxSplitTryActivate( UClient* InClient )
         UXboxViewport* VP = Cast<UXboxViewport>( Client->Viewports(i) );
         if( !VP )
             continue;
+        if( VP->bXboxSplitDummy )
+        {
+            GXboxLog.Write( "XSPLIT skip inactive viewport=%d activeMask=0x%X", i, GXboxSplitActiveMask );
+            continue;
+        }
 
         FString Error;
         TCHAR SlotURL[512];
@@ -2002,9 +2151,11 @@ extern "C" void XboxSplitTickDummies( UClient* InClient )
             continue;
         }
 
-        UBOOL bShouldBeDummy = GXboxSplitUseReadySlots && XboxSystemLinkFourPlayerStressEnabled()
-            ? !GXboxSplitReadySlots[i].Joined
-            : !(DeviceMask & (1 << i));
+        UBOOL bShouldBeDummy = XboxSplitSmokeInputProofEnabled()
+            ? 0
+            : ( GXboxSplitUseReadySlots
+                ? !GXboxSplitReadySlots[i].Joined
+                : !(DeviceMask & (1 << i)) );
         if( CurrentLevel && CurrentLevel->GetLevelInfo() && CurrentLevel->GetLevelInfo()->NetMode == NM_Client && GXboxSplitReadySlots[i].Joined )
             bShouldBeDummy = ((GXboxSystemLinkChildBoundMask & (1 << i)) == 0);
         if( XVP->bXboxSplitDummy != bShouldBeDummy )

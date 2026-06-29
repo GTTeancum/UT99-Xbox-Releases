@@ -5,6 +5,8 @@ extern "C" void XboxSplitBeginRenderFrame( INT ViewportCount );
 extern "C" void XboxSplitSetRenderViewport( INT ViewportIndex );
 extern "C" void XboxSplitTryActivate( UClient* Client );
 extern "C" void XboxSplitTickDummies( UClient* Client );
+extern "C" UBOOL XboxSplitShouldRenderViewport( UViewport* Viewport, INT ViewportIndex );
+extern "C" void XboxSplitClearUnusedRenderRegions( UClient* Client );
 
 void UXboxClient::StaticConstructor()
 {
@@ -96,6 +98,21 @@ void UXboxClient::Tick()
     UBOOL bSplit = XboxSplitIsActive();
     XboxSplitTickDummies( this );
     XboxSplitBeginRenderFrame( Viewports.Num() );
+    if( bSplit )
+        XboxSplitClearUnusedRenderRegions( this );
+
+    INT LastRenderViewport = Viewports.Num() - 1;
+    if( bSplit )
+    {
+        LastRenderViewport = -1;
+        for( INT i=0; i<Viewports.Num(); i++ )
+            if( XboxSplitShouldRenderViewport( Viewports(i), i ) )
+                LastRenderViewport = i;
+    }
+
+    DOUBLE SplitDrawStart = bSplit ? appSeconds() : 0.0;
+    INT SplitDrawn = 0;
+    INT SplitSkipped = 0;
 
     for( INT i=0; i<Viewports.Num(); i++ )
     {
@@ -109,6 +126,14 @@ void UXboxClient::Tick()
                 VP->PollController();
             if( bBoundaryTick )
                 GXboxLog.Write( "XCLIENT tick=%d vp=%d draw-begin", ClientTickCount, i );
+            if( bSplit && !XboxSplitShouldRenderViewport( VP, i ) )
+            {
+                SplitSkipped++;
+                if( bBoundaryTick )
+                    GXboxLog.Write( "XCLIENT tick=%d vp=%d draw-skip dummy=%d",
+                        ClientTickCount, i, VP->bXboxSplitDummy ? 1 : 0 );
+                continue;
+            }
             // Draw the viewport — this is what triggers rendering each frame.
             // On Windows, WinClient::Tick() calls Viewport->Repaint(1) which
             // calls Engine->Draw(). We call Draw directly here.
@@ -120,9 +145,23 @@ void UXboxClient::Tick()
                 bFirstDraw = 0;
             }
             XboxSplitSetRenderViewport( i );
-            Engine->Draw( VP, (!bSplit || i == Viewports.Num()-1) ? 1 : 0 );
+            Engine->Draw( VP, (!bSplit || i == LastRenderViewport) ? 1 : 0 );
+            if( bSplit )
+                SplitDrawn++;
             if( bBoundaryTick )
                 GXboxLog.Write( "XCLIENT tick=%d vp=%d draw-end", ClientTickCount, i );
+        }
+    }
+    if( bSplit )
+    {
+        static DOUBLE LastSplitPerfLogSeconds = 0.0;
+        DOUBLE NowSeconds = appSeconds();
+        if( LastSplitPerfLogSeconds == 0.0 || NowSeconds - LastSplitPerfLogSeconds >= 2.0 )
+        {
+            GXboxLog.Write( "XSPLIT PERF viewports=%d drawn=%d skipped=%d last=%d drawMS=%.2f",
+                Viewports.Num(), SplitDrawn, SplitSkipped, LastRenderViewport,
+                (FLOAT)((NowSeconds - SplitDrawStart) * 1000.0) );
+            LastSplitPerfLogSeconds = NowSeconds;
         }
     }
     if( bBoundaryTick )

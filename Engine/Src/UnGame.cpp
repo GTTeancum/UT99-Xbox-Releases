@@ -20,7 +20,9 @@ IMPLEMENT_CLASS(UGameEngine);
 extern void XboxMenuPostRender( UViewport* Viewport, UCanvas* Canvas );
 extern "C" void XboxViewportApplyViewRegion( UViewport* Viewport, FSceneNode* Frame );
 extern "C" UBOOL XboxViewportShouldPostRenderPlayer( UViewport* Viewport );
+extern "C" UBOOL XboxViewportShouldUpdateAudio( UViewport* Viewport );
 extern "C" void XboxMenuPreClientTravelCleanup();
+extern "C" void XboxRenderDrawMenuRect( FSceneNode* Frame, FLOAT X1, FLOAT Y1, FLOAT X2, FLOAT Y2, BYTE R, BYTE G, BYTE B, BYTE A );
 extern DWORD GXboxMallocLiveBytes;
 extern DWORD GXboxMallocPeakBytes;
 extern DWORD GXboxMallocTotalBytes;
@@ -28,6 +30,8 @@ extern DWORD GXboxMallocLargestBytes;
 extern DWORD GXboxMallocLastLargeBytes;
 extern char  GXboxMallocLargestTag[64];
 extern char  GXboxMallocLastLargeTag[64];
+static UBOOL GXboxShowLoadActivity = 0;
+static INT GXboxLoadActivityStep = 0;
 
 static void XboxMemMark( const TCHAR* Label )
 {
@@ -244,6 +248,108 @@ static UBOOL XboxIsCityIntroURL( const FURL& URL )
 	return URL.Map.Len()
 	&&	(	appStricmp( *URL.Map, TEXT("CityIntro") ) == 0
 		||	appStricmp( *URL.Map, TEXT("CityIntro.unr") ) == 0 );
+}
+
+static UBOOL XboxIsCityIntroLevel( ULevel* Level )
+{
+	return Level
+	&&	(	XboxIsCityIntroURL( Level->URL )
+		||	(	Level->GetLevelInfo()
+			&&	Level->GetLevelInfo()->Game
+			&&	Level->GetLevelInfo()->Game->GetClass()
+			&&	appStricmp( Level->GetLevelInfo()->Game->GetClass()->GetName(), TEXT("UTIntro") ) == 0 ) );
+}
+
+static UBOOL XboxIsCityIntroTravelString( const FString& URL )
+{
+	if( URL==TEXT("?RESTART") )
+		return 1;
+	FURL Parsed( NULL, *URL, TRAVEL_Relative );
+	return XboxIsCityIntroURL( Parsed );
+}
+
+static AInterpolationPoint* XboxFindCityIntroPathStart( ULevel* Level )
+{
+	AInterpolationPoint* IntroPathStart = NULL;
+	if( !Level )
+		return NULL;
+	for( INT PathIndex=0; PathIndex<Level->Actors.Num(); PathIndex++ )
+	{
+		AInterpolationPoint* PathActor = Cast<AInterpolationPoint>( Level->Actors(PathIndex) );
+		if( PathActor && PathActor->Position == 0 && (PathActor->Tag == FName(TEXT("Path")) || !IntroPathStart) )
+			IntroPathStart = PathActor;
+	}
+	return IntroPathStart;
+}
+
+static UBOOL XboxRestartCityIntroFlyby( ULevel* Level, UViewport* Viewport )
+{
+	guard(XboxRestartCityIntroFlyby);
+	if( !XboxIsCityIntroLevel( Level ) || !Viewport || !Viewport->Actor )
+		return 0;
+
+	AInterpolationPoint* IntroPathStart = XboxFindCityIntroPathStart( Level );
+	if( !IntroPathStart )
+	{
+		debugf( NAME_Warning, TEXT("Xbox: CityIntro flythrough rewind failed; no interpolation start") );
+		return 0;
+	}
+
+	AActor* FlyActor = Viewport->Actor;
+	if( Viewport->Actor->ViewTarget && (Viewport->Actor->ViewTarget->bInterpolating || Cast<AInterpolationPoint>(Viewport->Actor->ViewTarget->Target)) )
+		FlyActor = Viewport->Actor->ViewTarget;
+
+	FCheckResult Hit;
+	FlyActor->GetLevel()->MoveActor( FlyActor, IntroPathStart->Location - FlyActor->Location, IntroPathStart->Rotation, Hit );
+	FlyActor->Target = IntroPathStart;
+	FlyActor->PhysRate = 0.5f;
+	FlyActor->PhysAlpha = 0.0f;
+	FlyActor->bInterpolating = 1;
+	FlyActor->setPhysics( PHYS_Interpolating );
+	if( FlyActor->IsA(APawn::StaticClass()) )
+		((APawn*)FlyActor)->ViewRotation = IntroPathStart->Rotation;
+	Level->GetLevelInfo()->NextURL = TEXT("");
+	Level->GetLevelInfo()->NextSwitchCountdown = 0.0f;
+	debugf( NAME_Init, TEXT("Xbox: CityIntro flythrough rewound without reload actor=%s path=%s"), FlyActor->GetName(), IntroPathStart->GetName() );
+	return 1;
+	unguard;
+}
+
+static void XboxSetLoadActivity( UBOOL bShow )
+{
+	GXboxShowLoadActivity = bShow;
+	if( bShow )
+		GXboxLoadActivityStep = (GXboxLoadActivityStep + 1) & 7;
+}
+
+static void XboxDrawLoadingActivity( UViewport* Viewport )
+{
+	guard(XboxDrawLoadingActivity);
+	if( !GXboxShowLoadActivity || !Viewport || !Viewport->Canvas || !Viewport->Canvas->Frame )
+		return;
+
+	FSceneNode* Frame = Viewport->Canvas->Frame;
+	FLOAT W = Viewport->Canvas->ClipX;
+	FLOAT H = Viewport->Canvas->ClipY;
+	FLOAT CX = W * 0.5f;
+	FLOAT CY = H - 28.0f;
+	static const FLOAT Offsets[8][2] =
+	{
+		{  0.0f,-12.0f }, {  8.0f, -8.0f }, { 12.0f,  0.0f }, {  8.0f,  8.0f },
+		{  0.0f, 12.0f }, { -8.0f,  8.0f }, {-12.0f,  0.0f }, { -8.0f, -8.0f }
+	};
+	for( INT i=0; i<8; i++ )
+	{
+		INT Age = (i - GXboxLoadActivityStep + 8) & 7;
+		BYTE A = (BYTE)(70 + (7 - Age) * 22);
+		BYTE R = (BYTE)(18 + (7 - Age) * 4);
+		BYTE G = (BYTE)(80 + (7 - Age) * 18);
+		BYTE B = (BYTE)(135 + (7 - Age) * 14);
+		FLOAT X = CX + Offsets[i][0];
+		FLOAT Y = CY + Offsets[i][1];
+		XboxRenderDrawMenuRect( Frame, X - 3.0f, Y - 3.0f, X + 3.0f, Y + 3.0f, R, G, B, A );
+	}
+	unguard;
 }
 
 static void XboxStartFrontendMusic( UAudioSubsystem* Audio, const TCHAR* Tag )
@@ -932,6 +1038,17 @@ UBOOL UGameEngine::Browse( FURL URL, const TMap<FString,FString>* TravelInfo, FS
 	// Crack the URL.
 	debugf( TEXT("Browse: %s"), *URL.String() );
 
+#if TARGET_XBOX
+	if( GLevel && XboxIsCityIntroLevel( GLevel ) && XboxIsCityIntroURL( URL ) )
+	{
+		debugf( NAME_Init, TEXT("Xbox: intercepting CityIntro Browse loop %s"), *URL.String() );
+		if( Client && Client->Viewports.Num() )
+			Client->Viewports(0)->TravelURL = TEXT("");
+		if( XboxRestartCityIntroFlyby( GLevel, Client && Client->Viewports.Num() ? Client->Viewports(0) : NULL ) )
+			return 1;
+	}
+#endif
+
 	// Handle it.
 	if( !URL.Valid )
 	{
@@ -1093,6 +1210,7 @@ ULevel* UGameEngine::LoadMap( const FURL& URL, UPendingLevel* Pending, const TMa
 	Error = TEXT("");
 	debugf( NAME_Log, TEXT("LoadMap: %s"), *URL.String() );
 #if TARGET_XBOX
+	XboxSetLoadActivity( !XboxIsCityIntroURL( URL ) );
 	XboxMemMark( *FString::Printf( TEXT("LoadMap enter %s"), *URL.String() ) );
 #endif
 	GInitRunaway();
@@ -1692,6 +1810,7 @@ ULevel* UGameEngine::LoadMap( const FURL& URL, UPendingLevel* Pending, const TMa
 
 	// Successfully started local level.
 #if TARGET_XBOX
+	XboxSetLoadActivity( 0 );
 	XboxMemMark( TEXT("LoadMap return") );
 #endif
 	return GLevel;
@@ -1786,7 +1905,12 @@ void UGameEngine::Draw( UViewport* Viewport, UBOOL Blit, BYTE* HitData, INT* Hit
 			debugf( NAME_Log, TEXT("XDRAW draw=%d master-frame=%08X"), DrawDiagCount, (DWORD)Frame );
 
 		// Update level audio.
-		if( Audio )
+#if TARGET_XBOX
+		UBOOL bXboxUpdateAudio = XboxViewportShouldUpdateAudio( Viewport );
+#else
+		UBOOL bXboxUpdateAudio = 1;
+#endif
+		if( Audio && bXboxUpdateAudio )
 		{
 			clock(GLevel->AudioTickCycles);
 			Audio->Update( ViewActor->Region, Frame->Coords );
@@ -1838,8 +1962,10 @@ void UGameEngine::Draw( UViewport* Viewport, UBOOL Blit, BYTE* HitData, INT* Hit
 		}
 #if TARGET_XBOX
 		XboxMenuPostRender( Viewport, Viewport->Canvas );
+		if( ViewActor->Level && ViewActor->Level->LevelAction == LEVACT_Loading )
+			XboxDrawLoadingActivity( Viewport );
 #endif
-		if( Audio )
+		if( Audio && bXboxUpdateAudio )
 			Audio->PostRender( Frame );
 
 #if 0
@@ -2077,6 +2203,14 @@ void UGameEngine::Tick( FLOAT DeltaSeconds )
 	{
 		if( (GLevel->GetLevelInfo()->NextSwitchCountdown-=DeltaSeconds) <= 0.0 )
 		{
+#if TARGET_XBOX
+			if( XboxIsCityIntroLevel( GLevel ) && XboxIsCityIntroTravelString( GLevel->GetLevelInfo()->NextURL ) )
+			{
+				debugf( NAME_Init, TEXT("Xbox: intercepting CityIntro self-travel %s"), *GLevel->GetLevelInfo()->NextURL );
+				if( XboxRestartCityIntroFlyby( GLevel, Client && Client->Viewports.Num() ? Client->Viewports(0) : NULL ) )
+					return;
+			}
+#endif
 			// Travel to new level, and exit.
 			TMap<FString,FString> TravelInfo;
 			if( GLevel->GetLevelInfo()->NextURL==TEXT("?RESTART") )

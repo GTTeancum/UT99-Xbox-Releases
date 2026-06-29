@@ -660,7 +660,9 @@ APlayerPawn* ULevel::SpawnPlayActor( UPlayer* Player, ENetRole RemoteRole, const
 				Actor->ViewRotation = IntroSpawnRotation;
 				if( IntroPathStart && !IntroViewTarget )
 				{
-					Actor->SetCollision( 0, 0, 0 );
+					// CityIntro's scripted flythrough uses proximity triggers; overlap them without blocking.
+					Actor->SetCollision( 1, 0, 0 );
+					Actor->bCollideWorld = 0;
 					Actor->Target = IntroPathStart;
 					Actor->setPhysics( PHYS_Interpolating );
 					Actor->PhysRate = XboxFrontendIntroPhysRate;
@@ -779,7 +781,7 @@ APlayerPawn* ULevel::SpawnPlayActor( UPlayer* Player, ENetRole RemoteRole, const
 #if TARGET_XBOX
 	if( bXboxFrontendIntro && XboxFrontendPathStart && !Actor->ViewTarget )
 	{
-		Actor->SetCollision( 0, 0, 0 );
+		Actor->SetCollision( 1, 0, 0 );
 		Actor->bCollideWorld = 0;
 		Actor->Target = XboxFrontendPathStart;
 		Actor->setPhysics( PHYS_Interpolating );
@@ -789,11 +791,14 @@ APlayerPawn* ULevel::SpawnPlayActor( UPlayer* Player, ENetRole RemoteRole, const
 		Actor->Velocity = FVector(0,0,0);
 		Actor->Acceleration = FVector(0,0,0);
 		Actor->ViewRotation = XboxFrontendPathStart->Rotation;
-		debugf( NAME_Init, TEXT("Xbox: UTIntro activated frontend path after possess path=%s next=%s physics=%i interp=%u collideWorld=%u"),
+		debugf( NAME_Init, TEXT("Xbox: UTIntro activated frontend path after possess path=%s next=%s physics=%i interp=%u collideActors=%u blockActors=%u blockPlayers=%u collideWorld=%u"),
 			XboxFrontendPathStart->GetName(),
 			XboxFrontendPathStart->Next ? XboxFrontendPathStart->Next->GetName() : TEXT("None"),
 			(INT)Actor->Physics,
 			(DWORD)Actor->bInterpolating,
+			(DWORD)Actor->bCollideActors,
+			(DWORD)Actor->bBlockActors,
+			(DWORD)Actor->bBlockPlayers,
 			(DWORD)Actor->bCollideWorld );
 	}
 #endif

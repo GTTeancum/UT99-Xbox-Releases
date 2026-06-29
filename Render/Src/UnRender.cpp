@@ -9,6 +9,10 @@
 #include "RenderPrivate.h"
 #include "UnNet.h"
 
+#if TARGET_XBOX
+extern "C" UBOOL XboxViewportShouldUpdateAudio( UViewport* Viewport );
+#endif
+
 /*-----------------------------------------------------------------------------
 	Globals.
 -----------------------------------------------------------------------------*/
@@ -3374,7 +3378,11 @@ void URender::DrawWorld( FSceneNode* Frame )
 		}
 
 		// Give the audio subsystem a chance to process the listener's surrounding geometry.
-		if( Engine->Audio && !GIsEditor )
+		if( Engine->Audio && !GIsEditor
+#if TARGET_XBOX
+		&&	XboxViewportShouldUpdateAudio( Frame->Viewport )
+#endif
+		)
 			Engine->Audio->RenderAudioGeometry( Frame );
 
 		// adjust LOD if rendering too slowly

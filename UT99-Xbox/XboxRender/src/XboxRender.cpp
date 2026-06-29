@@ -175,6 +175,23 @@ extern "C" void XboxRenderSetPendingViewRegion( INT X, INT Y, INT W, INT H )
     GRD_HasPendingLockViewport = 1;
 }
 
+extern "C" void XboxRenderClearRegion( URenderDevice* RenderDevice, INT X, INT Y, INT W, INT H )
+{
+    UXboxRenderDevice* Ren = Cast<UXboxRenderDevice>( RenderDevice );
+    if( !Ren || !Ren->Device )
+        return;
+
+    HRESULT hrViewport = XboxRenderApplyViewport( Ren->Device, X, Y, W, H, Ren->ActualBackBufferW, Ren->ActualBackBufferH );
+    HRESULT hrClear = Ren->Device->Clear( 0, NULL, D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER, 0x00000000, 1.0f, 0 );
+    static INT ClearFailLogCount = 0;
+    if( (FAILED(hrViewport) || FAILED(hrClear)) && ClearFailLogCount < 8 )
+    {
+        ClearFailLogCount++;
+        GXboxLog.Write( "RCLR region=%d,%d %dx%d viewport=0x%08X clear=0x%08X",
+            X, Y, W, H, (DWORD)hrViewport, (DWORD)hrClear );
+    }
+}
+
 static HRESULT XboxRenderCreateDeviceChecked( IDirect3D8* InDirect3D, DWORD BehaviorFlags, D3DPRESENT_PARAMETERS* PP, IDirect3DDevice8** OutDevice, const char* Label )
 {
     HRESULT hr = E_FAIL;

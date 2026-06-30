@@ -3351,30 +3351,31 @@ static void XboxMenuResetPlayerPreviewCache()
     GXboxPlayerPreviewTeam = -1;
 }
 
-static void XboxMenuRootPreviewObject( UObject* Object )
+static UBOOL XboxMenuRootPreviewObject( UObject* Object )
 {
-    if( Object )
+    if( !Object )
+        return 1;
+
+    for( INT i=0; i<ARRAY_COUNT(GXboxPlayerPreviewRootRefs); i++ )
     {
-        for( INT i=0; i<ARRAY_COUNT(GXboxPlayerPreviewRootRefs); i++ )
+        if( GXboxPlayerPreviewRootRefs[i].Object == Object )
         {
-            if( GXboxPlayerPreviewRootRefs[i].Object == Object )
-            {
-                GXboxPlayerPreviewRootRefs[i].Count++;
-                return;
-            }
+            GXboxPlayerPreviewRootRefs[i].Count++;
+            return 1;
         }
-        for( INT j=0; j<ARRAY_COUNT(GXboxPlayerPreviewRootRefs); j++ )
-        {
-            if( !GXboxPlayerPreviewRootRefs[j].Object )
-            {
-                GXboxPlayerPreviewRootRefs[j].Object = Object;
-                GXboxPlayerPreviewRootRefs[j].Count = 1;
-                Object->AddToRoot();
-                return;
-            }
-        }
-        GXboxLog.Write( "XMENU preview root table full for %s", TCHAR_TO_ANSI(Object->GetFullName()) );
     }
+    for( INT j=0; j<ARRAY_COUNT(GXboxPlayerPreviewRootRefs); j++ )
+    {
+        if( !GXboxPlayerPreviewRootRefs[j].Object )
+        {
+            GXboxPlayerPreviewRootRefs[j].Object = Object;
+            GXboxPlayerPreviewRootRefs[j].Count = 1;
+            Object->AddToRoot();
+            return 1;
+        }
+    }
+    GXboxLog.Write( "XMENU preview root table full for %s", TCHAR_TO_ANSI(Object->GetFullName()) );
+    return 0;
 }
 
 static void XboxMenuUnrootPreviewObject( UObject* Object )
@@ -3416,12 +3417,16 @@ static void XboxMenuInitPlayerPreviewAssets()
     GXboxPlayerPreviewAssetsInitialized = 1;
 }
 
-static void XboxMenuRootPlayerPreviewAssets( FXboxPlayerPreviewAssets& Assets )
+static UBOOL XboxMenuRootPlayerPreviewAssets( FXboxPlayerPreviewAssets& Assets )
 {
-    XboxMenuRootPreviewObject( Assets.Mesh );
-    XboxMenuRootPreviewObject( Assets.Skin );
+    if( !XboxMenuRootPreviewObject( Assets.Mesh ) )
+        return 0;
+    if( !XboxMenuRootPreviewObject( Assets.Skin ) )
+        return 0;
     for( INT i=0; i<ARRAY_COUNT(Assets.MultiSkins); i++ )
-        XboxMenuRootPreviewObject( Assets.MultiSkins[i] );
+        if( !XboxMenuRootPreviewObject( Assets.MultiSkins[i] ) )
+            return 0;
+    return 1;
 }
 
 static void XboxMenuUnrootPlayerPreviewAssets( FXboxPlayerPreviewAssets& Assets )
@@ -3466,7 +3471,23 @@ static UBOOL XboxMenuTrackPlayerPreviewAssets( AActor* Actor, INT ClassIndex, IN
     for( INT i=0; i<ARRAY_COUNT(GXboxPlayerPreviewCurrent.MultiSkins); i++ )
         GXboxPlayerPreviewCurrent.MultiSkins[i] = Actor->MultiSkins[i];
 
-    XboxMenuRootPlayerPreviewAssets( GXboxPlayerPreviewCurrent );
+    if( !XboxMenuRootPlayerPreviewAssets( GXboxPlayerPreviewCurrent ) )
+    {
+        FXboxPlayerPreviewAssets Desired = GXboxPlayerPreviewCurrent;
+        DWORD BeforeKB = XboxMenuAvailPhysKB();
+        GXboxLog.Write( "XMENU preview root recovery begin availKB=%u", (unsigned)BeforeKB );
+        XboxMenuUnrootPlayerPreviewAssets( GXboxPlayerPreviewCurrent );
+        XboxMenuUnrootPlayerPreviewAssets( GXboxPlayerPreviewPrevious );
+        UObject::CollectGarbage( RF_Native );
+        GXboxPlayerPreviewCurrent = Desired;
+        if( !XboxMenuRootPlayerPreviewAssets( GXboxPlayerPreviewCurrent ) )
+        {
+            XboxMenuUnrootPlayerPreviewAssets( GXboxPlayerPreviewCurrent );
+            GXboxLog.Write( "XMENU preview root recovery failed availKB=%u", (unsigned)XboxMenuAvailPhysKB() );
+            return 0;
+        }
+        GXboxLog.Write( "XMENU preview root recovery end availKB=%u", (unsigned)XboxMenuAvailPhysKB() );
+    }
     GXboxLog.Write( "XMENU preview assets guarded current=%d/%d/%d/%d previous=%d/%d/%d/%d",
         GXboxPlayerPreviewCurrent.ClassIndex, GXboxPlayerPreviewCurrent.SkinIndex,
         GXboxPlayerPreviewCurrent.FaceIndex, GXboxPlayerPreviewCurrent.TeamIndex,

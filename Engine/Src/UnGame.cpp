@@ -1336,11 +1336,15 @@ ULevel* UGameEngine::LoadMap( const FURL& URL, UPendingLevel* Pending, const TMa
 	{
 		for( INT i=0; i<Client->Viewports.Num(); i++ )
 		{
+			if( !Client->Viewports(i) || !Client->Viewports(i)->Actor )
+				continue;
+
 			APlayerPawn* Actor          = Client->Viewports(i)->Actor;
 			ULevel*      Level          = Actor->GetLevel();
 			Actor->Player               = NULL;
 			Client->Viewports(i)->Actor = NULL;
-			Level->DestroyActor( Actor );
+			if( Level )
+				Level->DestroyActor( Actor );
 		}
 	}
 	unguard;

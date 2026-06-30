@@ -18,6 +18,11 @@ extern "C" volatile LONG GXboxAudioMusicPacketState;
 extern "C" volatile LONG GXboxAudioMusicStreamState;
 extern "C" UBOOL XboxEnsureConsoleClass( UViewport* Viewport, const TCHAR* ConsoleClassName, const char* Reason );
 extern UBOOL InitSockets( FString& Error );
+
+#ifndef XBOX_ENABLE_AUDIO_TONE_SMOKE
+#define XBOX_ENABLE_AUDIO_TONE_SMOKE 0
+#endif
+
 #if TARGET_XBOX
 extern "C" void  XboxIpDrvSetSecureTravelHost( const XNADDR* XnAddr, const XNKID* SessionKeyId, const XNKEY* SessionKey, DWORD PreferredAddress );
 extern "C" void  XboxIpDrvClearSecureTravelHost();
@@ -9306,6 +9311,7 @@ void XboxMenuPostRender( UViewport* Viewport, UCanvas* Canvas )
     else
         XboxMenuDrawComingSoon( Canvas );
 
+#if XBOX_ENABLE_AUDIO_TONE_SMOKE
     if( GetFileAttributesA( "D:\\XboxAudioToneSmoke.ini" ) != 0xFFFFFFFF )
     {
         TCHAR AudioState[32];
@@ -9318,6 +9324,7 @@ void XboxMenuPostRender( UViewport* Viewport, UCanvas* Canvas )
         appSprintf( AudioState, TEXT("LOD%i"), (INT)GXboxAudioMusicLoadState );
         XboxMenuText( Canvas, Canvas->SmallFont, 540, 78, 140, 210, 255, AudioState );
     }
+#endif
 
     unguard;
 }

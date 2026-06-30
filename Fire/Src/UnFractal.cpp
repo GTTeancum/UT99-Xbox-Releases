@@ -4417,7 +4417,10 @@ void UWaterTexture::Destroy()
 
 	// Free memory.
 	if( SourceFields )
-		delete SourceFields;
+	{
+		delete[] SourceFields;
+		SourceFields = NULL;
+	}
 
 	Super::Destroy(); // must call base class' destroy.
 	unguard;
@@ -4708,7 +4711,11 @@ void UWetTexture::PostLoad()
 
 		if( (UScaler>=0 ) && (VScaler>=0) )
 		{
-			if( LocalSourceBitmap ) delete LocalSourceBitmap;
+			if( LocalSourceBitmap )
+			{
+				delete[] LocalSourceBitmap;
+				LocalSourceBitmap = NULL;
+			}
 			LocalSourceBitmap = new BYTE[ USize * VSize ]; 
 			BYTE* SourceMapAddr  = &SourceTexture->Mips(0).DataArray(0);
 			
@@ -4731,7 +4738,7 @@ void UWetTexture::PostLoad()
 		// Sizes match, may have changed to a fullsized sourcetexture.
 		if( LocalSourceBitmap ) 
 		{
-			delete LocalSourceBitmap;
+			delete[] LocalSourceBitmap;
 			LocalSourceBitmap = NULL;
 		}
 	}
@@ -4817,7 +4824,10 @@ void UWetTexture::Destroy()
 
 	// Free memory.
 	if( LocalSourceBitmap )
-		delete LocalSourceBitmap;
+	{
+		delete[] LocalSourceBitmap;
+		LocalSourceBitmap = NULL;
+	}
 
 	// Must call direct parents' class destroy.	
 	Super::Destroy();

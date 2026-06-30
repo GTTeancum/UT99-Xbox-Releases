@@ -30,6 +30,7 @@
 #include "FXboxLogger.h"
 
 #define XBOX_ENABLE_UMX_MUSIC 0
+#define XBOX_ENABLE_AUDIO_TONE_SMOKE 0
 
 #if XBOX_ENABLE_UMX_MUSIC
 extern "C"
@@ -629,7 +630,9 @@ public:
 
         GXboxLog.Write( "XboxAudio: DirectSound initialized musicCtx=native-only musicVol=%d soundVol=%d",
             MusicVolume, SoundVolume );
+#if XBOX_ENABLE_AUDIO_TONE_SMOKE
         StartToneSmokeIfRequested();
+#endif
         return 1;
 
         unguard;
@@ -1013,6 +1016,7 @@ private:
     {
         guard(UXboxAudioDevice::StartToneSmokeIfRequested);
 
+#if XBOX_ENABLE_AUDIO_TONE_SMOKE
         INT SmokeMode = XboxAudioToneSmokeMode();
         if( !DirectSound || SmokeMode <= 0 )
             return;
@@ -1105,6 +1109,7 @@ private:
             GXboxAudioToneSmokeState = FAILED(hr) ? 905 : 70;
         GXboxLog.Write( "XboxAudio: tone smoke Play hr=0x%08X status=0x%08X bytes=%d", (DWORD)hr, Status, ToneBytes );
         StartToneSmokeStream();
+#endif
 
         unguard;
     }

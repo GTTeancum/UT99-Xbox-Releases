@@ -12,12 +12,16 @@ extern "C" void  XboxRenderSetPendingViewRegion( INT X, INT Y, INT W, INT H );
 extern "C" void  XboxRenderClearRegion( URenderDevice* RenderDevice, INT X, INT Y, INT W, INT H );
 extern "C" void  XboxRenderReleaseMenuTexture( const char* Name );
 extern "C" void  XboxRenderReleaseMenuTextures();
+extern "C" void  XboxRenderGetMenuTextureStats( INT* OutCount, INT* OutApproxKB, INT* OutFailures );
 extern "C" volatile LONG GXboxAudioToneSmokeState;
 extern "C" volatile LONG GXboxAudioMusicLoadState;
 extern "C" volatile LONG GXboxAudioMusicPacketState;
 extern "C" volatile LONG GXboxAudioMusicStreamState;
 extern "C" UBOOL XboxEnsureConsoleClass( UViewport* Viewport, const TCHAR* ConsoleClassName, const char* Reason );
 extern UBOOL InitSockets( FString& Error );
+extern DWORD GXboxMallocLiveBytes;
+extern DWORD GXboxMallocPeakBytes;
+extern DWORD GXboxMallocTotalBytes;
 
 #ifndef XBOX_ENABLE_AUDIO_TONE_SMOKE
 #define XBOX_ENABLE_AUDIO_TONE_SMOKE 0
@@ -3555,6 +3559,7 @@ static void XboxMenuDestroyPlayerPreview()
 }
 
 static void XboxMenuReleaseMapPreviewTexture();
+static const char* XboxMenuCurrentPlayerPortraitName();
 static void XboxMenuReleaseCurrentPlayerPortrait();
 static void XboxMenuReleaseFrontendTransientAssets( const char* Reason, UBOOL bReleaseRenderTextures );
 
@@ -3577,17 +3582,70 @@ static void XboxMenuReleaseMapPreviewTexture()
     GXboxMenuPreviewMap[0] = 0;
 }
 
+static void XboxMenuLogResourceBuckets( const char* Reason )
+{
+    INT MenuTextureCount = 0;
+    INT MenuTextureKB = 0;
+    INT MenuTextureFailures = 0;
+    XboxRenderGetMenuTextureStats( &MenuTextureCount, &MenuTextureKB, &MenuTextureFailures );
+
+    INT PreviewRootCount = 0;
+    INT PreviewRootRefs = 0;
+    for( INT i=0; i<ARRAY_COUNT(GXboxPlayerPreviewRootRefs); i++ )
+    {
+        if( GXboxPlayerPreviewRootRefs[i].Object )
+        {
+            PreviewRootCount++;
+            PreviewRootRefs += GXboxPlayerPreviewRootRefs[i].Count;
+        }
+    }
+
+    INT WheelIcons = 0;
+    INT WheelMeshes = 0;
+    for( INT j=0; j<ARRAY_COUNT(GXboxWeaponWheelSlots); j++ )
+    {
+        if( GXboxWeaponWheelSlots[j].Icon )
+            WheelIcons++;
+        if( GXboxWeaponWheelSlots[j].PickupMesh )
+            WheelMeshes++;
+    }
+
+    GXboxLog.Write(
+        "XBUCKET %s availKB=%u heapLiveKB=%u heapPeakKB=%u heapTotalKB=%u menuTex=%d/%dKB fail=%d mapPreview=%d portrait=%s previewActor=%d roots=%d refs=%d wheelIcons=%d wheelMeshes=%d lists=gt%d maps%d chars%d int%d",
+        Reason ? Reason : "unknown",
+        (unsigned)XboxMenuAvailPhysKB(),
+        (unsigned)(GXboxMallocLiveBytes / 1024),
+        (unsigned)(GXboxMallocPeakBytes / 1024),
+        (unsigned)(GXboxMallocTotalBytes / 1024),
+        MenuTextureCount,
+        MenuTextureKB,
+        MenuTextureFailures,
+        GXboxMenuPreviewTexture ? 1 : 0,
+        XboxMenuCurrentPlayerPortraitName(),
+        GXboxPlayerPreviewActor ? 1 : 0,
+        PreviewRootCount,
+        PreviewRootRefs,
+        WheelIcons,
+        WheelMeshes,
+        GXboxDiscoveredGameTypes.Num(),
+        GXboxDiscoveredMaps.Num(),
+        GXboxPlayerClasses.Num(),
+        GXboxMenuIntObjectCache.Num()
+    );
+}
+
 static void XboxMenuReleaseFrontendTransientAssets( const char* Reason, UBOOL bReleaseRenderTextures )
 {
     DWORD BeforeKB = XboxMenuAvailPhysKB();
+    XboxMenuLogResourceBuckets( Reason ? Reason : "cleanup pre" );
     XboxMenuReleaseCurrentPlayerPortrait();
     XboxMenuDestroyPlayerPreview();
     XboxMenuReleaseMapPreviewTexture();
     XboxWeaponWheelReleaseCache();
     if( bReleaseRenderTextures )
         XboxRenderReleaseMenuTextures();
-    if( bReleaseRenderTextures )
-        GXboxLog.Write( "XMENU frontend cleanup reason=%s availKB=%u->%u", Reason ? Reason : "unknown", (unsigned)BeforeKB, (unsigned)XboxMenuAvailPhysKB() );
+    GXboxLog.Write( "XMENU frontend cleanup reason=%s render=%d availKB=%u->%u", Reason ? Reason : "unknown", bReleaseRenderTextures ? 1 : 0, (unsigned)BeforeKB, (unsigned)XboxMenuAvailPhysKB() );
+    XboxMenuLogResourceBuckets( Reason ? Reason : "cleanup post" );
 }
 
 static void XboxMenuStripDescriptionLabel( const FString& Description, FString& OutLabel )

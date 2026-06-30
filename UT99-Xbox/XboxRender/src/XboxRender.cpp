@@ -3294,6 +3294,31 @@ static FXboxMenuTexture GXboxMenuTextures[32];
 static char GXboxMenuTextureFailures[16][64];
 static INT GXboxMenuTextureAccessCounter = 1;
 
+extern "C" void XboxRenderGetMenuTextureStats( INT* OutCount, INT* OutApproxKB, INT* OutFailures )
+{
+    INT Count = 0;
+    INT ApproxKB = 0;
+    INT Failures = 0;
+    for( INT i=0; i<ARRAY_COUNT(GXboxMenuTextures); i++ )
+    {
+        if( GXboxMenuTextures[i].Texture )
+        {
+            Count++;
+            ApproxKB += (INT)((GXboxMenuTextures[i].Width * GXboxMenuTextures[i].Height * 4) / 1024);
+        }
+    }
+    for( INT j=0; j<ARRAY_COUNT(GXboxMenuTextureFailures); j++ )
+        if( GXboxMenuTextureFailures[j][0] )
+            Failures++;
+
+    if( OutCount )
+        *OutCount = Count;
+    if( OutApproxKB )
+        *OutApproxKB = ApproxKB;
+    if( OutFailures )
+        *OutFailures = Failures;
+}
+
 extern "C" void XboxRenderReleaseMenuTexture( const char* Name )
 {
     if( !Name || !Name[0] )

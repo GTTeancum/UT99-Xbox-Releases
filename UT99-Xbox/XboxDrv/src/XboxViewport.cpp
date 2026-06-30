@@ -1170,9 +1170,36 @@ static void XboxSplitResetRuntime( UXboxClient* Client, const char* Reason )
         Client ? Client->Viewports.Num() : -1 );
 }
 
+static UBOOL XboxSmokeMarkerExists( const char* MarkerName, INT& CachedResult )
+{
+    if( CachedResult >= 0 )
+        return CachedResult ? 1 : 0;
+
+    char DPath[128];
+    appSprintf( DPath, "D:\\%s", MarkerName );
+    if( GetFileAttributesA( DPath ) != 0xFFFFFFFF )
+    {
+        CachedResult = 1;
+        GXboxLog.Write( "XSMOKE marker %s found path=%s", MarkerName, DPath );
+        return 1;
+    }
+
+    if( GetFileAttributesA( MarkerName ) != 0xFFFFFFFF )
+    {
+        CachedResult = 1;
+        GXboxLog.Write( "XSMOKE marker %s found relativePath=%s", MarkerName, MarkerName );
+        return 1;
+    }
+
+    CachedResult = 0;
+    GXboxLog.Write( "XSMOKE marker %s missing checked=%s,%s", MarkerName, DPath, MarkerName );
+    return 0;
+}
+
 static UBOOL XboxSplitSmokeEnabled()
 {
-    return GetFileAttributesA( "D:\\XboxSplitSmoke.ini" ) != 0xFFFFFFFF;
+    static INT Cached = -1;
+    return XboxSmokeMarkerExists( "XboxSplitSmoke.ini", Cached );
 }
 
 static UBOOL XboxSplitSmokeInputProofEnabled()
@@ -1182,28 +1209,34 @@ static UBOOL XboxSplitSmokeInputProofEnabled()
 
     // The paired System Link stress run does not use the standalone split-screen
     // smoke marker, but it still needs the same per-viewport input proof.
-    return GetFileAttributesA( "D:\\XboxSystemLinkSmoke.ini" ) != 0xFFFFFFFF
-        && GetFileAttributesA( "D:\\XboxSystemLink4PStress.ini" ) != 0xFFFFFFFF;
+    static INT SystemLinkCached = -1;
+    static INT FourPlayerCached = -1;
+    return XboxSmokeMarkerExists( "XboxSystemLinkSmoke.ini", SystemLinkCached )
+        && XboxSmokeMarkerExists( "XboxSystemLink4PStress.ini", FourPlayerCached );
 }
 
 static UBOOL XboxMenuSmokeEnabled()
 {
-    return GetFileAttributesA( "D:\\XboxMenuSmoke.ini" ) != 0xFFFFFFFF;
+    static INT Cached = -1;
+    return XboxSmokeMarkerExists( "XboxMenuSmoke.ini", Cached );
 }
 
 static UBOOL XboxTournamentSmokeEnabled()
 {
-    return GetFileAttributesA( "D:\\XboxTournamentSmoke.ini" ) != 0xFFFFFFFF;
+    static INT Cached = -1;
+    return XboxSmokeMarkerExists( "XboxTournamentSmoke.ini", Cached );
 }
 
 static UBOOL XboxSystemLinkSmokeEnabled()
 {
-    return GetFileAttributesA( "D:\\XboxSystemLinkSmoke.ini" ) != 0xFFFFFFFF;
+    static INT Cached = -1;
+    return XboxSmokeMarkerExists( "XboxSystemLinkSmoke.ini", Cached );
 }
 
 static UBOOL XboxSystemLinkFourPlayerStressEnabled()
 {
-    return GetFileAttributesA( "D:\\XboxSystemLink4PStress.ini" ) != 0xFFFFFFFF;
+    static INT Cached = -1;
+    return XboxSmokeMarkerExists( "XboxSystemLink4PStress.ini", Cached );
 }
 
 static void XboxSplitSmokeMaybeQueue( UXboxClient* Client )

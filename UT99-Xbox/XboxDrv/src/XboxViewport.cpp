@@ -1980,6 +1980,8 @@ static void XboxSplitSmokeCheck( UClient* InClient )
             ? *Player->GetStateFrame()->StateNode->GetFName()
             : TEXT("None");
 
+        XboxSplitSmokeFeedInput( VP );
+
         if( !(BegunMask & SlotBit) )
         {
             BegunMask |= SlotBit;
@@ -5850,7 +5852,9 @@ static const char* XboxMenuCurrentPlayerPortraitNameRaw()
 static void XboxMenuReleaseCurrentPlayerPortrait()
 {
 #if TARGET_XBOX
-    XboxRenderReleaseMenuTexture( XboxMenuCurrentPlayerPortraitName() );
+    const char* PortraitName = XboxMenuCurrentPlayerPortraitNameRaw();
+    if( PortraitName && PortraitName[0] )
+        XboxRenderReleaseMenuTexture( PortraitName );
 #endif
 }
 

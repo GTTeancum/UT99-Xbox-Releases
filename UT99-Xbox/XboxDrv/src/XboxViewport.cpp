@@ -2294,6 +2294,43 @@ static void XboxSystemLinkStopForTravel()
     XboxSystemLinkStopLobby( 1 );
 }
 
+extern "C" void XboxSystemLinkAbortTravelCleanup( const char* Reason )
+{
+    if( !GXboxSystemLinkStateInitialized )
+        return;
+
+    UBOOL bHadState =
+        GXboxSystemLink.Started
+    ||  GXboxSystemLink.Socket != INVALID_SOCKET
+    ||  GXboxSystemLink.SessionRegistered
+    ||  GXboxSystemLink.PendingTravel
+    ||  GXboxSystemLink.Phase == XSLP_Launching
+    ||  GXboxSystemLink.LaunchId
+    ||  GXboxSystemLink.LaunchAckId
+    ||  GXboxSystemLink.HasSecureHostAddress;
+    if( !bHadState )
+        return;
+
+    GXboxLog.Write( "XSL abort travel cleanup reason=%s role=%s phase=%s launch=0x%08X ack=0x%08X pending=%d socket=0x%08X session=%d",
+        Reason ? Reason : "unknown",
+        TCHAR_TO_ANSI(XboxSystemLinkRoleText(GXboxSystemLink.Role)),
+        TCHAR_TO_ANSI(XboxSystemLinkPhaseText(GXboxSystemLink.Phase)),
+        GXboxSystemLink.LaunchId,
+        GXboxSystemLink.LaunchAckId,
+        GXboxSystemLink.PendingTravel ? 1 : 0,
+        (DWORD)GXboxSystemLink.Socket,
+        GXboxSystemLink.SessionRegistered ? 1 : 0 );
+
+    XboxSystemLinkStopLobby( 0 );
+    GXboxSystemLink.LaunchId = 0;
+    GXboxSystemLink.LaunchAckId = 0;
+    GXboxSystemLink.LastSeenLaunchId = 0;
+    GXboxSystemLink.PendingTravelTime = 0.0f;
+    GXboxSystemLink.PendingTravelDeadline = 0.0f;
+    GXboxSystemLink.PendingHostAddress = 0;
+    GXboxSystemLinkSmokeHostPreTravelHoldDone = 0;
+}
+
 static UBOOL XboxSystemLinkStart()
 {
     XboxSystemLinkEnsureState();
@@ -2897,8 +2934,7 @@ static void XboxSystemLinkStartTravel( UXboxViewport* Viewport )
         {
             GXboxLog.Write( "XSL launch failed: secure host address unavailable host=0x%08X secure=%d",
                 GXboxSystemLink.HostId, SecureTravelHostPeer && SecureTravelHostPeer->HasSecureInfo ? 1 : 0 );
-            GXboxSystemLink.Phase = XSLP_ReadyConfirmed;
-            GXboxSystemLink.PendingTravel = 0;
+            XboxSystemLinkAbortTravelCleanup( "secure host unavailable" );
             return;
         }
     }
@@ -2912,8 +2948,7 @@ static void XboxSystemLinkStartTravel( UXboxViewport* Viewport )
     {
         GXboxLog.Write( "XSL launch failed: cannot build travel url role=%s host=0x%08X addr=0x%08X",
             TCHAR_TO_ANSI(XboxSystemLinkRoleText(GXboxSystemLink.Role)), GXboxSystemLink.HostId, HostAddress );
-        GXboxSystemLink.Phase = XSLP_ReadyConfirmed;
-        GXboxSystemLink.PendingTravel = 0;
+        XboxSystemLinkAbortTravelCleanup( "build travel url failed" );
         return;
     }
 

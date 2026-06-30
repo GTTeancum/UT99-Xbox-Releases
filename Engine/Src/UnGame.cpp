@@ -22,6 +22,7 @@ extern "C" void XboxViewportApplyViewRegion( UViewport* Viewport, FSceneNode* Fr
 extern "C" UBOOL XboxViewportShouldPostRenderPlayer( UViewport* Viewport );
 extern "C" UBOOL XboxViewportShouldUpdateAudio( UViewport* Viewport );
 extern "C" void XboxMenuPreClientTravelCleanup();
+extern "C" void XboxSystemLinkAbortTravelCleanup( const char* Reason );
 extern "C" void XboxRenderDrawMenuRect( FSceneNode* Frame, FLOAT X1, FLOAT Y1, FLOAT X2, FLOAT Y2, BYTE R, BYTE G, BYTE B, BYTE A );
 extern DWORD GXboxMallocLiveBytes;
 extern DWORD GXboxMallocPeakBytes;
@@ -1062,6 +1063,7 @@ UBOOL UGameEngine::Browse( FURL URL, const TMap<FString,FString>* TravelInfo, FS
 	{
 		// Handle failure URL.
 #if TARGET_XBOX
+		XboxSystemLinkAbortTravelCleanup( URL.HasOption(TEXT("failed")) ? "Browse failed URL" : "Browse entry URL" );
 		if( !GEntry )
 		{
 			Error = TEXT("Entry level was released on Xbox");

@@ -3287,10 +3287,12 @@ struct FXboxMenuTexture
     IDirect3DTexture8* Texture;
     DWORD Width;
     DWORD Height;
+    INT LastUsedFrame;
 };
 
 static FXboxMenuTexture GXboxMenuTextures[32];
 static char GXboxMenuTextureFailures[16][64];
+static INT GXboxMenuTextureAccessCounter = 1;
 
 extern "C" void XboxRenderReleaseMenuTexture( const char* Name )
 {
@@ -3356,9 +3358,41 @@ static void XboxRememberMenuTextureFailure( const char* Name )
 static FXboxMenuTexture* XboxFindMenuTexture( const char* Name )
 {
     for( INT i=0; i<ARRAY_COUNT(GXboxMenuTextures); i++ )
+    {
         if( GXboxMenuTextures[i].Texture && appStricmp(GXboxMenuTextures[i].Name, Name)==0 )
+        {
+            GXboxMenuTextures[i].LastUsedFrame = GXboxMenuTextureAccessCounter++;
             return &GXboxMenuTextures[i];
+        }
+    }
     return NULL;
+}
+
+static FXboxMenuTexture* XboxEvictMenuTextureLRU( const char* NewName )
+{
+    INT BestIndex = -1;
+    INT BestFrame = 0x7fffffff;
+    for( INT i=0; i<ARRAY_COUNT(GXboxMenuTextures); i++ )
+    {
+        if( GXboxMenuTextures[i].Texture && GXboxMenuTextures[i].LastUsedFrame < BestFrame )
+        {
+            BestFrame = GXboxMenuTextures[i].LastUsedFrame;
+            BestIndex = i;
+        }
+    }
+
+    if( BestIndex < 0 )
+        return NULL;
+
+    INT ReleasedKB = (INT)((GXboxMenuTextures[BestIndex].Width * GXboxMenuTextures[BestIndex].Height * 4) / 1024);
+    GXboxLog.Write( "XMENU tex LRU evict old=%s new=%s age=%d approxKB=%d",
+        GXboxMenuTextures[BestIndex].Name,
+        NewName ? NewName : "",
+        GXboxMenuTextureAccessCounter - GXboxMenuTextures[BestIndex].LastUsedFrame,
+        ReleasedKB );
+    RenderBlockAndReleaseTexture( GXboxMenuTextures[BestIndex].Texture );
+    appMemzero( &GXboxMenuTextures[BestIndex], sizeof(GXboxMenuTextures[BestIndex]) );
+    return &GXboxMenuTextures[BestIndex];
 }
 
 static FXboxMenuTexture* XboxLoadMenuTexture( UXboxRenderDevice* Ren, const char* Name )
@@ -3383,9 +3417,12 @@ static FXboxMenuTexture* XboxLoadMenuTexture( UXboxRenderDevice* Ren, const char
     }
     if( !Slot )
     {
-        GXboxLog.Write( "XMENU tex cache full loading %s slots=%d", Name, ARRAY_COUNT(GXboxMenuTextures) );
-        XboxRememberMenuTextureFailure( Name );
-        return NULL;
+        Slot = XboxEvictMenuTextureLRU( Name );
+        if( !Slot )
+        {
+            GXboxLog.Write( "XMENU tex cache full loading %s slots=%d", Name, ARRAY_COUNT(GXboxMenuTextures) );
+            return NULL;
+        }
     }
 
     char Path[256];
@@ -3484,6 +3521,7 @@ static FXboxMenuTexture* XboxLoadMenuTexture( UXboxRenderDevice* Ren, const char
     Slot->Texture = Texture;
     Slot->Width = TexWidth;
     Slot->Height = TexHeight;
+    Slot->LastUsedFrame = GXboxMenuTextureAccessCounter++;
     GXboxLog.Write( "XMENU tex loaded %s %lux%lu", Path, TexWidth, TexHeight );
     return Slot;
 }

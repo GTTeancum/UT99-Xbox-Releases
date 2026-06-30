@@ -1745,10 +1745,36 @@ private:
     {
         guard(UXboxAudioDevice::StopMusic);
 
+        UBOOL bWasPlaying = MusicPlaying;
         UBOOL bTrackerMusic = ( MusicFile == INVALID_HANDLE_VALUE );
         if( MusicStream )
         {
-            MusicStream->FlushEx( 0, DSSTREAMFLUSHEX_ASYNC );
+            MusicPlaying = 0;
+            MusicPaused = 1;
+            MusicStream->Pause( DSSTREAMPAUSE_PAUSE );
+            MusicStream->FlushEx( 0, DSSTREAMFLUSHEX_IMMEDIATE );
+            DirectSoundDoWork();
+            for( INT Wait=0; Wait<64; Wait++ )
+            {
+                UBOOL bPending = 0;
+                for( INT Packet=0; Packet<XboxMusicStreamPackets; Packet++ )
+                {
+                    if( MusicPacketStatus[Packet] == XMEDIAPACKET_STATUS_PENDING )
+                    {
+                        bPending = 1;
+                        break;
+                    }
+                }
+                if( !bPending )
+                    break;
+                DirectSoundDoWork();
+                Sleep( 1 );
+            }
+            for( INT Packet=0; Packet<XboxMusicStreamPackets; Packet++ )
+            {
+                if( MusicPacketStatus[Packet] == XMEDIAPACKET_STATUS_PENDING )
+                    GXboxLog.Write( "XboxAudio: music packet still pending at shutdown p=%d submitted=%u", Packet, (unsigned)MusicPacketsSubmitted );
+            }
             MusicStream->Release();
             MusicStream = NULL;
         }
@@ -1772,7 +1798,7 @@ private:
         MusicDataOffset = 0;
         MusicPacketBytes = XboxMusicStreamPacketBytes;
 #if XBOX_ENABLE_UMX_MUSIC
-        if( bTrackerMusic && MusicContext && MusicPlaying )
+        if( bTrackerMusic && MusicContext && bWasPlaying )
         {
             xmp_end_player( MusicContext );
             xmp_release_module( MusicContext );

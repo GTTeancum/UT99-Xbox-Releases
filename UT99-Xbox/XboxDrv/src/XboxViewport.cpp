@@ -1172,8 +1172,8 @@ static void XboxSplitResetRuntime( UXboxClient* Client, const char* Reason )
 
 static UBOOL XboxSmokeMarkerExists( const char* MarkerName, INT& CachedResult )
 {
-    if( CachedResult >= 0 )
-        return CachedResult ? 1 : 0;
+    if( CachedResult > 0 )
+        return 1;
 
     char DPath[128];
     appSprintf( DPath, "D:\\%s", MarkerName );
@@ -1191,8 +1191,9 @@ static UBOOL XboxSmokeMarkerExists( const char* MarkerName, INT& CachedResult )
         return 1;
     }
 
-    CachedResult = 0;
-    GXboxLog.Write( "XSMOKE marker %s missing checked=%s,%s", MarkerName, DPath, MarkerName );
+    if( CachedResult == -1 )
+        GXboxLog.Write( "XSMOKE marker %s missing checked=%s,%s", MarkerName, DPath, MarkerName );
+    CachedResult = -2;
     return 0;
 }
 

@@ -3593,6 +3593,7 @@ static void XboxMenuDestroyPlayerPreview()
 
 static void XboxMenuReleaseMapPreviewTexture();
 static const char* XboxMenuCurrentPlayerPortraitName();
+static const char* XboxMenuCurrentPlayerPortraitNameRaw();
 static void XboxMenuReleaseCurrentPlayerPortrait();
 static void XboxMenuReleaseFrontendTransientAssets( const char* Reason, UBOOL bReleaseRenderTextures );
 
@@ -3654,7 +3655,7 @@ static void XboxMenuLogResourceBuckets( const char* Reason )
         MenuTextureKB,
         MenuTextureFailures,
         GXboxMenuPreviewTexture ? 1 : 0,
-        XboxMenuCurrentPlayerPortraitName(),
+        XboxMenuCurrentPlayerPortraitNameRaw(),
         GXboxPlayerPreviewActor ? 1 : 0,
         PreviewRootCount,
         PreviewRootRefs,
@@ -5833,6 +5834,16 @@ static const char* XboxMenuCurrentPlayerPortraitName()
     XboxMenuNormalizePlayerSetupState();
     const FXboxPlayerClassOption& Player = XboxMenuPlayerClass( GXboxMenu.PlayerClass );
     return Player.PortraitName[0] ? Player.PortraitName : "char_missing.xui";
+}
+
+static const char* XboxMenuCurrentPlayerPortraitNameRaw()
+{
+    if( !GXboxPlayerListsLoaded || GXboxPlayerClasses.Num() <= 0 )
+        return "";
+
+    INT Index = Clamp<INT>( GXboxMenu.PlayerClass, 0, GXboxPlayerClasses.Num()-1 );
+    const FXboxPlayerClassOption& Player = GXboxPlayerClasses(Index);
+    return Player.PortraitName[0] ? Player.PortraitName : "";
 }
 
 static void XboxMenuReleaseCurrentPlayerPortrait()

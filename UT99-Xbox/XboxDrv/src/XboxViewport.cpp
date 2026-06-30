@@ -3555,13 +3555,12 @@ static void XboxMenuDestroyPlayerPreview()
 }
 
 static void XboxMenuReleaseMapPreviewTexture();
+static void XboxMenuReleaseCurrentPlayerPortrait();
+static void XboxMenuReleaseFrontendTransientAssets( const char* Reason, UBOOL bReleaseRenderTextures );
 
 extern "C" void XboxMenuPreClientTravelCleanup()
 {
-    XboxMenuDestroyPlayerPreview();
-    XboxMenuReleaseMapPreviewTexture();
-    XboxWeaponWheelReleaseCache();
-    XboxRenderReleaseMenuTextures();
+    XboxMenuReleaseFrontendTransientAssets( "pre-travel", 1 );
 }
 
 static UTexture* GXboxMenuPreviewTexture = NULL;
@@ -3576,6 +3575,19 @@ static void XboxMenuReleaseMapPreviewTexture()
     }
     GXboxMenuPreviewTexture = NULL;
     GXboxMenuPreviewMap[0] = 0;
+}
+
+static void XboxMenuReleaseFrontendTransientAssets( const char* Reason, UBOOL bReleaseRenderTextures )
+{
+    DWORD BeforeKB = XboxMenuAvailPhysKB();
+    XboxMenuReleaseCurrentPlayerPortrait();
+    XboxMenuDestroyPlayerPreview();
+    XboxMenuReleaseMapPreviewTexture();
+    XboxWeaponWheelReleaseCache();
+    if( bReleaseRenderTextures )
+        XboxRenderReleaseMenuTextures();
+    if( bReleaseRenderTextures )
+        GXboxLog.Write( "XMENU frontend cleanup reason=%s availKB=%u->%u", Reason ? Reason : "unknown", (unsigned)BeforeKB, (unsigned)XboxMenuAvailPhysKB() );
 }
 
 static void XboxMenuStripDescriptionLabel( const FString& Description, FString& OutLabel )
@@ -3629,6 +3641,10 @@ static void XboxMenuLoadIntObjectCache()
 
     GXboxMenuIntObjectCacheLoaded = 1;
     GXboxMenuIntObjectCache.Empty();
+#if TARGET_XBOX
+    GXboxLog.Write( "XMENU .int cache skipped on Xbox" );
+    return;
+#endif
     if( !GSys || !GConfig )
         return;
 
@@ -6133,11 +6149,10 @@ static void XboxMenuClose( UXboxViewport* Viewport )
 {
     if( GXboxMenu.Active )
         GXboxLog.Write( "XMENU closed" );
+    UBOOL bWasPauseMenu = GXboxMenu.PausedMatch;
     GXboxMenu.Active = 0;
     XboxSplitReadyReleaseControllers();
-    XboxMenuReleaseCurrentPlayerPortrait();
-    XboxMenuDestroyPlayerPreview();
-    XboxMenuReleaseMapPreviewTexture();
+    XboxMenuReleaseFrontendTransientAssets( "menu close", bWasPauseMenu ? 0 : 1 );
 
     XboxMenuReleaseMatchPause( Viewport );
 
@@ -6209,7 +6224,7 @@ static void XboxMenuBack( UXboxViewport* Viewport )
     else
     {
         if( GXboxMenu.Screen == XMS_PlayerSetup )
-            XboxMenuReleaseCurrentPlayerPortrait();
+            XboxMenuReleaseFrontendTransientAssets( "back from player setup", 0 );
         GXboxMenu.Screen = XMS_Main;
         GXboxLog.Write( "XMENU back to main" );
     }
@@ -6798,8 +6813,7 @@ static void XboxMenuReturnToFrontend( UXboxViewport* Viewport )
     if( !Client || !Client->Engine )
         return;
 
-    XboxMenuDestroyPlayerPreview();
-    XboxMenuReleaseMapPreviewTexture();
+    XboxMenuReleaseFrontendTransientAssets( "return frontend", 1 );
     XboxMenuReleaseMatchPause( Viewport );
     XboxSplitResetRuntime( Client, "ReturnToFrontend" );
     XboxMenuEnsureConsoleClass( Viewport, TEXT("Engine.Console"), "ReturnToFrontend" );

@@ -6,6 +6,16 @@ Release-only page for the original Xbox port of *Unreal Tournament: Game of the 
   <a href="https://github.com/GTTeancum/UT99-Xbox-Releases/releases/latest"><strong>Download the latest release</strong></a>
 </p>
 
+## Feature Highlights
+
+- Unreal Tournament GOTY support, including GOTY-provided ChaosUT and Rocket Arena content
+- PlayStation 2 and Dreamcast maps added
+- PlayStation 2 characters added
+- Jailbreak III Gold included
+- Experimental support for split-screen, System Link, and split-screen over System Link
+
+## Screenshots
+
 <p>
   <img src="screenshots/jailbreak-menu.png" alt="Jailbreak game type visible in the Xbox Instant Action menu" width="760">
 </p>
@@ -58,7 +68,7 @@ The final Xbox folder should contain `default.xbe` plus `System`, `Maps`, `Textu
 - The console maps appear under their normal DM, CTF, and DOM map prefixes.
 - The PS2 characters are available from the player and bot character lists.
 - Keep this package's `Default.ini` and `UnrealTournament.ini` in `System`; they are required for Xbox play, menus, controls, audio, and bundled content.
-- Mods not included in this package are not supported. Try other mods at your own risk.
+- Beyond GOTY-provided ChaosUT and Rocket Arena plus the included Jailbreak package, other mods are not currently supported. Try other mods at your own risk.
 
 ## Credits
 

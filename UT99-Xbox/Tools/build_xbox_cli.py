@@ -14,6 +14,8 @@ import subprocess
 import sys
 import xml.etree.ElementTree as ET
 
+import stage_jailbreak
+
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 XBOX_DIR = os.path.dirname(SCRIPT_DIR)
@@ -568,6 +570,14 @@ def copy_runtime_assets(build_root):
             fail("CityIntro frontend patch failed: " + cityintro)
 
 
+def copy_jailbreak_assets(build_root, archive=None, include_docs=False):
+    stage_jailbreak.stage_jailbreak(
+        target=build_root,
+        archive=archive,
+        include_docs=include_docs,
+    )
+
+
 def main():
     parser = argparse.ArgumentParser(description="Build UT99 Xbox from the command line.")
     parser.add_argument("--config", default="Release", choices=("Release", "Debug"))
@@ -576,6 +586,21 @@ def main():
         "--out-dir",
         default=None,
         help="Override the build output directory. Defaults to UT99-Xbox\\build_cli\\<config>.",
+    )
+    parser.add_argument(
+        "--with-jailbreak",
+        action="store_true",
+        help="Download, verify, and stage Jailbreak III Gold into the build output.",
+    )
+    parser.add_argument(
+        "--jailbreak-archive",
+        default=None,
+        help="Use an existing JailbreakIII-Gold-zip.7z when --with-jailbreak is set.",
+    )
+    parser.add_argument(
+        "--jailbreak-include-docs",
+        action="store_true",
+        help="With --with-jailbreak, also stage Help and Web files.",
     )
     args = parser.parse_args()
 
@@ -607,6 +632,12 @@ def main():
         if kind == "exe":
             out_exe, out_xbe = build_launch(vcproj, args.config, build_root, built_libs)
     copy_runtime_assets(build_root)
+    if args.with_jailbreak:
+        copy_jailbreak_assets(
+            build_root,
+            archive=args.jailbreak_archive,
+            include_docs=args.jailbreak_include_docs,
+        )
 
     print("")
     print("BUILD SUCCEEDED")

@@ -76,6 +76,16 @@ D:\
   Voice\       *.uax
 ```
 
+Optional third-party content is staged by tooling rather than checked into the
+repository. Jailbreak III Gold can be included in a build with:
+
+```
+build_xbox.bat jailbreak
+```
+
+See `UT99-Xbox/Docs/JailbreakIII.md` for the archive cache, standalone staging,
+and smoke-test URL.
+
 User flow for end-users:
 1. Install UT99 GOTY (GoG, Steam, or disc)
 2. Apply [OldUnreal v469 patcher](https://github.com/OldUnreal/UnrealTournamentPatches/releases) to that install — overwrites `System/*.u` with v469-format packages

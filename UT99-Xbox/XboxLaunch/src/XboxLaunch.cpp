@@ -250,7 +250,9 @@ void __cdecl main()
     GIsClient     = 1;
     GIsEditor     = 0;
     GIsScriptable = 1;
-    GLazyLoad     = 0;
+    // Keep bulk mesh/texture/sound payloads demand-loaded on Xbox. The 64 MB
+    // memory budget cannot afford eager-loading third-party mod packages.
+    GLazyLoad     = 1;
 
     GXboxLog.Write( "BOOT: calling InitEngine()" );
     XboxDebugSetBootPhase( 0x1200 );

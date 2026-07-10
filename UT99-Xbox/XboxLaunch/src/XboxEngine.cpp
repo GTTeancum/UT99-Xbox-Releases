@@ -12,9 +12,183 @@ extern DWORD GXboxMallocLastLargeBytes;
 extern char  GXboxMallocLargestTag[64];
 extern char  GXboxMallocLastLargeTag[64];
 
+struct FXboxSmokeMatchStats
+{
+	INT PriCount;
+	INT PriBots;
+	INT PriSpectators;
+	INT PriWaiting;
+	INT TeamCount[4];
+	INT TeamBots[4];
+	FLOAT TeamScore[4];
+	char ScoreSummary[768];
+};
+
+static UBOOL XboxSmokeGetObjectPropertyString( UObject* Object, const TCHAR* PropertyName, FString& OutValue )
+{
+	OutValue = TEXT("");
+	if( !Object || !PropertyName )
+		return 0;
+
+	UProperty* Property = FindField<UProperty>( Object->GetClass(), PropertyName );
+	if( !Property )
+		return 0;
+
+	TCHAR Temp[256] = TEXT("");
+	Property->ExportText( 0, Temp, (BYTE*)Object, (BYTE*)Object, 0 );
+	OutValue = Temp;
+	if( OutValue.Len() >= 2 && (*OutValue)[0] == '"' && (*OutValue)[OutValue.Len()-1] == '"' )
+		OutValue = OutValue.Mid( 1, OutValue.Len() - 2 );
+	if( appStricmp( *OutValue, TEXT("None") ) == 0 )
+		OutValue = TEXT("");
+	return OutValue.Len() > 0;
+}
+
+static INT XboxSmokeGetObjectPropertyInt( UObject* Object, const TCHAR* PropertyName, INT DefaultValue )
+{
+	UProperty* Property = (Object && PropertyName) ? FindField<UProperty>( Object->GetClass(), PropertyName ) : NULL;
+	if( !Property )
+		return DefaultValue;
+
+	BYTE* Data = (BYTE*)Object + Property->Offset;
+	if( Cast<UIntProperty>(Property) )
+		return *(INT*)Data;
+	if( Cast<UByteProperty>(Property) )
+		return *(BYTE*)Data;
+
+	FString Value;
+	return XboxSmokeGetObjectPropertyString( Object, PropertyName, Value ) ? appAtoi( *Value ) : DefaultValue;
+}
+
+static FLOAT XboxSmokeGetObjectPropertyFloat( UObject* Object, const TCHAR* PropertyName, FLOAT DefaultValue )
+{
+	UProperty* Property = (Object && PropertyName) ? FindField<UProperty>( Object->GetClass(), PropertyName ) : NULL;
+	if( !Property )
+		return DefaultValue;
+
+	BYTE* Data = (BYTE*)Object + Property->Offset;
+	if( Cast<UFloatProperty>(Property) )
+		return *(FLOAT*)Data;
+	if( Cast<UIntProperty>(Property) )
+		return (FLOAT)(*(INT*)Data);
+	if( Cast<UByteProperty>(Property) )
+		return (FLOAT)(*(BYTE*)Data);
+
+	FString Value;
+	return XboxSmokeGetObjectPropertyString( Object, PropertyName, Value ) ? appAtof( *Value ) : DefaultValue;
+}
+
+static void XboxSmokeAppendScore( char* Buffer, INT BufferSize, const char* Text )
+{
+	if( !Buffer || BufferSize <= 0 || !Text )
+		return;
+
+	INT Used = (INT)strlen( Buffer );
+	if( Used >= BufferSize - 1 )
+		return;
+
+	INT Written = _snprintf( Buffer + Used, BufferSize - Used - 1, "%s%s", Used > 0 ? ";" : "", Text );
+	if( Written < 0 )
+		Buffer[BufferSize - 1] = 0;
+}
+
+static void XboxSmokeBuildMatchStats( AGameReplicationInfo* GRI, FXboxSmokeMatchStats& Stats )
+{
+	appMemzero( &Stats, sizeof(Stats) );
+	Stats.ScoreSummary[0] = 0;
+	if( !GRI )
+		return;
+
+	for( INT i=0; i<32; i++ )
+	{
+		APlayerReplicationInfo* PRI = GRI->PRIArray[i];
+		if( !PRI )
+			continue;
+
+		Stats.PriCount++;
+		if( PRI->bIsABot )
+			Stats.PriBots++;
+		if( PRI->bIsSpectator )
+			Stats.PriSpectators++;
+		if( PRI->bWaitingPlayer )
+			Stats.PriWaiting++;
+
+		INT Team = Clamp<INT>( PRI->Team, 0, 3 );
+		if( !PRI->bIsSpectator )
+		{
+			Stats.TeamCount[Team]++;
+			if( PRI->bIsABot )
+				Stats.TeamBots[Team]++;
+			Stats.TeamScore[Team] += PRI->Score;
+		}
+
+		if( strlen(Stats.ScoreSummary) < sizeof(Stats.ScoreSummary) - 96 )
+		{
+			char OneScore[128];
+			_snprintf( OneScore, sizeof(OneScore)-1, "%s:T%d:%s:S%.0f:D%.0f%s%s",
+				TCHAR_TO_ANSI(*PRI->PlayerName),
+				(INT)PRI->Team,
+				PRI->bIsABot ? "bot" : "human",
+				PRI->Score,
+				PRI->Deaths,
+				PRI->bIsSpectator ? ":spec" : "",
+				PRI->bWaitingPlayer ? ":wait" : "" );
+			OneScore[sizeof(OneScore)-1] = 0;
+			XboxSmokeAppendScore( Stats.ScoreSummary, sizeof(Stats.ScoreSummary), OneScore );
+		}
+	}
+}
+
 // ── InitEngine ────────────────────────────────────────────────────────────
 // Creates and initializes the game engine object.
 // Mirrors the Windows Launch implementation.
+static UBOOL XboxSmokeLoadMapList( TArray<FString>& OutURLs )
+{
+	guard(XboxSmokeLoadMapList);
+
+	OutURLs.Empty();
+	FString ConfigText;
+	if( !appLoadFileToString( ConfigText, TEXT("D:\\XboxSoakMapList.ini"), GFileManager ) )
+		return 0;
+
+	const TCHAR* Stream = *ConfigText;
+	TCHAR Line[4096];
+	while( ParseLine( &Stream, Line, ARRAY_COUNT(Line), 1 ) )
+	{
+		TCHAR* Start = Line;
+		while( *Start==' ' || *Start=='\t' )
+			Start++;
+
+		TCHAR* End = Start + appStrlen(Start);
+		while( End > Start && (End[-1]==' ' || End[-1]=='\t' || End[-1]=='\r' || End[-1]=='\n') )
+			*--End = 0;
+
+		if( !Start[0] || Start[0]==';' || Start[0]=='#' || Start[0]=='[' )
+			continue;
+
+		if( appStrnicmp( Start, TEXT("StartURL="), 9 ) == 0 )
+			Start += 9;
+		else if( appStrnicmp( Start, TEXT("URL="), 4 ) == 0 )
+			Start += 4;
+
+		while( *Start==' ' || *Start=='\t' )
+			Start++;
+		End = Start + appStrlen(Start);
+		while( End > Start && (End[-1]==' ' || End[-1]=='\t' || End[-1]=='\r' || End[-1]=='\n') )
+			*--End = 0;
+
+		if( Start[0] )
+			new(OutURLs) FString(Start);
+	}
+
+	GXboxLog.Write( "SMOKE map-list loaded count=%d", OutURLs.Num() );
+	for( INT i=0; i<OutURLs.Num(); i++ )
+		GXboxLog.Write( "SMOKE map-list item index=%d url=%s", i, TCHAR_TO_ANSI(*OutURLs(i)) );
+	return OutURLs.Num() > 0;
+
+	unguard;
+}
+
 UEngine* InitEngine()
 {
 	guard(InitEngine);
@@ -136,8 +310,13 @@ void MainLoop( UEngine* Engine )
 	INT TickCount = 0;
 	const FLOAT XboxMaxTickRate = 60.0f;
 	FString LastSmokeURL;
-	UBOOL bXboxStartSmokeReadyApplied = 0;
-	UBOOL bXboxStartSmokeEnabled = (GetFileAttributesA( "D:\\XboxStartURL.ini" ) != 0xFFFFFFFF);
+	FString XboxStartSmokeReadyURL;
+	TArray<FString> XboxSoakURLs;
+	INT XboxSoakIndex = 0;
+	UBOOL bXboxSoakEnabled = XboxSmokeLoadMapList( XboxSoakURLs );
+	UBOOL bXboxSoakTravelScheduled = 0;
+	UBOOL bXboxStartSmokeEnabled = bXboxSoakEnabled || (GetFileAttributesA( "D:\\XboxStartURL.ini" ) != 0xFFFFFFFF);
+	UBOOL bXboxSmokeMatchEndLogged = 0;
 
 	GXboxLog.Write( "MainLoop: entering game loop (Engine=0x%08X)", (DWORD)Engine );
 	GXboxLog.Write( "MainLoop: Xbox frame limiter active max=%.1f Hz", XboxMaxTickRate );
@@ -215,7 +394,7 @@ void MainLoop( UEngine* Engine )
 			if( Level && Level->GetLevelInfo() )
 			{
 				FString CurrentURL = Level->URL.String();
-				if( bXboxStartSmokeEnabled && !bXboxStartSmokeReadyApplied && appStrnicmp( *Level->URL.Map, TEXT("DM-"), 3 ) == 0 )
+				if( bXboxStartSmokeEnabled && CurrentURL != XboxStartSmokeReadyURL && Level->URL.Map.Len() > 0 && appStricmp( *Level->URL.Map, TEXT("CityIntro") ) != 0 )
 				{
 					INT ReadyPlayers = 0;
 					for( APawn* Pawn = Level->GetLevelInfo()->PawnList; Pawn; Pawn = Pawn->nextPawn )
@@ -229,7 +408,7 @@ void MainLoop( UEngine* Engine )
 							ReadyPlayers++;
 						}
 					}
-					bXboxStartSmokeReadyApplied = 1;
+					XboxStartSmokeReadyURL = CurrentURL;
 					GXboxLog.Write( "SMOKE auto-ready players=%d url=%s", ReadyPlayers, TCHAR_TO_ANSI(*CurrentURL) );
 				}
 
@@ -249,28 +428,73 @@ void MainLoop( UEngine* Engine )
 						BotPawnCount++;
 				}
 
-				if( CurrentURL != LastSmokeURL || (TickCount % 300) == 0 )
+				AGameInfo* Game = Level->GetLevelInfo()->Game;
+				AGameReplicationInfo* GRI = Game ? Game->GameReplicationInfo : NULL;
+				FXboxSmokeMatchStats MatchStats;
+				XboxSmokeBuildMatchStats( GRI, MatchStats );
+				FString EndedComment = TEXT("");
+				if( GRI )
+					EndedComment = GRI->GameEndedComments;
+				INT RemainingTime = GRI ? GRI->RemainingTime : -1;
+				INT ElapsedTime = GRI ? GRI->ElapsedTime : -1;
+				INT MinPlayers = XboxSmokeGetObjectPropertyInt( Game, TEXT("MinPlayers"), -1 );
+				INT InitialBots = XboxSmokeGetObjectPropertyInt( Game, TEXT("InitialBots"), -1 );
+				INT NumBots = XboxSmokeGetObjectPropertyInt( Game, TEXT("NumBots"), -1 );
+				INT RemainingBots = XboxSmokeGetObjectPropertyInt( Game, TEXT("RemainingBots"), -1 );
+				INT TimeLimit = XboxSmokeGetObjectPropertyInt( Game, TEXT("TimeLimit"), -1 );
+				FLOAT GoalTeamScore = XboxSmokeGetObjectPropertyFloat( Game, TEXT("GoalTeamScore"), -1.0f );
+				UBOOL bURLChanged = CurrentURL != LastSmokeURL;
+				if( bURLChanged )
+				{
+					bXboxSmokeMatchEndLogged = 0;
+					bXboxSoakTravelScheduled = 0;
+				}
+				UBOOL bMatchEnded = Game && Game->bGameEnded;
+				UBOOL bForceMatchEndLog = bMatchEnded && !bXboxSmokeMatchEndLogged;
+
+				if( bURLChanged || (TickCount % 300) == 0 || bForceMatchEndLog )
 				{
 					UViewport* LocalViewport = (GE && GE->Client && GE->Client->Viewports.Num() > 0) ? GE->Client->Viewports(0) : NULL;
 					APlayerPawn* LocalActor = LocalViewport ? LocalViewport->Actor : NULL;
 					ULevel* LocalLevel = LocalActor ? LocalActor->GetLevel() : NULL;
 					APlayerReplicationInfo* LocalPRI = LocalActor ? LocalActor->PlayerReplicationInfo : NULL;
 					LastSmokeURL = CurrentURL;
-					GXboxLog.Write( "SMOKE tick=%d url=%s actors=%d pawns=%d players=%d bots=%d localVP=0x%08X localActor=0x%08X localClass=%s localLevel=%s localPlayer=0x%08X localPRI=%s localRole=%d/%d ready=%d showMenu=%d waiting=%d spectator=%d availKB=%d heapLiveKB=%u heapPeakKB=%u heapTotalKB=%u largestKB=%u largestTag=%s lastLargeKB=%u lastLargeTag=%s",
+					GXboxLog.Write( "SMOKE tick=%d url=%s game=%s ended=%d rem=%d elapsed=%d actors=%d pawns=%d players=%d bots=%d minPlayers=%d initialBots=%d numBots=%d remainingBots=%d goalTeamScore=%.1f timeLimit=%d pri=%d priBots=%d priSpec=%d priWait=%d teams=%d/%d/%d/%d teamBots=%d/%d/%d/%d teamScore=%.0f/%.0f/%.0f/%.0f localClass=%s localLevel=%s localPRI=%s ready=%d showMenu=%d waiting=%d spectator=%d availKB=%d heapLiveKB=%u heapPeakKB=%u heapTotalKB=%u largestKB=%u largestTag=%s lastLargeKB=%u lastLargeTag=%s comment=%s",
 						TickCount,
 						TCHAR_TO_ANSI(*CurrentURL),
+						(Game && Game->GetClass()) ? TCHAR_TO_ANSI(Game->GetClass()->GetName()) : "(none)",
+						bMatchEnded ? 1 : 0,
+						RemainingTime,
+						ElapsedTime,
 						Level->Actors.Num(),
 						PawnCount,
 						PlayerPawnCount,
 						BotPawnCount,
-						(DWORD)LocalViewport,
-						(DWORD)LocalActor,
+						MinPlayers,
+						InitialBots,
+						NumBots,
+						RemainingBots,
+						GoalTeamScore,
+						TimeLimit,
+						MatchStats.PriCount,
+						MatchStats.PriBots,
+						MatchStats.PriSpectators,
+						MatchStats.PriWaiting,
+						MatchStats.TeamCount[0],
+						MatchStats.TeamCount[1],
+						MatchStats.TeamCount[2],
+						MatchStats.TeamCount[3],
+						MatchStats.TeamBots[0],
+						MatchStats.TeamBots[1],
+						MatchStats.TeamBots[2],
+						MatchStats.TeamBots[3],
+						MatchStats.TeamScore[0],
+						MatchStats.TeamScore[1],
+						MatchStats.TeamScore[2],
+						MatchStats.TeamScore[3],
 						(LocalActor && LocalActor->GetClass()) ? TCHAR_TO_ANSI(LocalActor->GetClass()->GetName()) : "(none)",
 						(LocalLevel && LocalLevel->URL.Map.Len()) ? TCHAR_TO_ANSI(*LocalLevel->URL.Map) : "(none)",
-						LocalActor ? (DWORD)LocalActor->Player : 0,
 						LocalPRI ? TCHAR_TO_ANSI(*LocalPRI->PlayerName) : "(none)",
-						LocalActor ? LocalActor->Role : -1,
-						LocalActor ? LocalActor->RemoteRole : -1,
 						LocalActor ? LocalActor->bReadyToPlay : 0,
 						LocalActor ? LocalActor->bShowMenu : 0,
 						LocalPRI ? LocalPRI->bWaitingPlayer : 0,
@@ -282,7 +506,54 @@ void MainLoop( UEngine* Engine )
 						(unsigned)(GXboxMallocLargestBytes / 1024),
 						GXboxMallocLargestTag,
 						(unsigned)(GXboxMallocLastLargeBytes / 1024),
-						GXboxMallocLastLargeTag );
+						GXboxMallocLastLargeTag,
+						TCHAR_TO_ANSI(*EndedComment) );
+					if( MatchStats.ScoreSummary[0] )
+						GXboxLog.Write( "SMOKE scores tick=%d %s", TickCount, MatchStats.ScoreSummary );
+					if( bForceMatchEndLog )
+					{
+						GXboxLog.Write( "SMOKE match-ended tick=%d url=%s rem=%d elapsed=%d pri=%d priBots=%d teams=%d/%d/%d/%d teamScore=%.0f/%.0f/%.0f/%.0f comment=%s",
+							TickCount,
+							TCHAR_TO_ANSI(*CurrentURL),
+							RemainingTime,
+							ElapsedTime,
+							MatchStats.PriCount,
+							MatchStats.PriBots,
+							MatchStats.TeamCount[0],
+							MatchStats.TeamCount[1],
+							MatchStats.TeamCount[2],
+							MatchStats.TeamCount[3],
+							MatchStats.TeamScore[0],
+							MatchStats.TeamScore[1],
+							MatchStats.TeamScore[2],
+							MatchStats.TeamScore[3],
+							TCHAR_TO_ANSI(*EndedComment) );
+						bXboxSmokeMatchEndLogged = 1;
+						if( bXboxSoakEnabled && !bXboxSoakTravelScheduled )
+						{
+							if( XboxSoakIndex + 1 < XboxSoakURLs.Num() )
+							{
+								XboxSoakIndex++;
+								Level->GetLevelInfo()->NextURL = XboxSoakURLs(XboxSoakIndex);
+								Level->GetLevelInfo()->bNextItems = 0;
+								Level->GetLevelInfo()->NextSwitchCountdown = 5.0f;
+								bXboxSoakTravelScheduled = 1;
+								GXboxLog.Write( "SMOKE map-advance scheduled tick=%d index=%d/%d next=%s delay=5.0",
+									TickCount,
+									XboxSoakIndex,
+									XboxSoakURLs.Num(),
+									TCHAR_TO_ANSI(*XboxSoakURLs(XboxSoakIndex)) );
+							}
+							else
+							{
+								bXboxSoakTravelScheduled = 1;
+								GXboxLog.Write( "SMOKE map-list complete tick=%d index=%d count=%d",
+									TickCount,
+									XboxSoakIndex,
+									XboxSoakURLs.Num() );
+							}
+						}
+					}
 				}
 			}
 		}

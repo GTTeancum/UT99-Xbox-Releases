@@ -23,6 +23,17 @@ CORE_API INT GNativeDuplicate=0;
 #define RECURSE_LIMIT 250
 
 #if TARGET_XBOX
+static UBOOL XboxVerboseScriptTraceEnabled()
+{
+	static INT Cached = -1;
+	if( Cached < 0 )
+	{
+		Cached = (GetFileAttributesA( "D:\\XboxScriptTrace.ini" ) != 0xFFFFFFFF
+			|| GetFileAttributesA( "XboxScriptTrace.ini" ) != 0xFFFFFFFF) ? 1 : 0;
+	}
+	return Cached ? 1 : 0;
+}
+
 static UBOOL XboxClassIsOrChildNamed( UClass* Class, const TCHAR* Name )
 {
 	for( UClass* It=Class; It; It=It->GetSuperClass() )
@@ -63,6 +74,7 @@ static UBOOL XboxShouldTraceLoginFrame( UObject* Object, UStruct* Node )
 		return XboxClassIsOrChildNamed( Object->GetClass(), TEXT("PlayerPawn") );
 	return 0;
 }
+
 #endif
 
 #if DO_GUARD
@@ -669,7 +681,8 @@ void UObject::execContext( FFrame& Stack, RESULT_DECL )
 
 	// Get actor variable.
 #if TARGET_XBOX
-	const UBOOL bXboxTraceLogin = XboxShouldTraceLoginFrame( Stack.Object, Stack.Node );
+	const UBOOL bXboxTraceLogin = XboxVerboseScriptTraceEnabled()
+		&& XboxShouldTraceLoginFrame( Stack.Object, Stack.Node );
 	const INT XboxContextOffset = (bXboxTraceLogin && Stack.Node) ? Stack.Code - &Stack.Node->Script(0) - 1 : -1;
 #endif
 	UObject* NewContext=NULL;
@@ -3570,7 +3583,8 @@ void UObject::execDynamicLoadObject( FFrame& Stack, RESULT_DECL )
 	P_FINISH;
 
 #if TARGET_XBOX
-	const UBOOL bXboxTraceLoad = XboxShouldTraceLoginFrame( Stack.Object, Stack.Node );
+	const UBOOL bXboxTraceLoad = XboxVerboseScriptTraceEnabled()
+		&& XboxShouldTraceLoginFrame( Stack.Object, Stack.Node );
 	if( bXboxTraceLoad )
 		debugf( NAME_Log, TEXT("XDYNLOAD begin obj=%s func=%s name=%s class=%s mayFail=%i result=0x%08X"),
 			Stack.Object ? Stack.Object->GetFullName() : TEXT("None"),
@@ -3586,6 +3600,56 @@ void UObject::execDynamicLoadObject( FFrame& Stack, RESULT_DECL )
 			Stack.Node ? Stack.Node->GetName() : TEXT("None") );
 		*(UObject**)Result = NULL;
 		return;
+	}
+	if( bMayFail && Class && appStrlen(*Name) < 256 && appStrchr(*Name,'.') )
+	{
+		TCHAR NameCopy[256];
+		appStrncpy( NameCopy, *Name, ARRAY_COUNT(NameCopy) );
+		UObject* Package = NULL;
+		const TCHAR* ObjectName = NameCopy;
+		if( ResolveName( Package, ObjectName, 0, 0 ) && Package )
+		{
+			UObject* LoadedMayFailObject = StaticFindObject( Class, Package, ObjectName );
+			if( LoadedMayFailObject )
+			{
+				if( bXboxTraceLoad )
+					debugf( NAME_Log, TEXT("XDYNLOAD loaded-package optional result obj=%s func=%s name=%s loaded=%s"),
+						Stack.Object ? Stack.Object->GetFullName() : TEXT("None"),
+						Stack.Node ? Stack.Node->GetFullName() : TEXT("None"),
+						*Name,
+						LoadedMayFailObject->GetFullName() );
+				*(UObject**)Result = LoadedMayFailObject;
+				return;
+			}
+
+			ULinkerLoad* Linker = NULL;
+			for( INT i=0; i<GObjLoaders.Num() && !Linker; i++ )
+				if( GetLoader(i)->LinkerRoot == Package )
+					Linker = GetLoader(i);
+			if( Linker )
+			{
+				FName ExportName( ObjectName, FNAME_Find );
+				UBOOL bOptionalExportMissing = ExportName == NAME_None;
+				if( !bOptionalExportMissing )
+				{
+					const FName ClassPackageName = Class->GetOuter() ? Class->GetOuter()->GetFName() : NAME_None;
+					bOptionalExportMissing =
+						Linker->FindExportIndex( Class->GetFName(), ClassPackageName, ExportName, INDEX_NONE ) == INDEX_NONE;
+				}
+				if( bOptionalExportMissing )
+				{
+					if( bXboxTraceLoad )
+						debugf( NAME_Log, TEXT("XDYNLOAD loaded-package optional miss obj=%s func=%s name=%s package=%s object=%s"),
+							Stack.Object ? Stack.Object->GetFullName() : TEXT("None"),
+							Stack.Node ? Stack.Node->GetFullName() : TEXT("None"),
+							*Name,
+							Package->GetFullName(),
+							ObjectName );
+					*(UObject**)Result = NULL;
+					return;
+				}
+			}
+		}
 	}
 #endif
 
@@ -3725,8 +3789,9 @@ void UObject::CallFunction( FFrame& Stack, RESULT_DECL, UFunction* Function )
 {
 	guardSlow(UObject::CallFunction);
 #if TARGET_XBOX
-	const UBOOL bXboxTraceCall = XboxShouldTraceLoginFrame( Stack.Object, Stack.Node )
-		|| XboxShouldTraceLoginFrame( this, Function );
+	const UBOOL bXboxTraceCall = XboxVerboseScriptTraceEnabled()
+		&& (XboxShouldTraceLoginFrame( Stack.Object, Stack.Node )
+		|| XboxShouldTraceLoginFrame( this, Function ));
 	if( bXboxTraceCall )
 		debugf( NAME_Log, TEXT("XCALL enter ctx=%s caller=%s callee=%s callerOff=%i flags=0x%08X native=%i props=%i parms=%i result=0x%08X"),
 			this ? GetFullName() : TEXT("None"),
@@ -3846,7 +3911,8 @@ void UObject::ProcessInternal( FFrame& Stack, RESULT_DECL )
 {
 	guardSlow(UObject::ProcessInternal);
 #if TARGET_XBOX
-	const UBOOL bXboxTraceLogin = XboxShouldTraceLoginFrame( Stack.Object, Stack.Node );
+	const UBOOL bXboxTraceLogin = XboxVerboseScriptTraceEnabled()
+		&& XboxShouldTraceLoginFrame( Stack.Object, Stack.Node );
 	if( bXboxTraceLogin )
 		debugf( NAME_Log, TEXT("XSCRIPT enter obj=%s func=%s scriptBytes=%i locals=0x%08X result=0x%08X"),
 			Stack.Object ? Stack.Object->GetFullName() : TEXT("None"),
@@ -3909,7 +3975,8 @@ void UObject::ProcessEvent( UFunction* Function, void* Parms, void* UnusedResult
 {
 	guard(UObject::ProcessEvent);
 #if TARGET_XBOX
-	const UBOOL bXboxTraceLogin = XboxShouldTraceLoginFrame( this, Function );
+	const UBOOL bXboxTraceLogin = XboxVerboseScriptTraceEnabled()
+		&& XboxShouldTraceLoginFrame( this, Function );
 	if( bXboxTraceLogin )
 		debugf( NAME_Log, TEXT("XPEVENT enter obj=%s func=%s parms=0x%08X parmsSize=%i propsSize=%i retOff=%i flags=0x%08X native=%i"),
 			GetFullName(),

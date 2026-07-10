@@ -1203,9 +1203,14 @@ static UBOOL XboxSplitSmokeEnabled()
     return XboxSmokeMarkerExists( "XboxSplitSmoke.ini", Cached );
 }
 
+static UBOOL XboxSoakSmokeEnabled();
+
 static UBOOL XboxSplitSmokeInputProofEnabled()
 {
     if( XboxSplitSmokeEnabled() )
+        return 1;
+
+    if( XboxSoakSmokeEnabled() )
         return 1;
 
     // The paired System Link stress run does not use the standalone split-screen
@@ -1222,10 +1227,22 @@ static UBOOL XboxMenuSmokeEnabled()
     return XboxSmokeMarkerExists( "XboxMenuSmoke.ini", Cached );
 }
 
+static UBOOL XboxMenuSmokeJailbreakEnabled()
+{
+    static INT Cached = -1;
+    return XboxSmokeMarkerExists( "XboxMenuSmokeJailbreak.ini", Cached );
+}
+
 static UBOOL XboxTournamentSmokeEnabled()
 {
     static INT Cached = -1;
     return XboxSmokeMarkerExists( "XboxTournamentSmoke.ini", Cached );
+}
+
+static UBOOL XboxSoakSmokeEnabled()
+{
+    static INT Cached = -1;
+    return XboxSmokeMarkerExists( "XboxSoakSmoke.ini", Cached );
 }
 
 static UBOOL XboxSystemLinkSmokeEnabled()
@@ -2123,6 +2140,33 @@ static void XboxSystemLinkSmokeLogGameplayStatus( UClient* InClient, ULevel* Cur
         NonSpectatorCount,
         ViewportActorCount,
         TCHAR_TO_ANSI(SlotText) );
+
+    static UBOOL bSystemLinkSmokeDoneLogged = 0;
+    if( !bSystemLinkSmokeDoneLogged
+    &&  XboxSystemLinkFourPlayerStressEnabled()
+    &&  GXboxSplitSmokeFinished
+    &&  CurrentLevel->GetLevelInfo()->NetMode != NM_Standalone
+    &&  InClient->Viewports.Num() >= 4
+    &&  (XboxSystemLinkReadyMask() & 0xF) == 0xF
+    &&  (XboxSystemLinkLockedMask() & 0xF) == 0xF )
+    {
+        bSystemLinkSmokeDoneLogged = 1;
+        GXboxLog.Write( "XSL SMOKE DONE role=%s map=%s net=%d viewports=%d ready=0x%X locked=0x%X bound=0x%X gamePlayers=%d pawns=%d pawnsWithPlayer=%d nonSpec=%d vpActors=%d availKB=%u",
+            TCHAR_TO_ANSI(XboxSystemLinkRoleText(GXboxSystemLink.Role)),
+            TCHAR_TO_ANSI(*CurrentLevel->URL.Map),
+            (INT)CurrentLevel->GetLevelInfo()->NetMode,
+            InClient->Viewports.Num(),
+            XboxSystemLinkReadyMask(),
+            XboxSystemLinkLockedMask(),
+            GXboxSystemLinkChildBoundMask,
+            Game ? Game->NumPlayers : -1,
+            PlayerPawnCount,
+            PlayerPawnWithPlayerCount,
+            NonSpectatorCount,
+            ViewportActorCount,
+            (unsigned)XboxMenuAvailPhysKB() );
+        GXboxLog.Flush();
+    }
 
     static APlayerPawn* LastSlotActor[4] = { NULL, NULL, NULL, NULL };
     static FVector LastSlotLocation[4];
@@ -3866,6 +3910,16 @@ static void XboxMenuAddFallbackGameType( const TCHAR* Label, const TCHAR* ClassN
     Option.MapPrefix = Prefix;
 }
 
+static UBOOL XboxMenuPackageFileExists( const TCHAR* PackageFile )
+{
+    if( !PackageFile || !PackageFile[0] || !GFileManager )
+        return 0;
+
+    TCHAR Filename[256];
+    appSprintf( Filename, TEXT("%s%s"), appBaseDir(), PackageFile );
+    return GFileManager->FileSize( Filename ) >= 0;
+}
+
 static void XboxMenuAddFallbackMutator( const TCHAR* Label, const TCHAR* ClassName )
 {
     FXboxDiscoveredOption& Option = *new(GXboxDiscoveredMutators)FXboxDiscoveredOption;
@@ -3887,6 +3941,8 @@ static void XboxMenuLoadDiscoveredLists()
     XboxMenuAddFallbackGameType( TEXT("CAPTURE THE FLAG"), TEXT("Botpack.CTFGame"), TEXT("CTF") );
     XboxMenuAddFallbackGameType( TEXT("DOMINATION"), TEXT("Botpack.Domination"), TEXT("DOM") );
     XboxMenuAddFallbackGameType( TEXT("ASSAULT"), TEXT("Botpack.Assault"), TEXT("AS") );
+    if( XboxMenuPackageFileExists( TEXT("JailBreak.u") ) )
+        XboxMenuAddFallbackGameType( TEXT("JAILBREAK"), TEXT("JailBreak.JailBreak"), TEXT("JB") );
 
     XboxMenuAddFallbackMutator( TEXT("LOW GRAVITY"), TEXT("Botpack.LowGrav") );
     XboxMenuAddFallbackMutator( TEXT("INSTAGIB"), TEXT("Botpack.InstaGibDM") );
@@ -6182,7 +6238,7 @@ static void XboxMenuSmokeTick( UXboxViewport* Viewport )
     static INT SmokeStage = 0;
     static DOUBLE SmokeStartTime = 0.0;
 
-    if( !XboxMenuSmokeEnabled() || !Viewport || !Viewport->Actor )
+    if( XboxSoakSmokeEnabled() || !XboxMenuSmokeEnabled() || !Viewport || !Viewport->Actor )
         return;
 
     if( SmokeStage == 0 )
@@ -6197,15 +6253,42 @@ static void XboxMenuSmokeTick( UXboxViewport* Viewport )
     {
         GXboxMenu.Screen = XMS_InstantAction;
         GXboxMenu.InstantGameType = Clamp<INT>( GXboxMenu.InstantGameType, 0, XboxMenuGameTypeCount()-1 );
+        if( XboxMenuSmokeJailbreakEnabled() )
+        {
+            for( INT i=0; i<XboxMenuGameTypeCount(); i++ )
+            {
+                const FXboxDiscoveredOption& Game = XboxMenuGameType(i);
+                if( appStricmp( *Game.URLValue, TEXT("JailBreak.JailBreak") ) == 0
+                ||  appStricmp( *Game.Label, TEXT("JAILBREAK") ) == 0 )
+                {
+                    GXboxMenu.InstantGameType = i;
+                    break;
+                }
+            }
+        }
         XboxMenuLoadMapsForGameType( GXboxMenu.InstantGameType );
+        if( XboxMenuSmokeJailbreakEnabled() )
+        {
+            INT TalaeronIndex = XboxMenuFindMapIndexByFile( GXboxMenu.InstantGameType, TEXT("JB-Talaeron-Gold.unr") );
+            if( TalaeronIndex >= 0 )
+                GXboxMenu.InstantMap[GXboxMenu.InstantGameType] = TalaeronIndex;
+        }
         SmokeStage = 2;
         SmokeStartTime = appSeconds();
-        GXboxLog.Write( "XMENU SMOKE opened Instant Action gameTypes=%d maps=%d mutators=%d",
+        const FXboxDiscoveredOption& Game = XboxMenuGameType( GXboxMenu.InstantGameType );
+        const INT MapCount = XboxInstantMapList( GXboxMenu.InstantGameType );
+        const FXboxDiscoveredOption* Map = MapCount > 0 ? &XboxMenuMap( GXboxMenu.InstantGameType, GXboxMenu.InstantMap[GXboxMenu.InstantGameType] ) : NULL;
+        GXboxLog.Write( "XMENU SMOKE opened Instant Action gameTypes=%d selected=%d label=%s class=%s prefix=%s maps=%d map=%s mutators=%d",
             XboxMenuGameTypeCount(),
-            XboxInstantMapList( GXboxMenu.InstantGameType ),
+            GXboxMenu.InstantGameType,
+            TCHAR_TO_ANSI(*Game.Label),
+            TCHAR_TO_ANSI(*Game.URLValue),
+            TCHAR_TO_ANSI(*Game.MapPrefix),
+            MapCount,
+            Map ? TCHAR_TO_ANSI(*Map->URLValue) : "",
             XboxMenuMutatorCount() );
     }
-    else if( SmokeStage == 2 && (appSeconds() - SmokeStartTime) > 2.0 )
+    else if( SmokeStage == 2 && !XboxMenuSmokeJailbreakEnabled() && (appSeconds() - SmokeStartTime) > 2.0 )
     {
         GXboxMenu.Screen = XMS_PlayerSetup;
         GXboxMenu.PlayerFocus = 0;
@@ -6936,8 +7019,409 @@ static void XboxMenuReturnToFrontend( UXboxViewport* Viewport )
         Client->Engine->Audio->Exec( TEXT("XAUDIOSTOPFX") );
     }
 
-    GXboxLog.Write( "XMENU return to frontend queued: CityIntro.unr" );
-    Client->Engine->SetClientTravel( Viewport, TEXT("CityIntro.unr"), 0, TRAVEL_Absolute );
+    const TCHAR* FrontendURL = TEXT("CityIntro.unr?Game=Engine.GameInfo?Name=Player?Class=Engine.Spectator?Team=255");
+    UViewport* TravelViewport = Client->Viewports.Num() > 0 ? Client->Viewports(0) : Viewport;
+    GXboxLog.Write( "XMENU return to frontend queued: viewport=0x%08X first=0x%08X url=%s",
+        (DWORD)Viewport,
+        (DWORD)TravelViewport,
+        TCHAR_TO_ANSI(FrontendURL) );
+    Client->Engine->SetClientTravel( TravelViewport, FrontendURL, 0, TRAVEL_Absolute );
+}
+
+static const TCHAR* XboxMenuScreenName( EXboxMenuScreen Screen )
+{
+    switch( Screen )
+    {
+        case XMS_Pause: return TEXT("Pause");
+        case XMS_Main: return TEXT("Main");
+        case XMS_InstantAction: return TEXT("InstantAction");
+        case XMS_Mutators: return TEXT("Mutators");
+        case XMS_SystemLink: return TEXT("SystemLink");
+        case XMS_SystemLinkMapSelect: return TEXT("SystemLinkMapSelect");
+        case XMS_Tournament: return TEXT("Tournament");
+        case XMS_SplitReady: return TEXT("SplitReady");
+        case XMS_SplitMapSelect: return TEXT("SplitMapSelect");
+        case XMS_PlayerSetup: return TEXT("PlayerSetup");
+        case XMS_Settings: return TEXT("Settings");
+        case XMS_ComingSoon: return TEXT("ComingSoon");
+    }
+    return TEXT("Unknown");
+}
+
+static void XboxSoakLogState( UXboxViewport* Viewport, const char* Tag )
+{
+    APlayerPawn* Player = Viewport ? Viewport->Actor : NULL;
+    ULevel* Level = Player ? Player->GetLevel() : NULL;
+    const TCHAR* MapName = (Level && Level->URL.Map.Len()) ? *Level->URL.Map : TEXT("");
+    const TCHAR* UrlText = (Level && Level->URL.Map.Len()) ? *Level->URL.String() : TEXT("");
+    const TCHAR* TravelText = (Viewport && Viewport->TravelURL.Len()) ? *Viewport->TravelURL : TEXT("");
+    INT ViewportCount = 0;
+    UXboxClient* Client = Viewport ? (UXboxClient*)Viewport->GetOuter() : NULL;
+    if( Client )
+        ViewportCount = Client->Viewports.Num();
+
+    GXboxLog.Write( "XSOAK state tag=%s map=%s url=%s travel=%s menu=%d screen=%s split=%d pending=%d activeMask=0x%X players=%d viewports=%d player=0x%08X class=%s state=%s ready=%d showMenu=%d availKB=%u",
+        Tag ? Tag : "",
+        TCHAR_TO_ANSI(MapName),
+        TCHAR_TO_ANSI(UrlText),
+        TCHAR_TO_ANSI(TravelText),
+        GXboxMenu.Active ? 1 : 0,
+        TCHAR_TO_ANSI(XboxMenuScreenName(GXboxMenu.Screen)),
+        GXboxSplitActive ? 1 : 0,
+        GXboxSplitPending ? 1 : 0,
+        GXboxSplitActiveMask,
+        GXboxSplitActivePlayerCount,
+        ViewportCount,
+        (DWORD)Player,
+        Player && Player->GetClass() ? TCHAR_TO_ANSI(Player->GetClass()->GetName()) : "None",
+        TCHAR_TO_ANSI(XboxPlayerStateName(Player)),
+        Player && Player->bReadyToPlay ? 1 : 0,
+        Player && Player->bShowMenu ? 1 : 0,
+        (unsigned)XboxMenuAvailPhysKB() );
+    XboxMenuLogResourceBuckets( Tag ? Tag : "soak" );
+}
+
+static UBOOL XboxSoakSelectMap( const TCHAR* MapFile )
+{
+    INT GameTypeCount = XboxMenuGameTypeCount();
+    for( INT GameType=0; GameType<GameTypeCount; GameType++ )
+    {
+        INT MapIndex = XboxMenuFindMapIndexByFile( GameType, MapFile );
+        if( MapIndex != INDEX_NONE )
+        {
+            GXboxMenu.InstantGameType = GameType;
+            GXboxMenu.InstantMap[GameType] = MapIndex;
+            XboxMenuLoadMapsForGameType( GameType );
+            const FXboxDiscoveredOption& Game = XboxMenuGameType( GameType );
+            const FXboxDiscoveredOption& Map = XboxMenuMap( GameType, MapIndex );
+            GXboxLog.Write( "XSOAK selected map file=%s game=%s map=%s gameType=%d mapIndex=%d",
+                TCHAR_TO_ANSI(MapFile),
+                TCHAR_TO_ANSI(*Game.URLValue),
+                TCHAR_TO_ANSI(*Map.URLValue),
+                GameType,
+                MapIndex );
+            return 1;
+        }
+    }
+
+    GXboxLog.Write( "XSOAK selected map missing file=%s gameTypes=%d", TCHAR_TO_ANSI(MapFile), GameTypeCount );
+    return 0;
+}
+
+static void XboxSoakConfigureMatchDefaults()
+{
+    GXboxMenu.InstantBots = 1;
+    GXboxMenu.InstantSkill = 1;
+    GXboxMenu.InstantFragLimit = 1;
+    GXboxMenu.InstantTimeLimit = 1;
+    GXboxMenu.InstantMutatorChoice = 0;
+    for( INT i=0; i<ARRAY_COUNT(GXboxMenu.InstantMutatorMask); i++ )
+        GXboxMenu.InstantMutatorMask[i] = 0;
+}
+
+static void XboxSoakConfigureFourSplitSlots()
+{
+    XboxSplitReadyReset();
+    XboxSplitReadyEnsure();
+    XboxMenuLoadPlayerClasses();
+
+    INT CharacterCount = Max<INT>( GXboxPlayerClasses.Num(), 1 );
+    for( INT i=0; i<4; i++ )
+    {
+        GXboxSplitReadySlots[i].Joined = 1;
+        GXboxSplitReadySlots[i].Locked = 1;
+        GXboxSplitReadySlots[i].Focus = 0;
+        GXboxSplitReadySlots[i].Character = i % CharacterCount;
+        const FXboxPlayerClassOption& Player = XboxSplitReadyPlayerClass( i );
+        GXboxSplitReadySlots[i].Team = Player.DefaultTeam;
+        GXboxLog.Write( "XSOAK split slot=%d character=%d label=%s team=%d",
+            i,
+            GXboxSplitReadySlots[i].Character,
+            TCHAR_TO_ANSI(*Player.Label),
+            GXboxSplitReadySlots[i].Team );
+    }
+}
+
+static void XboxSoakForceStartMatch( UXboxViewport* Viewport, const char* Reason )
+{
+    APlayerPawn* Player = Viewport ? Viewport->Actor : NULL;
+    ULevel* Level = Player ? Player->GetLevel() : NULL;
+    UObject* Game = (Level && Level->GetLevelInfo()) ? Level->GetLevelInfo()->Game : NULL;
+    if( !Player || !Game )
+        return;
+
+    Player->bReadyToPlay = 1;
+    Player->bShowMenu = 0;
+    Player->bSpecialMenu = 0;
+    XboxSetObjectPropertyText( Game, TEXT("bRequireReady"), TEXT("False") );
+    XboxSetObjectPropertyInt( Game, TEXT("CountDown"), 0 );
+    UFunction* StartMatch = Game->FindFunction( FName(TEXT("StartMatch"), FNAME_Find) );
+    if( StartMatch )
+    {
+        Game->ProcessEvent( StartMatch, NULL );
+        GXboxLog.Write( "XSOAK force start reason=%s map=%s state=%s class=%s game=%s",
+            Reason ? Reason : "",
+            Level && Level->URL.Map.Len() ? TCHAR_TO_ANSI(*Level->URL.Map) : "",
+            TCHAR_TO_ANSI(XboxPlayerStateName(Player)),
+            Player->GetClass() ? TCHAR_TO_ANSI(Player->GetClass()->GetName()) : "None",
+            Game->GetClass() ? TCHAR_TO_ANSI(Game->GetClass()->GetName()) : "None" );
+    }
+}
+
+static void XboxSoakStartInstantMap( UXboxViewport* Viewport, const TCHAR* MapFile )
+{
+    XboxSoakConfigureMatchDefaults();
+    if( XboxSoakSelectMap( MapFile ) )
+        XboxMenuStartInstantAction( Viewport );
+}
+
+static void XboxSoakStartSplitMap( UXboxViewport* Viewport, const TCHAR* MapFile )
+{
+    XboxSoakConfigureMatchDefaults();
+    if( !XboxSoakSelectMap( MapFile ) )
+        return;
+    XboxSoakConfigureFourSplitSlots();
+    XboxMenuStartSplitMatch( Viewport );
+}
+
+static void XboxSoakSmokeTick( UXboxViewport* Viewport )
+{
+    static INT SoakStage = 0;
+    static DOUBLE StageStartTime = 0.0;
+    static DWORD StageStartTick = 0;
+    static DOUBLE LastLogTime = 0.0;
+    static DOUBLE LastFrontendRetryTime = 0.0;
+    static UBOOL TournamentReadySent = 0;
+    static INT CompletedMapLegs = 0;
+    static const TCHAR* MapLegs[] =
+    {
+        TEXT("DM-Fractal.unr"),
+        TEXT("CTF-Face.unr"),
+        TEXT("AS-HiSpeed.unr"),
+        TEXT("DM-Deck16][.unr")
+    };
+
+    if( !XboxSoakSmokeEnabled() || !Viewport || !Viewport->Actor )
+        return;
+
+    DOUBLE Now = appSeconds();
+    DWORD TickNow = GetTickCount();
+    FLOAT StageElapsed = StageStartTick ? (FLOAT)(TickNow - StageStartTick) / 1000.0f : 0.0f;
+    FLOAT AppStageElapsed = StageStartTime > 0.0 ? (FLOAT)(Now - StageStartTime) : 0.0f;
+    if( AppStageElapsed > StageElapsed )
+        StageElapsed = AppStageElapsed;
+    APlayerPawn* Player = Viewport->Actor;
+    ULevel* Level = Player ? Player->GetLevel() : NULL;
+    UBOOL bFrontend = XboxIsFrontendLevel( Level );
+
+    if( SoakStage == 0 )
+    {
+        StageStartTime = Now;
+        StageStartTick = TickNow;
+        LastLogTime = 0.0;
+        LastFrontendRetryTime = 0.0;
+        TournamentReadySent = 0;
+        CompletedMapLegs = 0;
+        SoakStage = 1;
+        GXboxLog.Write( "XSOAK START plan=menus,tournament,dm,ctf,assault,dm,4p-split" );
+        XboxSoakLogState( Viewport, "start" );
+        return;
+    }
+
+    if( Now - LastLogTime >= 5.0 )
+    {
+        char HeartbeatTag[96];
+        appSprintf( HeartbeatTag, "heartbeat stage=%d elapsed=%.1f app=%.1f legs=%d",
+            SoakStage, StageElapsed, AppStageElapsed, CompletedMapLegs );
+        LastLogTime = Now;
+        XboxSoakLogState( Viewport, HeartbeatTag );
+    }
+
+    if( SoakStage == 1 && bFrontend && StageElapsed >= 2.0f )
+    {
+        XboxMenuOpen( Viewport );
+        GXboxMenu.Screen = XMS_Main;
+        GXboxMenu.MainFocus = 0;
+        StageStartTime = Now;
+        StageStartTick = TickNow;
+        SoakStage = 2;
+        XboxSoakLogState( Viewport, "menu-main" );
+        return;
+    }
+
+    if( SoakStage == 2 && StageElapsed >= 1.0f )
+    {
+        GXboxMenu.Screen = XMS_InstantAction;
+        GXboxMenu.InstantFocus = 0;
+        XboxSoakConfigureMatchDefaults();
+        XboxSoakSelectMap( TEXT("DM-Fractal.unr") );
+        StageStartTime = Now;
+        StageStartTick = TickNow;
+        SoakStage = 3;
+        XboxSoakLogState( Viewport, "menu-instant" );
+        return;
+    }
+
+    if( SoakStage == 3 && StageElapsed >= 1.0f )
+    {
+        GXboxMenu.Screen = XMS_PlayerSetup;
+        GXboxMenu.PlayerFocus = 0;
+        XboxMenuLoadPlayerState();
+        XboxMenuLoadPlayerClasses();
+        INT CharacterCount = Max<INT>( GXboxPlayerClasses.Num(), 1 );
+        GXboxMenu.PlayerClass = XboxMenuWrapInt( GXboxMenu.PlayerClass, 3, CharacterCount );
+        StageStartTime = Now;
+        StageStartTick = TickNow;
+        SoakStage = 4;
+        XboxSoakLogState( Viewport, "menu-player-setup" );
+        return;
+    }
+
+    if( SoakStage == 4 && StageElapsed >= 1.0f )
+    {
+        XboxMenuStartTournament( Viewport );
+        StageStartTime = Now;
+        StageStartTick = TickNow;
+        SoakStage = 5;
+        XboxSoakLogState( Viewport, "menu-tournament" );
+        return;
+    }
+
+    if( SoakStage == 5 && StageElapsed >= 1.5f )
+    {
+        GXboxMenu.TournamentFocus = 3;
+        XboxMenuStartTournamentMatch( Viewport );
+        StageStartTime = Now;
+        StageStartTick = TickNow;
+        TournamentReadySent = 0;
+        SoakStage = 6;
+        GXboxLog.Write( "XSOAK travel tournament" );
+        return;
+    }
+
+    if( SoakStage == 6 && !bFrontend )
+    {
+        if( !TournamentReadySent && StageElapsed >= 4.0f )
+        {
+            XboxTournamentHandleReadyInput( Viewport, 1, 0 );
+            TournamentReadySent = 1;
+            XboxSoakLogState( Viewport, "tournament-ready" );
+        }
+        if( StageElapsed >= 10.0f )
+        {
+            XboxSoakLogState( Viewport, "tournament-return" );
+            XboxMenuReturnToFrontend( Viewport );
+            StageStartTime = Now;
+            StageStartTick = TickNow;
+            SoakStage = 7;
+        }
+        return;
+    }
+
+    if( SoakStage == 7 && bFrontend && StageElapsed >= 2.0f )
+    {
+        XboxSoakLogState( Viewport, "frontend-after-tournament" );
+        LastFrontendRetryTime = 0.0;
+        StageStartTime = Now;
+        StageStartTick = TickNow;
+        SoakStage = 8;
+        return;
+    }
+
+    if( SoakStage == 7 && !bFrontend && StageElapsed >= 4.0f )
+    {
+        if( LastFrontendRetryTime <= 0.0 || (Now - LastFrontendRetryTime) >= 4.0 )
+        {
+            XboxSoakLogState( Viewport, "frontend-return-retry" );
+            XboxMenuReturnToFrontend( Viewport );
+            LastFrontendRetryTime = Now;
+        }
+        if( StageElapsed >= 24.0f )
+        {
+            XboxSoakLogState( Viewport, "frontend-return-timeout" );
+            GXboxLog.Write( "XSOAK FAIL frontend return timeout stage=%d legs=%d elapsed=%.1f map=%s",
+                SoakStage,
+                CompletedMapLegs,
+                StageElapsed,
+                Level && Level->URL.Map.Len() ? TCHAR_TO_ANSI(*Level->URL.Map) : "" );
+            GXboxLog.Flush();
+            SoakStage = 12;
+        }
+        return;
+    }
+
+    if( SoakStage == 8 && bFrontend )
+    {
+        if( CompletedMapLegs < ARRAY_COUNT(MapLegs) )
+        {
+            const TCHAR* MapFile = MapLegs[CompletedMapLegs];
+            GXboxLog.Write( "XSOAK travel instant leg=%d map=%s", CompletedMapLegs, TCHAR_TO_ANSI(MapFile) );
+            XboxSoakStartInstantMap( Viewport, MapFile );
+            StageStartTime = Now;
+            StageStartTick = TickNow;
+            SoakStage = 9;
+        }
+        else
+        {
+            StageStartTime = Now;
+            StageStartTick = TickNow;
+            SoakStage = 10;
+        }
+        return;
+    }
+
+    if( SoakStage == 9 )
+    {
+        if( !bFrontend && StageElapsed >= 3.0f && Player && !Player->bReadyToPlay )
+            XboxSoakForceStartMatch( Viewport, "instant-ready" );
+        if( StageElapsed >= 8.0f )
+        {
+            XboxSoakLogState( Viewport, "instant-map-return" );
+            CompletedMapLegs++;
+            XboxMenuReturnToFrontend( Viewport );
+            StageStartTime = Now;
+            StageStartTick = TickNow;
+            SoakStage = 7;
+        }
+        return;
+    }
+
+    if( SoakStage == 10 && bFrontend && StageElapsed >= 2.0f )
+    {
+        GXboxLog.Write( "XSOAK travel split map=DM-Deck16][.unr" );
+        XboxSoakStartSplitMap( Viewport, TEXT("DM-Deck16][.unr") );
+        StageStartTime = Now;
+        StageStartTick = TickNow;
+        SoakStage = 11;
+        return;
+    }
+
+    if( SoakStage == 11 )
+    {
+        if( GXboxSplitSmokeFinished )
+        {
+            XboxSoakLogState( Viewport, "split-finished" );
+            GXboxLog.Write( "XSOAK DONE mapLegs=%d splitActive=%d activeMask=0x%X availKB=%u",
+                CompletedMapLegs,
+                GXboxSplitActive ? 1 : 0,
+                GXboxSplitActiveMask,
+                (unsigned)XboxMenuAvailPhysKB() );
+            GXboxLog.Flush();
+            SoakStage = 12;
+        }
+        else if( StageElapsed >= 30.0f )
+        {
+            XboxSoakLogState( Viewport, "split-timeout" );
+            GXboxLog.Write( "XSOAK FAIL split timeout active=%d pending=%d finished=%d mask=0x%X",
+                GXboxSplitActive ? 1 : 0,
+                GXboxSplitPending ? 1 : 0,
+                GXboxSplitSmokeFinished ? 1 : 0,
+                GXboxSplitActiveMask );
+            GXboxLog.Flush();
+            SoakStage = 12;
+        }
+        return;
+    }
 }
 
 static void XboxMenuMove( INT Delta );
@@ -9445,7 +9929,10 @@ void XboxMenuPostRender( UViewport* Viewport, UCanvas* Canvas )
     if( !Viewport || !Canvas )
         return;
     if( XboxViewport )
+    {
+        XboxSoakSmokeTick( XboxViewport );
         XboxSystemLinkSmokeTick( XboxViewport );
+    }
     if( !GXboxMenu.Active )
     {
         if( XboxViewport && GXboxWeaponWheelActive[WheelViewportIndex] )
@@ -9784,6 +10271,7 @@ void UXboxViewport::ProcessControllerInput( const XINPUT_GAMEPAD& Pad )
 
     XboxTournamentSmokeTick( this );
     XboxMenuSmokeTick( this );
+    XboxSoakSmokeTick( this );
     XboxSystemLinkSmokeTick( this );
 
     if( GXboxSplitActive && GXboxMenu.Active )

@@ -11,7 +11,14 @@ if "%1"=="clean" (
 )
 
 if "%1"=="hardware" (
-    python "%SCRIPT_DIR%UT99-Xbox\Tools\build_xbox_cli.py" --out-dir "%SCRIPT_DIR%UT99-Xbox\build\release"
+    shift
+    python "%SCRIPT_DIR%UT99-Xbox\Tools\build_xbox_cli.py" --out-dir "%SCRIPT_DIR%UT99-Xbox\build\release" %*
+    exit /b %ERRORLEVEL%
+)
+
+if "%1"=="jailbreak" (
+    shift
+    python "%SCRIPT_DIR%UT99-Xbox\Tools\build_xbox_cli.py" --with-jailbreak %*
     exit /b %ERRORLEVEL%
 )
 

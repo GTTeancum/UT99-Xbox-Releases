@@ -4779,6 +4779,18 @@ static void XboxMenuSetKnownClassDefaults( FXboxPlayerClassOption& Option )
         Option.FixedSkin = 0; Option.FaceSkin = 1; Option.TeamSkin1 = 2; Option.TeamSkin2 = 3; Option.bMultiSkinned = 1;
         return;
     }
+    if( appStricmp( *Option.URLValue, TEXT("HaloMasterChief.HaloMasterChief") ) == 0 )
+    {
+        Option.MeshName = TEXT("HaloMasterChief");
+        Option.MeshPath = TEXT("HaloMasterChief.HaloMasterChief");
+        Option.SelectionMesh = TEXT("HaloMasterChief.HaloMasterChief");
+        Option.VoiceMetaClass = TEXT("BotPack.VoiceMale");
+        Option.DefaultVoice = TEXT("BotPack.VoiceMaleOne");
+        Option.DefaultPackage = TEXT("HaloMasterChiefSkins.");
+        Option.DefaultSkinName = TEXT("HaloMasterChiefSkins.chef");
+        Option.FixedSkin = 0; Option.FaceSkin = 1; Option.TeamSkin1 = 0; Option.TeamSkin2 = 0; Option.bMultiSkinned = 1;
+        return;
+    }
 }
 
 static FXboxPlayerClassOption& XboxMenuAddPlayerCharacterOption( const FXboxKnownPlayerCharacter& Character )
@@ -4876,7 +4888,8 @@ static const FXboxKnownPlayerCharacter GXboxKnownPlayerCharacters[] =
     { TEXT("RAMPAGE"), TEXT("UTPS2Characters.WarbossPS2"), TEXT("WarbossPS2Skins_PS2Purple.WarP1"), TEXT(""), TEXT("BotPack.VoiceBoss"), 255, "char_rampage.xui" },
     { TEXT("DOMINATOR PS2"), TEXT("UTPS2Characters.DominatorPS2M"), TEXT("DominatorPS2Skins.domi1"), TEXT(""), TEXT("UTPS2Characters.DominatorVoice"), 255, "char_dominator.xui" },
     { TEXT("XAN PS2"), TEXT("UTPS2Characters.XanPS2"), TEXT("XanPS2Skins_PS2Lighter.XnPS1"), TEXT(""), TEXT("BotPack.VoiceBoss"), 255, "char_ps2_xan.xui" },
-    { TEXT("SKAARJ BOSS"), TEXT("UTPS2Characters.SkaarjBossPS2"), TEXT("SkaarjBPS2Skins.Warr"), TEXT(""), TEXT("UTPS2Characters.SkaarjHybridPS2Voice"), 255, "char_skaarj_boss.xui" }
+    { TEXT("SKAARJ BOSS"), TEXT("UTPS2Characters.SkaarjBossPS2"), TEXT("SkaarjBPS2Skins.Warr"), TEXT(""), TEXT("UTPS2Characters.SkaarjHybridPS2Voice"), 255, "char_skaarj_boss.xui" },
+    { TEXT("MASTER CHIEF"), TEXT("HaloMasterChief.HaloMasterChief"), TEXT("HaloMasterChiefSkins.chef"), TEXT("HaloMasterChiefSkins.chef2Face"), TEXT("BotPack.VoiceMaleOne"), 255, "char_masterchief.xui" }
 };
 
 static void XboxMenuAddKnownPlayerCharacters()
@@ -10269,11 +10282,6 @@ void UXboxViewport::ProcessControllerInput( const XINPUT_GAMEPAD& Pad )
     UBOOL BlackPrev = PrevControllerState.Gamepad.bAnalogButtons[XINPUT_GAMEPAD_BLACK] > AnalogThreshold;
     UBOOL bWheelInputActive = Player && !GXboxMenu.Active && (GXboxWeaponWheelActive[WheelViewportIndex] || WhiteNow || WhitePrev || BlackNow || BlackPrev);
 
-    XboxTournamentSmokeTick( this );
-    XboxMenuSmokeTick( this );
-    XboxSoakSmokeTick( this );
-    XboxSystemLinkSmokeTick( this );
-
     if( GXboxSplitActive && GXboxMenu.Active )
     {
         if( XboxMenuHandleInput( this, Pad, PrevControllerState.Gamepad ) )
@@ -10565,6 +10573,10 @@ void UXboxViewport::UpdateInput( UBOOL Reset )
         return;
     XboxSplitSmokeFeedInput( this );
     PollController();
+    XboxTournamentSmokeTick( this );
+    XboxMenuSmokeTick( this );
+    XboxSoakSmokeTick( this );
+    XboxSystemLinkSmokeTick( this );
     unguard;
 }
 

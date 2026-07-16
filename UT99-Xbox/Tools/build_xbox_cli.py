@@ -559,6 +559,19 @@ def copy_runtime_assets(build_root):
                 shutil.copy2(src, dst)
         print("Copied MusicXbox to " + music_dst)
 
+    runtime_src = os.path.join(XBOX_DIR, "RuntimeAssets")
+    if os.path.isdir(runtime_src):
+        copied = 0
+        for dirpath, _, filenames in os.walk(runtime_src):
+            rel_dir = os.path.relpath(dirpath, runtime_src)
+            dst_dir = build_root if rel_dir == "." else os.path.join(build_root, rel_dir)
+            if not os.path.isdir(dst_dir):
+                os.makedirs(dst_dir)
+            for name in filenames:
+                shutil.copy2(os.path.join(dirpath, name), os.path.join(dst_dir, name))
+                copied += 1
+        print("Copied {} RuntimeAssets files to {}".format(copied, build_root))
+
     stale_debug_udp = os.path.join(build_root, "XboxDebugUDP.ini")
     if os.path.isfile(stale_debug_udp):
         os.remove(stale_debug_udp)

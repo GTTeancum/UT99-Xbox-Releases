@@ -1,0 +1,5 @@
+[Public]
+Object=(Name=HaloMasterChief.HaloMasterChiefBot,Class=Class,MetaClass=BotPack.Bot,Description="Halo Spartan")
+Object=(Name=HaloMasterChief.HaloMasterChief,Class=Class,MetaClass=BotPack.TournamentPlayer,Description="Halo Spartan")
+Object=(Name=HaloMasterChief.HaloMasterChief,Class=Texture,Description="HaloMasterChief")
+

@@ -204,7 +204,8 @@ static void SanitizeXboxDefaultPlayerURLConfig()
 		||	appStricmp( Class, TEXT("Botpack.TBoss") ) == 0
 		||	appStricmp( Class, TEXT("MultiMesh.TSkaarj") ) == 0
 		||	appStricmp( Class, TEXT("MultiMesh.TNali") ) == 0
-		||	appStricmp( Class, TEXT("MultiMesh.TCow") ) == 0 );
+		||	appStricmp( Class, TEXT("MultiMesh.TCow") ) == 0
+		||	appStricmp( Class, TEXT("HaloMasterChief.HaloMasterChief") ) == 0 );
 
 	if( !Class || !Class[0] || !bKnownXboxClass )
 	{

@@ -78,6 +78,7 @@ PORTRAITS = [
     ("char_dominator.xui", fandom("6/62/Ut99-ps2-dominator.png", "20251213143021")),
     ("char_ps2_xan.xui", fandom("5/53/Ut99-ps2-xan.png", "20251213143023")),
     ("char_skaarj_boss.xui", fandom("9/9f/UT99-PS2-Dominator.jpg", "20191127040418")),
+    ("char_masterchief.xui", None),
 ]
 
 
@@ -139,7 +140,10 @@ def main():
     for name, url in PORTRAITS:
         src_name = os.path.splitext(name)[0] + ".png"
         src_path = os.path.join(SRC_DIR, src_name)
-        download(url, src_path)
+        if url:
+            download(url, src_path)
+        elif not os.path.isfile(src_path):
+            raise RuntimeError("Missing local portrait source " + src_path)
         write_xui(os.path.join(out_dir, name), build_portrait(src_path))
 
     write_xui(os.path.join(out_dir, "char_missing.xui"), build_missing())

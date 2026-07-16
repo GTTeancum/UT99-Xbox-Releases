@@ -152,6 +152,97 @@ static void XboxLogMemorySnapshot( const char* Label )
         GXboxMallocLastLargeTag );
 }
 
+static BOOL XboxFileExistsAnsi( const char* Path )
+{
+    DWORD Attr = GetFileAttributesA( Path );
+    return Attr != 0xFFFFFFFF && !(Attr & FILE_ATTRIBUTE_DIRECTORY);
+}
+
+static BOOL XboxFileContainsAnsiToken( const char* Path, const char* Token )
+{
+    if( !Path || !Token || !Token[0] )
+        return FALSE;
+
+    HANDLE File = CreateFileA(
+        Path,
+        GENERIC_READ,
+        FILE_SHARE_READ,
+        NULL,
+        OPEN_EXISTING,
+        FILE_ATTRIBUTE_NORMAL,
+        NULL
+    );
+    if( File == INVALID_HANDLE_VALUE )
+        return FALSE;
+
+    INT TokenLen = (INT)strlen( Token );
+    if( TokenLen <= 0 || TokenLen >= 64 )
+    {
+        CloseHandle( File );
+        return FALSE;
+    }
+
+    char Buffer[4096 + 64];
+    DWORD TailLen = 0;
+    BOOL Found = FALSE;
+
+    for( ;; )
+    {
+        DWORD BytesRead = 0;
+        if( !ReadFile( File, Buffer + TailLen, 4096, &BytesRead, NULL ) || BytesRead == 0 )
+            break;
+
+        DWORD Total = TailLen + BytesRead;
+        if( Total >= (DWORD)TokenLen )
+        {
+            for( DWORD i = 0; i <= Total - (DWORD)TokenLen; i++ )
+            {
+                DWORD j = 0;
+                while( j < (DWORD)TokenLen && Buffer[i + j] == Token[j] )
+                    j++;
+                if( j == (DWORD)TokenLen )
+                {
+                    Found = TRUE;
+                    break;
+                }
+            }
+        }
+
+        if( Found )
+            break;
+
+        TailLen = Min<DWORD>( Total, (DWORD)TokenLen - 1 );
+        for( DWORD i = 0; i < TailLen; i++ )
+            Buffer[i] = Buffer[Total - TailLen + i];
+    }
+
+    CloseHandle( File );
+    return Found;
+}
+
+static BOOL XboxDetectUnsupportedSystemPackages()
+{
+    BOOL OldUnrealPackage = XboxFileExistsAnsi( "D:\\System\\OldUnreal469c.u" );
+    BOOL CorePointerProperty = XboxFileContainsAnsiToken( "D:\\System\\Core.u", "PointerProperty" );
+    BOOL EnginePointerProperty = XboxFileContainsAnsiToken( "D:\\System\\Engine.u", "PointerProperty" );
+
+    if( !OldUnrealPackage && !CorePointerProperty && !EnginePointerProperty )
+        return FALSE;
+
+    GXboxLog.Write( "BOOT: VERSION NOT SUPPORTED: detected OldUnreal/v469-style System package set" );
+    if( OldUnrealPackage )
+        GXboxLog.Write( "BOOT: unsupported signature: D:\\System\\OldUnreal469c.u is present" );
+    if( CorePointerProperty )
+        GXboxLog.Write( "BOOT: unsupported signature: D:\\System\\Core.u contains PointerProperty" );
+    if( EnginePointerProperty )
+        GXboxLog.Write( "BOOT: unsupported signature: D:\\System\\Engine.u contains PointerProperty" );
+    GXboxLog.Write( "BOOT: REQUIRED VERSION: Unreal Tournament v436/GOTY-compatible System package set" );
+    GXboxLog.Write( "BOOT: use the System files packaged with this Xbox build or clean v436/GOTY files" );
+    GXboxLog.Write( "BOOT: do not use an online installer or OldUnreal 469/469c System folder with this build" );
+    GXboxLog.Flush();
+    return TRUE;
+}
+
 static void XboxSmokeDebugHold( const char* Reason )
 {
     if( GetFileAttributesA( "D:\\XboxSystemLinkSmoke.ini" ) == 0xFFFFFFFF )
@@ -216,6 +307,14 @@ void __cdecl main()
     GXboxLog.Write( "BOOT: platform objects created" );
     XboxDebugSetBootPhase( 0x1020 );
     XboxLogMemorySnapshot( "platform-objects" );
+
+    if( XboxDetectUnsupportedSystemPackages() )
+    {
+        XboxSmokeDebugHold( "unsupported System package set" );
+        XboxDebugMirrorStop();
+        GXboxLog.Close();
+        return;
+    }
 
     try
     {

@@ -1,0 +1,30 @@
+Unreal Tournament Xbox - Additional Content Credits
+===================================================
+
+This Xbox build includes a small amount of community and third-party content in
+addition to the original Unreal Tournament content. Credit remains with the
+original authors and rights holders.
+
+Maps and map dependencies
+-------------------------
+
+CTF-Titania
+- Map author: Squacky
+- Included dependency: UTDMT, by Patrick Cyr (GorGor)
+- Included dependency: QUAKE3c texture package
+- The Titania readme notes that most of the map textures are from Quake III.
+  Original Quake III Arena artwork is credited to id Software.
+
+Player models and character packages
+------------------------------------
+
+Halo Master Chief player model
+- UT package conversion author: not identified in the supplied package metadata.
+- Master Chief and Halo are credited to Bungie and Microsoft.
+
+PS2 Character Pack 3.0
+- Pack author/conversion: AlCapowned
+- Original PS2 models: James Green (Epic Games)
+- Original models, textures, and animations: Epic Games
+- Included dependency: Advanced Model Support, by Psychic_313
+

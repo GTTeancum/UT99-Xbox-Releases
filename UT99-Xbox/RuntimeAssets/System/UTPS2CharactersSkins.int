@@ -1,0 +1,342 @@
+[public]
+//Raw Steel Skins
+Object=(Name=RawSteelPS2Skins.RawS1,Class=Texture,Description="(Default) Raw Steel")
+Object=(Name=RawSteelPS2Skins.RawS4Arkon,Class=Texture,Description="Arkon")
+Object=(Name=RawSteelPS2Skins.RawS4Bruce,Class=Texture,Description="Bruce")
+Object=(Name=RawSteelPS2Skins.RawS4Kregore,Class=Texture,Description="Kregore")
+Object=(Name=RawSteelPS2Skins.RawS4bkreg,Class=Texture,Description="Kregore (Beta)")
+Object=(Name=RawSteelPS2Skins.RawS4Manwell,Class=Texture,Description="Manwell")
+Object=(Name=RawSteelPS2Skins.RawS4Slain,Class=Texture,Description="Slain")
+
+Object=(Name=RawSteelPS2Skins.sldr1,Class=Texture,Description="Soldier")
+Object=(Name=RawSteelPS2Skins.sldr4Brock,Class=Texture,Description="Brock")
+Object=(Name=RawSteelPS2Skins.sldr4Harlin,Class=Texture,Description="Harlin")
+Object=(Name=RawSteelPS2Skins.sldr4Johnson,Class=Texture,Description="Johnson")
+Object=(Name=RawSteelPS2Skins.sldr4Rankin,Class=Texture,Description="Rankin")
+
+Object=(Name=RawSteelPS2Skins.blkt1,Class=Texture,Description="Marine")
+Object=(Name=RawSteelPS2Skins.blkt4Malcom,Class=Texture,Description="Malcom")
+Object=(Name=RawSteelPS2Skins.blkt4Othello,Class=Texture,Description="Othello")
+Object=(Name=RawSteelPS2Skins.blkt4Riker,Class=Texture,Description="Riker")
+
+Object=(Name=RawSteelPS2Skins.Gard1,Class=Texture,Description="Metal Guard")
+Object=(Name=RawSteelPS2Skins.Gard4Drake,Class=Texture,Description="Drake")
+Object=(Name=RawSteelPS2Skins.Gard4Ivan,Class=Texture,Description="Ivan")
+Object=(Name=RawSteelPS2Skins.Gard4Radkin,Class=Texture,Description="Radkin")
+Object=(Name=RawSteelPS2Skins.Gard4Wraith,Class=Texture,Description="Wraith")
+Object=(Name=RawSteelPS2Skins.Gard4Von,Class=Texture,Description="Von")
+
+Object=(Name=RawSteelPS2Skins.hkil1,Class=Texture,Description="War Machine")
+Object=(Name=RawSteelPS2Skins.hkil4Vector,Class=Texture,Description="Vector")
+Object=(Name=RawSteelPS2Skins.hkil4Matrix,Class=Texture,Description="Matrix")
+Object=(Name=RawSteelPS2Skins.hkil4Tensor,Class=Texture,Description="Tensor")
+
+//Male Necris Skins
+Object=(Name=NecrisPS2Skins.goth1,Class=Texture,Description="(Default) Necris")
+Object=(Name=NecrisPS2Skins.goth2Kragoth,Class=Texture,Description="Kragoth")
+Object=(Name=NecrisPS2Skins.goth2Malakai,Class=Texture,Description="Malakai")
+Object=(Name=NecrisPS2Skins.goth2Necrotic,Class=Texture,Description="Necrotic")
+Object=(Name=NecrisPS2Skins.goth2Grail,Class=Texture,Description="Grail")
+
+Object=(Name=NecrisPS2Skins.cmdo1,Class=Texture,Description="Commando")
+Object=(Name=NecrisPS2Skins.cmdo2Blake,Class=Texture,Description="Blake")
+Object=(Name=NecrisPS2Skins.cmdo2Gorn,Class=Texture,Description="Gorn")
+Object=(Name=NecrisPS2Skins.cmdo2Nickolai,Class=Texture,Description="Nickolai")
+Object=(Name=NecrisPS2Skins.cmdo2Whitman,Class=Texture,Description="Whitman")\
+
+Object=(Name=NecrisPS2Skins.daco1,Class=Texture,Description="Mercenary")
+Object=(Name=NecrisPS2Skins.daco2Boris,Class=Texture,Description="Boris")
+Object=(Name=NecrisPS2Skins.daco2Luthor,Class=Texture,Description="Luthor")
+Object=(Name=NecrisPS2Skins.daco2Ramirez,Class=Texture,Description="Ramirez")
+Object=(Name=NecrisPS2Skins.daco2Graves,Class=Texture,Description="Graves")
+
+//Female Commando Skins 
+Object=(Name=FemCommandoPS2Skins.cmdo1,Class=Texture,Description="(Default) Commando")
+Object=(Name=FemCommandoPS2Skins.cmdo4Ivana,Class=Texture,Description="Ivana")
+Object=(Name=FemCommandoPS2Skins.cmdo4Nikita,Class=Texture,Description="Nikita")
+Object=(Name=FemCommandoPS2Skins.cmdo4Anna,Class=Texture,Description="Anna")
+Object=(Name=FemCommandoPS2Skins.cmdo4Gromida,Class=Texture,Description="Gromida")
+
+Object=(Name=FemCommandoPS2Skins.daco1,Class=Texture,Description="Mercenary")
+Object=(Name=FemCommandoPS2Skins.daco4Kyla,Class=Texture,Description="Kyla")
+Object=(Name=FemCommandoPS2Skins.daco4Mariana,Class=Texture,Description="Mariana")
+Object=(Name=FemCommandoPS2Skins.daco4Jayce,Class=Texture,Description="Jayce")
+Object=(Name=FemCommandoPS2Skins.daco4Tanya,Class=Texture,Description="Tanya")
+
+Object=(Name=FemCommandoPS2Skins.goth1,Class=Texture,Description="Necris")
+Object=(Name=FemCommandoPS2Skins.goth4Cryss,Class=Texture,Description="Cryss")
+Object=(Name=FemCommandoPS2Skins.goth4Freylis,Class=Texture,Description="Freylis")
+Object=(Name=FemCommandoPS2Skins.goth4Visse,Class=Texture,Description="Visse")
+Object=(Name=FemCommandoPS2Skins.goth4Malise,Class=Texture,Description="Malise")
+
+Object=(Name=FemCommandoPS2Skins.aphe1,Class=Texture,Description="Aphex")
+Object=(Name=FemCommandoPS2Skins.aphe4Indina,Class=Texture,Description="Idina")
+Object=(Name=FemCommandoPS2Skins.aphe4Portia,Class=Texture,Description="Portia")
+
+//Female Mercenary Skins
+Object=(Name=FemMercenaryPS2Skins.cmdo1,Class=Texture,Description="Commando")
+Object=(Name=FemMercenaryPS2Skins.cmdo4ivana,Class=Texture,Description="Ivana")
+Object=(Name=FemMercenaryPS2Skins.cmdo4nikita,Class=Texture,Description="Nikita")
+Object=(Name=FemMercenaryPS2Skins.cmdo4anna,Class=Texture,Description="Anna")
+Object=(Name=FemMercenaryPS2Skins.cmdo4Gromida,Class=Texture,Description="Gromida")
+
+Object=(Name=FemMercenaryPS2Skins.daco1,Class=Texture,Description="(Default) Mercenary")
+Object=(Name=FemMercenaryPS2Skins.daco4kyla,Class=Texture,Description="Kyla")
+Object=(Name=FemMercenaryPS2Skins.daco4mariana,Class=Texture,Description="Mariana")
+Object=(Name=FemMercenaryPS2Skins.daco4jayce,Class=Texture,Description="Jayce")
+Object=(Name=FemMercenaryPS2Skins.daco4Tanya,Class=Texture,Description="Tanya")
+
+Object=(Name=FemMercenaryPS2Skins.goth1,Class=Texture,Description="Necris")
+Object=(Name=FemMercenaryPS2Skins.goth4Cryss,Class=Texture,Description="Cryss")
+Object=(Name=FemMercenaryPS2Skins.goth4Freylis,Class=Texture,Description="Freylis")
+Object=(Name=FemMercenaryPS2Skins.goth4Visse,Class=Texture,Description="Visse")
+Object=(Name=FemMercenaryPS2Skins.goth4Malise,Class=Texture,Description="Malise")
+
+Object=(Name=FemMercenaryPS2Skins.aphe1,Class=Texture,Description="Aphex")
+Object=(Name=FemMercenaryPS2Skins.aphe4Indina,Class=Texture,Description="Idina")
+Object=(Name=FemMercenaryPS2Skins.aphe4Portia,Class=Texture,Description="Portia")
+
+//Male Soldier Skins
+Object=(Name=MSoldierPS2Skins.sldr1,Class=Texture,Description="Soldier")
+Object=(Name=MSoldierPS2Skins.sldr4Brock,Class=Texture,Description="Brock")
+Object=(Name=MSoldierPS2Skins.sldr4Harlin,Class=Texture,Description="Harlin")
+Object=(Name=MSoldierPS2Skins.sldr4Johnson,Class=Texture,Description="Johnson")
+Object=(Name=MSoldierPS2Skins.sldr4Rankin,Class=Texture,Description="Rankin")
+
+Object=(Name=MSoldierPS2Skins.blkt1,Class=Texture,Description="(Default) Marine")
+Object=(Name=MSoldierPS2Skins.blkt4Malcom,Class=Texture,Description="Malcom")
+Object=(Name=MSoldierPS2Skins.blkt4Othello,Class=Texture,Description="Othello")
+Object=(Name=MSoldierPS2Skins.blkt4Riker,Class=Texture,Description="Riker")
+
+Object=(Name=MSoldierPS2Skins.Gard1,Class=Texture,Description="Metal Guard")
+Object=(Name=MSoldierPS2Skins.Gard4Drake,Class=Texture,Description="Drake")
+Object=(Name=MSoldierPS2Skins.Gard4Radkin,Class=Texture,Description="Radkin")
+Object=(Name=MSoldierPS2Skins.Gard4Wraith,Class=Texture,Description="Wraith")
+Object=(Name=MSoldierPS2Skins.Gard4Von,Class=Texture,Description="Von")
+
+Object=(Name=MSoldierPS2Skins.hkil1,Class=Texture,Description="War Machine")
+Object=(Name=MSoldierPS2Skins.hkil4Vector,Class=Texture,Description="Vector")
+Object=(Name=MSoldierPS2Skins.hkil4Matrix,Class=Texture,Description="Matrix")
+Object=(Name=MSoldierPS2Skins.hkil4Tensor,Class=Texture,Description="Tensor")
+
+Object=(Name=MSoldierPS2Skins.RawS1,Class=Texture,Description="Raw Steel")
+Object=(Name=MSoldierPS2Skins.RawS4Arkon,Class=Texture,Description="Arkon")
+Object=(Name=MSoldierPS2Skins.RawS4Bruce,Class=Texture,Description="Bruce")
+Object=(Name=MSoldierPS2Skins.RawS4Kregore,Class=Texture,Description="Kregore")
+Object=(Name=MSoldierPS2Skins.RawS4bkreg,Class=Texture,Description="Kregore (Beta)")
+Object=(Name=MSoldierPS2Skins.RawS4Manwell,Class=Texture,Description="Manwell")
+Object=(Name=MSoldierPS2Skins.RawS4Slain,Class=Texture,Description="Slain")
+
+//War Machine Skins
+Object=(Name=WarMachinePS2Skins.hkil1,Class=Texture,Description="War Machine")
+Object=(Name=WarMachinePS2Skins.hkil4Vector,Class=Texture,Description="Vector")
+Object=(Name=WarMachinePS2Skins.hkil4Matrix,Class=Texture,Description="Matrix")
+Object=(Name=WarMachinePS2Skins.hkil4Tensor,Class=Texture,Description="Tensor")
+
+//Female Soldier Skins
+Object=(Name=FemSoldierPS2Skins.Garf1,Class=Texture,Description="Metal Guard")
+Object=(Name=FemSoldierPS2Skins.Garf4Isis,Class=Texture,Description="Isis")
+Object=(Name=FemSoldierPS2Skins.Garf4Risa,Class=Texture,Description="Risa")
+Object=(Name=FemSoldierPS2Skins.Garf4Tasha,Class=Texture,Description="Tasha")
+Object=(Name=FemSoldierPS2Skins.Garf4Vixen,Class=Texture,Description="Vixen")
+
+Object=(Name=FemSoldierPS2Skins.Venm1,Class=Texture,Description="Venom")
+Object=(Name=FemSoldierPS2Skins.Venm4Athena,Class=Texture,Description="Athena")
+Object=(Name=FemSoldierPS2Skins.Venm4Cilia,Class=Texture,Description="Cilia")
+Object=(Name=FemSoldierPS2Skins.Venm4Sarena,Class=Texture,Description="Sarena")
+Object=(Name=FemSoldierPS2Skins.Venm4Tara,Class=Texture,Description="Tara")
+Object=(Name=FemSoldierPS2Skins.Venm4Zanna,Class=Texture,Description="Zanna")
+
+Object=(Name=FemSoldierPS2Skins.army1,Class=Texture,Description="(Default) Soldier")
+Object=(Name=FemSoldierPS2Skins.army4Lauren,Class=Texture,Description="Lauren")
+Object=(Name=FemSoldierPS2Skins.army4Rylisa,Class=Texture,Description="Rylisa")
+Object=(Name=FemSoldierPS2Skins.army4Sara,Class=Texture,Description="Sara")
+Object=(Name=FemSoldierPS2Skins.army4Shyann,Class=Texture,Description="Shyann")
+
+Object=(Name=FemSoldierPS2Skins.fbth1,Class=Texture,Description="Marine")
+Object=(Name=FemSoldierPS2Skins.fbth4Azure,Class=Texture,Description="Azure")
+Object=(Name=FemSoldierPS2Skins.fbth4Aryss,Class=Texture,Description="Aryss")
+Object=(Name=FemSoldierPS2Skins.fbth4Annaka,Class=Texture,Description="Annaka")
+Object=(Name=FemSoldierPS2Skins.fbth4Olga,Class=Texture,Description="Olga")
+Object=(Name=FemSoldierPS2Skins.fbth4Ryanna,Class=Texture,Description="Ryanna")
+
+Object=(Name=FemSoldierPS2Skins.fwar1,Class=Texture,Description="War Machine")
+Object=(Name=FemSoldierPS2Skins.fwar4Cathode,Class=Texture,Description="Cathode")
+Object=(Name=FemSoldierPS2Skins.fwar4Fury,Class=Texture,Description="Fury")
+Object=(Name=FemSoldierPS2Skins.fwar4Lilith,Class=Texture,Description="Lilith")
+
+//Female Soldier 2 Skins
+Object=(Name=FemSoldierSPS2Skins.Garf1,Class=Texture,Description="Metal Guard")
+Object=(Name=FemSoldierSPS2Skins.Garf4Isis,Class=Texture,Description="Isis")
+Object=(Name=FemSoldierSPS2Skins.Garf4Risa,Class=Texture,Description="Risa")
+Object=(Name=FemSoldierSPS2Skins.Garf4Tasha,Class=Texture,Description="Tasha")
+Object=(Name=FemSoldierSPS2Skins.Garf4Vixen,Class=Texture,Description="Vixen")
+
+Object=(Name=FemSoldierSPS2Skins.Venm1,Class=Texture,Description="Venom")
+Object=(Name=FemSoldierSPS2Skins.Venm4Athena,Class=Texture,Description="Athena")
+Object=(Name=FemSoldierSPS2Skins.Venm4Cilia,Class=Texture,Description="Cilia")
+Object=(Name=FemSoldierSPS2Skins.Venm4Sarena,Class=Texture,Description="Sarena")
+Object=(Name=FemSoldierSPS2Skins.Venm4Tara,Class=Texture,Description="Tara")
+Object=(Name=FemSoldierSPS2Skins.Venm4Zanna,Class=Texture,Description="Zanna")
+
+Object=(Name=FemSoldierSPS2Skins.army1,Class=Texture,Description="Soldier")
+Object=(Name=FemSoldierSPS2Skins.army4Lauren,Class=Texture,Description="Lauren")
+Object=(Name=FemSoldierSPS2Skins.army4Rylisa,Class=Texture,Description="Rylisa")
+Object=(Name=FemSoldierSPS2Skins.army4Sara,Class=Texture,Description="Sara")
+Object=(Name=FemSoldierSPS2Skins.army4Shyann,Class=Texture,Description="Shyann")
+
+Object=(Name=FemSoldierSPS2Skins.fbth1,Class=Texture,Description="(Default) Marine")
+Object=(Name=FemSoldierSPS2Skins.fbth4Azure,Class=Texture,Description="Azure")
+Object=(Name=FemSoldierSPS2Skins.fbth4Aryss,Class=Texture,Description="Aryss")
+Object=(Name=FemSoldierSPS2Skins.fbth4Annaka,Class=Texture,Description="Annaka")
+Object=(Name=FemSoldierSPS2Skins.fbth4Olga,Class=Texture,Description="Olga")
+Object=(Name=FemSoldierSPS2Skins.fbth4Ryanna,Class=Texture,Description="Ryanna")
+
+Object=(Name=FemSoldierSPS2Skins.fwar1,Class=Texture,Description="War Machine")
+Object=(Name=FemSoldierSPS2Skins.fwar4Cathode,Class=Texture,Description="Cathode")
+Object=(Name=FemSoldierSPS2Skins.fwar4Fury,Class=Texture,Description="Fury")
+Object=(Name=FemSoldierSPS2Skins.fwar4Lilith,Class=Texture,Description="Lilith")
+
+//Male Commando Skins
+Object=(Name=MCommandoPS2Skins.cmdo1,Class=Texture,Description="(Default) Commando")
+Object=(Name=MCommandoPS2Skins.cmdo2Blake,Class=Texture,Description="Blake")
+Object=(Name=MCommandoPS2Skins.cmdo2Gorn,Class=Texture,Description="Gorn")
+Object=(Name=MCommandoPS2Skins.cmdo2Nickolai,Class=Texture,Description="Nickolai")
+Object=(Name=MCommandoPS2Skins.cmdo2Whitman,Class=Texture,Description="Whitman")
+
+Object=(Name=MCommandoPS2Skins.daco1,Class=Texture,Description="Mercenary")
+Object=(Name=MCommandoPS2Skins.daco2Boris,Class=Texture,Description="Boris")
+Object=(Name=MCommandoPS2Skins.daco2Luthor,Class=Texture,Description="Luthor")
+Object=(Name=MCommandoPS2Skins.daco2Ramirez,Class=Texture,Description="Ramirez")
+Object=(Name=MCommandoPS2Skins.daco2Graves,Class=Texture,Description="Graves")
+
+Object=(Name=MCommandoPS2Skins.goth1,Class=Texture,Description="Necris")
+Object=(Name=MCommandoPS2Skins.goth2Kragoth,Class=Texture,Description="Kragoth")
+Object=(Name=MCommandoPS2Skins.goth2Malakai,Class=Texture,Description="Malakai")
+Object=(Name=MCommandoPS2Skins.goth2Necrotic,Class=Texture,Description="Necrotic")
+Object=(Name=MCommandoPS2Skins.goth2Grail,Class=Texture,Description="Grail")
+
+//Male Mercenary Skins
+Object=(Name=MMercenaryPS2Skins.cmdo1,Class=Texture,Description="Commando")
+Object=(Name=MMercenaryPS2Skins.cmdo2Blake,Class=Texture,Description="Blake")
+Object=(Name=MMercenaryPS2Skins.cmdo2Gorn,Class=Texture,Description="Gorn")
+Object=(Name=MMercenaryPS2Skins.cmdo2Nickolai,Class=Texture,Description="Nickolai")
+Object=(Name=MMercenaryPS2Skins.cmdo2Whitman,Class=Texture,Description="Whitman")
+
+Object=(Name=MMercenaryPS2Skins.daco1,Class=Texture,Description="(Default) Mercenary")
+Object=(Name=MMercenaryPS2Skins.daco2Boris,Class=Texture,Description="Boris")
+Object=(Name=MMercenaryPS2Skins.daco2Luthor,Class=Texture,Description="Luthor")
+Object=(Name=MMercenaryPS2Skins.daco2Ramirez,Class=Texture,Description="Ramirez")
+Object=(Name=MMercenaryPS2Skins.daco2Graves,Class=Texture,Description="Graves")
+
+Object=(Name=MMercenaryPS2Skins.goth1,Class=Texture,Description="Necris")
+Object=(Name=MMercenaryPS2Skins.goth2Kragoth,Class=Texture,Description="Kragoth")
+Object=(Name=MMercenaryPS2Skins.goth2Malakai,Class=Texture,Description="Malakai")
+Object=(Name=MMercenaryPS2Skins.goth2Necrotic,Class=Texture,Description="Necrotic")
+Object=(Name=MMercenaryPS2Skins.goth2Grail,Class=Texture,Description="Grail")
+
+//Rampage Skins
+Object=(Name=WarbossPS2Skins.WarP1,Class=Texture,Description="Rampage")
+Object=(Name=WarbossPS2Skins.WarP1T_0,Class=Texture)
+Object=(Name=WarbossPS2Skins.WarP1T_1,Class=Texture)
+Object=(Name=WarbossPS2Skins.WarP1T_2,Class=Texture)
+Object=(Name=WarbossPS2Skins.WarP1T_3,Class=Texture)
+Object=(Name=WarbossPS2Skins.WarP5,Class=Texture)
+
+Object=(Name=WarbossPS2Skins.WarB1,Class=Texture,Description="Warboss")
+Object=(Name=WarbossPS2Skins.WarB1T_0,Class=Texture)
+Object=(Name=WarbossPS2Skins.WarB1T_1,Class=Texture)
+Object=(Name=WarbossPS2Skins.WarB1T_2,Class=Texture)
+Object=(Name=WarbossPS2Skins.WarB1T_3,Class=Texture)
+Object=(Name=WarbossPS2Skins.WarB5,Class=Texture)
+
+//Xan MKII Skins
+Object=(Name=XanPS2Skins.XnPS1,Class=Texture,Description="Xan")
+Object=(Name=XanPS2Skins.XnPS1T_0,Class=Texture)
+Object=(Name=XanPS2Skins.XnPS1T_1,Class=Texture)
+Object=(Name=XanPS2Skins.XnPS1T_2,Class=Texture)
+Object=(Name=XanPS2Skins.XnPS1T_3,Class=Texture)
+Object=(Name=XanPS2Skins.XnPS5,Class=Texture)
+
+Object=(Name=XanPS2Skins.XnPC1,Class=Texture,Description="Xan (PC)")
+Object=(Name=XanPS2Skins.XnPC1T_0,Class=Texture)
+Object=(Name=XanPS2Skins.XnPC1T_1,Class=Texture)
+Object=(Name=XanPS2Skins.XnPC1T_2,Class=Texture)
+Object=(Name=XanPS2Skins.XnPC1T_3,Class=Texture)
+Object=(Name=XanPS2Skins.XnPC5,Class=Texture)
+
+//Skaarj Hybrid Skins
+Object=(Name=SkaarjHybridPS2Skins.Warr1,Class=Texture,Description="Arena Warrior")
+Object=(Name=SkaarjHybridPS2Skins.Warr2,Class=Texture)
+Object=(Name=SkaarjHybridPS2Skins.Warr2Berserker,Class=Texture,Description="Berserker")
+Object=(Name=SkaarjHybridPS2Skins.Warr2Dominator,Class=Texture,Description="Dominator")
+Object=(Name=SkaarjHybridPS2Skins.Warr2Guardian,Class=Texture,Description="Guardian")
+Object=(Name=SkaarjHybridPS2Skins.Warr2Superfly,Class=Texture,Description="Superfly")
+
+Object=(Name=SkaarjHybridPS2Skins.PitF1,Class=Texture,Description="Pit Fighter")
+Object=(Name=SkaarjHybridPS2Skins.PitF2,Class=Texture)
+Object=(Name=SkaarjHybridPS2Skins.PitF2Baetal,Class=Texture,Description="Baetal")
+Object=(Name=SkaarjHybridPS2Skins.PitF2Pharoh,Class=Texture,Description="Pharoh")
+Object=(Name=SkaarjHybridPS2Skins.PitF2Skrilax,Class=Texture,Description="Skrilax")
+
+Object=(Name=SkaarjHybridPS2Skins.MekS,Class=Texture,Description="Cyborg Trooper")
+Object=(Name=SkaarjHybridPS2Skins.MekS2,Class=Texture)
+Object=(Name=SkaarjHybridPS2Skins.MekS2Firewall,Class=Texture,Description="Firewall")
+Object=(Name=SkaarjHybridPS2Skins.MekS2Disconnect,Class=Texture,Description="Disconnect")
+
+Object=(Name=SkaarjHybridPS2Skins.Domi1,Class=Texture,Description="Dominator")
+Object=(Name=SkaarjHybridPS2Skins.Domi2,Class=Texture)
+Object=(Name=SkaarjHybridPS2Skins.Domi2DominatorN,Class=Texture,Description="Dominator")
+
+//Skaarj Hybrid (with human male animations) Skins
+Object=(Name=SkaarjHybridMPS2Skins.Warr1,Class=Texture,Description="Arena Warrior")
+Object=(Name=SkaarjHybridMPS2Skins.Warr2,Class=Texture)
+Object=(Name=SkaarjHybridMPS2Skins.Warr2Berserker,Class=Texture,Description="Berserker")
+Object=(Name=SkaarjHybridMPS2Skins.Warr2Dominator,Class=Texture,Description="Dominator")
+Object=(Name=SkaarjHybridMPS2Skins.Warr2Guardian,Class=Texture,Description="Guardian")
+Object=(Name=SkaarjHybridMPS2Skins.Warr2Superfly,Class=Texture,Description="Superfly")
+
+Object=(Name=SkaarjHybridMPS2Skins.PitF1,Class=Texture,Description="Pit Fighter")
+Object=(Name=SkaarjHybridMPS2Skins.PitF2,Class=Texture)
+Object=(Name=SkaarjHybridMPS2Skins.PitF2Baetal,Class=Texture,Description="Baetal")
+Object=(Name=SkaarjHybridMPS2Skins.PitF2Pharoh,Class=Texture,Description="Pharoh")
+Object=(Name=SkaarjHybridMPS2Skins.PitF2Skrilax,Class=Texture,Description="Skrilax")
+
+Object=(Name=SkaarjHybridMPS2Skins.MekS,Class=Texture,Description="Cyborg Trooper")
+Object=(Name=SkaarjHybridMPS2Skins.MekS2,Class=Texture)
+Object=(Name=SkaarjHybridMPS2Skins.MekS2Firewall,Class=Texture,Description="Firewall")
+Object=(Name=SkaarjHybridMPS2Skins.MekS2Disconnect,Class=Texture,Description="Disconnect")
+
+Object=(Name=SkaarjHybridMPS2Skins.Domi1,Class=Texture,Description="Dominator")
+Object=(Name=SkaarjHybridMPS2Skins.Domi2,Class=Texture)
+Object=(Name=SkaarjHybridMPS2Skins.Domi2DominatorN,Class=Texture,Description="Dominator")
+
+//SkaarjBoss Skins (including Dominator)
+Object=(Name=SkaarjBPS2Skins.Warr1,Class=Texture,Description="Arena Warrior")
+Object=(Name=SkaarjBPS2Skins.Warr2,Class=Texture)
+Object=(Name=SkaarjBPS2Skins.Warr2Berserker,Class=Texture,Description="Berserker")
+Object=(Name=SkaarjBPS2Skins.Warr2Dominator,Class=Texture,Description="Dominator")
+Object=(Name=SkaarjBPS2Skins.Warr2Guardian,Class=Texture,Description="Guardian")
+Object=(Name=SkaarjBPS2Skins.Warr2Superfly,Class=Texture,Description="Superfly")
+
+Object=(Name=SkaarjBPS2Skins.PitF1,Class=Texture,Description="Pit Fighter")
+Object=(Name=SkaarjBPS2Skins.PitF2,Class=Texture)
+Object=(Name=SkaarjBPS2Skins.PitF2Baetal,Class=Texture,Description="Baetal")
+Object=(Name=SkaarjBPS2Skins.PitF2Pharoh,Class=Texture,Description="Pharoh")
+Object=(Name=SkaarjBPS2Skins.PitF2Skrilax,Class=Texture,Description="Skrilax")
+
+Object=(Name=SkaarjBPS2Skins.MekS,Class=Texture,Description="Cyborg Trooper")
+Object=(Name=SkaarjBPS2Skins.MekS2,Class=Texture)
+Object=(Name=SkaarjBPS2Skins.MekS2Firewall,Class=Texture,Description="Firewall")
+Object=(Name=SkaarjBPS2Skins.MekS2Disconnect,Class=Texture,Description="Disconnect")
+
+Object=(Name=SkaarjBPS2Skins.Domi1,Class=Texture,Description="(Default) Dominator")
+Object=(Name=SkaarjBPS2Skins.Domi2,Class=Texture)
+Object=(Name=SkaarjBPS2Skins.Domi2Dominator,Class=Texture,Description="Dominator")
+
+//Damien Skins
+Object=(Name=DamienPS2Skins.kane1,Class=Texture,Description="Damien")
+Object=(Name=DamienPS2Skins.kane1t_0,Class=Texture)
+Object=(Name=DamienPS2Skins.kane1t_1,Class=Texture)
+Object=(Name=DamienPS2Skins.kane1t_2,Class=Texture)
+Object=(Name=DamienPS2Skins.kane1t_3,Class=Texture)

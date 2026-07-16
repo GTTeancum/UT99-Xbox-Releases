@@ -4707,7 +4707,8 @@ static void XboxMenuSetKnownClassDefaults( FXboxPlayerClassOption& Option )
         Option.FixedSkin = 0; Option.FaceSkin = 1; Option.TeamSkin1 = 2; Option.TeamSkin2 = 3; Option.bMultiSkinned = 0;
         return;
     }
-    if( appStricmp( *Option.URLValue, TEXT("UTPS2Characters.DamienPS2M") ) == 0 )
+    if( appStricmp( *Option.URLValue, TEXT("UTPS2Characters.DamienPS2M") ) == 0
+    ||  appStricmp( *Option.URLValue, TEXT("UTPS2Characters.DamienPS2") ) == 0 )
     {
         Option.MeshName = TEXT("DamienPS2");
         Option.MeshPath = TEXT("UTPS2Characters.DamienPS2");
@@ -4715,19 +4716,19 @@ static void XboxMenuSetKnownClassDefaults( FXboxPlayerClassOption& Option )
         Option.VoiceMetaClass = TEXT("BotPack.VoiceMale");
         Option.DefaultVoice = TEXT("BotPack.VoiceMaleTwo");
         Option.DefaultPackage = TEXT("DamienPS2Skins.");
-        Option.DefaultSkinName = TEXT("DamienPS2Skins.Kane1");
+        Option.DefaultSkinName = TEXT("DamienPS2Skins.kane1");
         Option.FixedSkin = 0; Option.FaceSkin = 1; Option.TeamSkin1 = 2; Option.TeamSkin2 = 3; Option.bMultiSkinned = 1;
         return;
     }
     if( appStricmp( *Option.URLValue, TEXT("UTPS2Characters.DominatorPS2M") ) == 0 )
     {
-        Option.MeshName = TEXT("DominatorPS2");
-        Option.MeshPath = TEXT("UTPS2Characters.DominatorPS2");
-        Option.SelectionMesh = TEXT("UTPS2Characters.DominatorPS2");
+        Option.MeshName = TEXT("SkaarjBossPS2");
+        Option.MeshPath = TEXT("UTPS2Characters.SkaarjBossPS2");
+        Option.SelectionMesh = TEXT("UTPS2Characters.SkaarjBossPS2");
         Option.VoiceMetaClass = TEXT("BotPack.VoiceMale");
         Option.DefaultVoice = TEXT("UTPS2Characters.DominatorVoice");
-        Option.DefaultPackage = TEXT("DominatorPS2Skins.");
-        Option.DefaultSkinName = TEXT("DominatorPS2Skins.domi1");
+        Option.DefaultPackage = TEXT("SkaarjBPS2Skins.");
+        Option.DefaultSkinName = TEXT("SkaarjBPS2Skins.Domi1");
         Option.FixedSkin = 0; Option.FaceSkin = 1; Option.TeamSkin1 = 2; Option.TeamSkin2 = 3; Option.bMultiSkinned = 1;
         return;
     }
@@ -4763,7 +4764,7 @@ static void XboxMenuSetKnownClassDefaults( FXboxPlayerClassOption& Option )
         Option.VoiceMetaClass = TEXT("BotPack.VoiceMale");
         Option.DefaultVoice = TEXT("UTPS2Characters.SkaarjHybridPS2Voice");
         Option.DefaultPackage = TEXT("SkaarjHybridPS2Skins.");
-        Option.DefaultSkinName = TEXT("SkaarjHybridPS2Skins.Warr");
+        Option.DefaultSkinName = TEXT("SkaarjHybridPS2Skins.Warr1");
         Option.FixedSkin = 0; Option.FaceSkin = 1; Option.TeamSkin1 = 2; Option.TeamSkin2 = 3; Option.bMultiSkinned = 1;
         return;
     }
@@ -4775,7 +4776,7 @@ static void XboxMenuSetKnownClassDefaults( FXboxPlayerClassOption& Option )
         Option.VoiceMetaClass = TEXT("BotPack.VoiceMale");
         Option.DefaultVoice = TEXT("UTPS2Characters.SkaarjHybridPS2Voice");
         Option.DefaultPackage = TEXT("SkaarjBPS2Skins.");
-        Option.DefaultSkinName = TEXT("SkaarjBPS2Skins.Warr");
+        Option.DefaultSkinName = TEXT("SkaarjBPS2Skins.Warr1");
         Option.FixedSkin = 0; Option.FaceSkin = 1; Option.TeamSkin1 = 2; Option.TeamSkin2 = 3; Option.bMultiSkinned = 1;
         return;
     }
@@ -4884,11 +4885,11 @@ static const FXboxKnownPlayerCharacter GXboxKnownPlayerCharacters[] =
     { TEXT("FIREWALL"), TEXT("MultiMesh.TSkaarj"), TEXT("TSkMSkins.MekS"), TEXT("TSkMSkins.Firewall"), TEXT("MultiMesh.SkaarjVoice"), 255, "char_skaarj_firewall.xui" },
     { TEXT("REAPER"), TEXT("MultiMesh.TSkaarj"), TEXT("TSkMSkins.MekS"), TEXT("TSkMSkins.Disconnect"), TEXT("MultiMesh.SkaarjVoice"), 255, "char_skaarj_disconnect.xui" },
     { TEXT("DISCONNECT"), TEXT("MultiMesh.TSkaarj"), TEXT("TSkMSkins.MekS"), TEXT("TSkMSkins.Disconnect"), TEXT("MultiMesh.SkaarjVoice"), 255, "char_skaarj_disconnect.xui" },
-    { TEXT("DAMIEN"), TEXT("UTPS2Characters.DamienPS2M"), TEXT("DamienPS2Skins.Kane1"), TEXT(""), TEXT("BotPack.VoiceMaleTwo"), 255, "char_damien.xui" },
+    { TEXT("DAMIEN"), TEXT("UTPS2Characters.DamienPS2"), TEXT("DamienPS2Skins.kane1"), TEXT(""), TEXT("BotPack.VoiceMaleTwo"), 255, "char_damien.xui" },
     { TEXT("RAMPAGE"), TEXT("UTPS2Characters.WarbossPS2"), TEXT("WarbossPS2Skins_PS2Purple.WarP1"), TEXT(""), TEXT("BotPack.VoiceBoss"), 255, "char_rampage.xui" },
-    { TEXT("DOMINATOR PS2"), TEXT("UTPS2Characters.DominatorPS2M"), TEXT("DominatorPS2Skins.domi1"), TEXT(""), TEXT("UTPS2Characters.DominatorVoice"), 255, "char_dominator.xui" },
+    { TEXT("DOMINATOR PS2"), TEXT("UTPS2Characters.SkaarjBossPS2"), TEXT("SkaarjBPS2Skins.Domi1"), TEXT(""), TEXT("UTPS2Characters.DominatorVoice"), 255, "char_dominator.xui" },
     { TEXT("XAN PS2"), TEXT("UTPS2Characters.XanPS2"), TEXT("XanPS2Skins_PS2Lighter.XnPS1"), TEXT(""), TEXT("BotPack.VoiceBoss"), 255, "char_ps2_xan.xui" },
-    { TEXT("SKAARJ BOSS"), TEXT("UTPS2Characters.SkaarjBossPS2"), TEXT("SkaarjBPS2Skins.Warr"), TEXT(""), TEXT("UTPS2Characters.SkaarjHybridPS2Voice"), 255, "char_skaarj_boss.xui" },
+    { TEXT("SKAARJ BOSS"), TEXT("UTPS2Characters.SkaarjBossPS2"), TEXT("SkaarjBPS2Skins.Warr1"), TEXT(""), TEXT("UTPS2Characters.SkaarjHybridPS2Voice"), 255, "char_skaarj_boss.xui" },
     { TEXT("MASTER CHIEF"), TEXT("HaloMasterChief.HaloMasterChief"), TEXT("HaloMasterChiefSkins.chef"), TEXT("HaloMasterChiefSkins.chef2Face"), TEXT("BotPack.VoiceMaleOne"), 255, "char_masterchief.xui" }
 };
 

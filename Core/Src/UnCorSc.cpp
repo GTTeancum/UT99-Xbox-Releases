@@ -70,9 +70,94 @@ static UBOOL XboxShouldTraceLoginFrame( UObject* Object, UStruct* Node )
 			|| XboxClassIsOrChildNamed( Object->GetClass(), TEXT("Bot") );
 	if( appStricmp( Function->GetName(), TEXT("SetSkinElement") )==0 )
 		return XboxClassIsOrChildNamed( Object->GetClass(), TEXT("Pawn") );
+	if( appStricmp( Function->GetName(), TEXT("SetSkin") )==0 )
+		return XboxClassIsOrChildNamed( Object->GetClass(), TEXT("GenericSkinInfo") )
+			|| XboxClassIsOrChildNamed( Object->GetClass(), TEXT("GenericPS2SkinInfo") );
+	if( appStricmp( Function->GetName(), TEXT("LoadSkin") )==0 )
+		return XboxClassIsOrChildNamed( Object->GetClass(), TEXT("GenericSkinInfo") )
+			|| XboxClassIsOrChildNamed( Object->GetClass(), TEXT("GenericPS2SkinInfo") );
 	if( appStricmp( Function->GetName(), TEXT("ClientSetRotation") )==0 )
 		return XboxClassIsOrChildNamed( Object->GetClass(), TEXT("PlayerPawn") );
 	return 0;
+}
+
+static UBOOL XboxIsEngineTextureClass( UClass* Class )
+{
+	return Class
+	&&	appStricmp( Class->GetName(), TEXT("Texture") )==0
+	&&	Class->GetOuter()
+	&&	appStricmp( Class->GetOuter()->GetName(), TEXT("Engine") )==0;
+}
+
+static UBOOL XboxDynamicLoadMayReturnNull( FFrame& Stack, UClass* Class, UBOOL bMayFail )
+{
+	if( bMayFail )
+		return 1;
+
+	UFunction* Function = Cast<UFunction>( Stack.Node );
+	return Stack.Object
+	&&	Function
+	&&	XboxIsEngineTextureClass( Class )
+	&&	appStricmp( Function->GetName(), TEXT("SetSkinElement") )==0
+	&&	XboxClassIsOrChildNamed( Stack.Object->GetClass(), TEXT("Pawn") );
+}
+
+static UBOOL XboxOptionalDynamicLoadExportIsMissing( const TCHAR* FullName, UClass* Class, UBOOL bTrace, FFrame& Stack )
+{
+	if( !FullName || !Class || appStrlen(FullName) >= 256 || !appStrchr(FullName,'.') )
+		return 0;
+
+	TCHAR NameCopy[256];
+	appStrncpy( NameCopy, FullName, ARRAY_COUNT(NameCopy) );
+
+	if( UObject::StaticFindObject( Class, NULL, FullName ) )
+		return 0;
+
+	TCHAR PackageName[256];
+	appStrncpy( PackageName, FullName, ARRAY_COUNT(PackageName) );
+	TCHAR* FirstDot = appStrchr( PackageName, '.' );
+	if( !FirstDot )
+		return 0;
+	*FirstDot = 0;
+
+	const TCHAR* LeafName = FullName;
+	while( appStrchr( LeafName, '.' ) )
+		LeafName = appStrchr( LeafName, '.' ) + 1;
+	if( !LeafName[0] )
+		return 0;
+
+	UPackage* TopPackage = UObject::CreatePackage( NULL, PackageName );
+	ULinkerLoad* Linker = NULL;
+	UObject::BeginLoad();
+	Linker = UObject::GetPackageLinker( TopPackage, NULL, LOAD_NoWarn | LOAD_Quiet | LOAD_AllowDll, NULL, NULL );
+	UObject::EndLoad();
+
+	if( !Linker )
+	{
+		if( bTrace )
+			debugf( NAME_Log, TEXT("XDYNLOAD optional package miss obj=%s func=%s name=%s package=%s"),
+				Stack.Object ? Stack.Object->GetFullName() : TEXT("None"),
+				Stack.Node ? Stack.Node->GetFullName() : TEXT("None"),
+				FullName,
+				PackageName );
+		return 1;
+	}
+
+	FName ExportName( LeafName, FNAME_Find );
+	UBOOL bMissing = ExportName == NAME_None;
+	if( !bMissing )
+	{
+		const FName ClassPackageName = Class->GetOuter() ? Class->GetOuter()->GetFName() : NAME_None;
+		bMissing = Linker->FindExportIndex( Class->GetFName(), ClassPackageName, ExportName, INDEX_NONE ) == INDEX_NONE;
+	}
+	if( bMissing && bTrace )
+		debugf( NAME_Log, TEXT("XDYNLOAD unloaded-package optional miss obj=%s func=%s name=%s package=%s object=%s"),
+			Stack.Object ? Stack.Object->GetFullName() : TEXT("None"),
+			Stack.Node ? Stack.Node->GetFullName() : TEXT("None"),
+			FullName,
+			PackageName,
+			LeafName );
+	return bMissing;
 }
 
 #endif
@@ -3583,6 +3668,7 @@ void UObject::execDynamicLoadObject( FFrame& Stack, RESULT_DECL )
 	P_FINISH;
 
 #if TARGET_XBOX
+	const UBOOL bXboxNullOnMissingDynamicLoad = XboxDynamicLoadMayReturnNull( Stack, Class, bMayFail );
 	const UBOOL bXboxTraceLoad = XboxVerboseScriptTraceEnabled()
 		&& XboxShouldTraceLoginFrame( Stack.Object, Stack.Node );
 	if( bXboxTraceLoad )
@@ -3601,59 +3687,18 @@ void UObject::execDynamicLoadObject( FFrame& Stack, RESULT_DECL )
 		*(UObject**)Result = NULL;
 		return;
 	}
-	if( bMayFail && Class && appStrlen(*Name) < 256 && appStrchr(*Name,'.') )
+	if( bXboxNullOnMissingDynamicLoad && XboxOptionalDynamicLoadExportIsMissing( *Name, Class, bXboxTraceLoad, Stack ) )
 	{
-		TCHAR NameCopy[256];
-		appStrncpy( NameCopy, *Name, ARRAY_COUNT(NameCopy) );
-		UObject* Package = NULL;
-		const TCHAR* ObjectName = NameCopy;
-		if( ResolveName( Package, ObjectName, 0, 0 ) && Package )
-		{
-			UObject* LoadedMayFailObject = StaticFindObject( Class, Package, ObjectName );
-			if( LoadedMayFailObject )
-			{
-				if( bXboxTraceLoad )
-					debugf( NAME_Log, TEXT("XDYNLOAD loaded-package optional result obj=%s func=%s name=%s loaded=%s"),
-						Stack.Object ? Stack.Object->GetFullName() : TEXT("None"),
-						Stack.Node ? Stack.Node->GetFullName() : TEXT("None"),
-						*Name,
-						LoadedMayFailObject->GetFullName() );
-				*(UObject**)Result = LoadedMayFailObject;
-				return;
-			}
-
-			ULinkerLoad* Linker = NULL;
-			for( INT i=0; i<GObjLoaders.Num() && !Linker; i++ )
-				if( GetLoader(i)->LinkerRoot == Package )
-					Linker = GetLoader(i);
-			if( Linker )
-			{
-				FName ExportName( ObjectName, FNAME_Find );
-				UBOOL bOptionalExportMissing = ExportName == NAME_None;
-				if( !bOptionalExportMissing )
-				{
-					const FName ClassPackageName = Class->GetOuter() ? Class->GetOuter()->GetFName() : NAME_None;
-					bOptionalExportMissing =
-						Linker->FindExportIndex( Class->GetFName(), ClassPackageName, ExportName, INDEX_NONE ) == INDEX_NONE;
-				}
-				if( bOptionalExportMissing )
-				{
-					if( bXboxTraceLoad )
-						debugf( NAME_Log, TEXT("XDYNLOAD loaded-package optional miss obj=%s func=%s name=%s package=%s object=%s"),
-							Stack.Object ? Stack.Object->GetFullName() : TEXT("None"),
-							Stack.Node ? Stack.Node->GetFullName() : TEXT("None"),
-							*Name,
-							Package->GetFullName(),
-							ObjectName );
-					*(UObject**)Result = NULL;
-					return;
-				}
-			}
-		}
+		*(UObject**)Result = NULL;
+		return;
 	}
 #endif
 
-	UObject* LoadedObject = StaticLoadObject( Class, NULL, *Name, NULL, LOAD_NoWarn | (bMayFail?LOAD_Quiet:0), NULL );
+	UObject* LoadedObject = StaticLoadObject( Class, NULL, *Name, NULL, LOAD_NoWarn | ((bMayFail
+#if TARGET_XBOX
+		|| bXboxNullOnMissingDynamicLoad
+#endif
+		)?LOAD_Quiet:0), NULL );
 	*(UObject**)Result = LoadedObject;
 #if TARGET_XBOX
 	if( bXboxTraceLoad )

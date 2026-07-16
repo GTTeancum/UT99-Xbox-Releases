@@ -183,6 +183,69 @@ struct FMeshAnimSeq
 };
 
 /*-----------------------------------------------------------------------------
+	UAnimation.
+-----------------------------------------------------------------------------*/
+
+// UE1 skeletal animation data used by Engine.Animation exports.
+struct FAnimationQuat
+{
+	FLOAT X;
+	FLOAT Y;
+	FLOAT Z;
+	FLOAT W;
+
+	friend FArchive& operator<<( FArchive& Ar, FAnimationQuat& Q )
+		{return Ar << Q.X << Q.Y << Q.Z << Q.W;}
+};
+
+struct FAnimationTrack
+{
+	DWORD            Flags;
+	TArray<FAnimationQuat> KeyQuat;
+	TArray<FVector>  KeyPos;
+	TArray<FLOAT>    KeyTime;
+
+	friend FArchive& operator<<( FArchive& Ar, FAnimationTrack& T )
+		{return Ar << T.Flags << T.KeyQuat << T.KeyPos << T.KeyTime;}
+};
+
+struct FAnimationMotionChunk
+{
+	FVector                 RootSpeed3D;
+	FLOAT                   TrackTime;
+	INT                     StartBone;
+	DWORD                   Flags;
+	TArray<INT>             BoneIndices;
+	TArray<FAnimationTrack> AnimTracks;
+	FAnimationTrack         RootTrack;
+
+	friend FArchive& operator<<( FArchive& Ar, FAnimationMotionChunk& M )
+		{return Ar << M.RootSpeed3D << M.TrackTime << M.StartBone << M.Flags << M.BoneIndices << M.AnimTracks << M.RootTrack;}
+};
+
+struct FAnimationNamedBone
+{
+	FName  Name;
+	DWORD  Flags;
+	INT    ParentIndex;
+
+	friend FArchive& operator<<( FArchive& Ar, FAnimationNamedBone& B )
+		{return Ar << B.Name << B.Flags << B.ParentIndex;}
+};
+
+class ENGINE_API UAnimation : public UObject
+{
+	DECLARE_CLASS(UAnimation,UObject,0)
+	NO_DEFAULT_CONSTRUCTOR(UAnimation)
+
+	TArray<FAnimationNamedBone>    RefBones;
+	TArray<FAnimationMotionChunk>  Moves;
+	TArray<FMeshAnimSeq>           AnimSeqs;
+
+	void Serialize( FArchive& Ar );
+};
+
+/*-----------------------------------------------------------------------------
 	FMeshVertConnect.
 -----------------------------------------------------------------------------*/
 
@@ -346,6 +409,22 @@ class ENGINE_API ULodMesh : public UMesh
 	
 	// GetFrame for LOD.
 	void GetFrame( FVector* Verts, INT Size, FCoords Coords, AActor* Owner, INT& LODRequest );
+};
+
+/*-----------------------------------------------------------------------------
+	USkeletalMesh.
+-----------------------------------------------------------------------------*/
+
+//
+// UE1 skeletal meshes serialize a ULodMesh render header followed by skeletal
+// bind-pose data. The Xbox port renders the bind pose through the existing
+// ULodMesh path so packages importing Engine.SkeletalMesh can load in-game.
+//
+class ENGINE_API USkeletalMesh : public ULodMesh
+{
+	DECLARE_CLASS(USkeletalMesh,ULodMesh,0)
+
+	void Serialize( FArchive& Ar );
 };
 
 /*----------------------------------------------------------------------------

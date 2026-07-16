@@ -39,6 +39,7 @@
 
 // ── ULodMesh.cpp ─────────────────────────────────────────────────────────────
 #pragma comment(linker, "/include:_autoclassULodMesh")
+#pragma comment(linker, "/include:_autoclassUSkeletalMesh")
 
 // ── UnActor.cpp ──────────────────────────────────────────────────────────────
 #pragma comment(linker, "/include:_autoclassAActor")

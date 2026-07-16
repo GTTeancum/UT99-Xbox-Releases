@@ -1,23 +1,38 @@
 /*=============================================================================
-	UnAnimationStub.cpp: Minimal UAnimation native class stub.
+	UnAnimationStub.cpp: UE1 UAnimation native compatibility.
 
-	v436 GOTY's Engine.u imports `Engine.Animation` as the PropertyClass of
+	v436 GOTY's Engine.u imports Engine.Animation as the PropertyClass of
 	AActor::SkelAnim. v436 binary contains no Animation class export, so the
 	import only resolves if a native UAnimation is registered with the engine.
-	This stub provides that registration. The class is otherwise inert — no
-	fields, no methods. UAnimation* references will resolve to a valid UClass*
-	at link time; tagged-property serialization succeeds; nothing else uses it.
-
-	Was originally added in the v469 migration commit (`9bf1b7e`); kept here
-	after the migration revert because v436 also references the import.
+	PS2/DC skeletal character packages also contain real Engine.Animation
+	exports, so this class consumes their UE1 animation payload.
 =============================================================================*/
 
 #include "EnginePrivate.h"
 
-class ENGINE_API UAnimation : public UObject
-{
-	DECLARE_CLASS(UAnimation,UObject,0)
-	NO_DEFAULT_CONSTRUCTOR(UAnimation)
-};
-
 IMPLEMENT_CLASS(UAnimation);
+
+void UAnimation::Serialize( FArchive& Ar )
+{
+	guard(UAnimation::Serialize);
+
+	Super::Serialize( Ar );
+	Ar << RefBones;
+	Ar << Moves;
+	Ar << AnimSeqs;
+
+#if TARGET_XBOX
+	if( Ar.IsLoading() )
+		debugf
+		(
+			NAME_Log,
+			TEXT("XAnimation load %s bones=%i moves=%i seqs=%i"),
+			GetFullName(),
+			RefBones.Num(),
+			Moves.Num(),
+			AnimSeqs.Num()
+		);
+#endif
+
+	unguardobj;
+}

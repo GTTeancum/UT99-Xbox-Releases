@@ -84,6 +84,10 @@
 			>
 			</File>
 			<File
+				RelativePath=".\Src\USkeletalMesh.cpp"
+			>
+			</File>
+			<File
 				RelativePath=".\Src\UnActCol.cpp"
 			>
 			</File>

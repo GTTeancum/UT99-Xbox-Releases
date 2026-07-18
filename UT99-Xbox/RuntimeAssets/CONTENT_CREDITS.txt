@@ -22,6 +22,17 @@ DM-HangEmHigh
 - The original Hang 'Em High map, Halo, and related Halo content are credited
   to Bungie and Microsoft.
 
+DM-Halo-Derelict
+- Map author: APOCALYPSE (Cirion / UT 2K4 / Perfect Chaos)
+- This map is an Unreal Tournament remake of Halo "Derelict". The author's
+  readme credits the Torlan UT2004 Derelict team for the earlier UT2004 version.
+- Included dependencies: HaloTex texture package, sky texture package, 5-2SA1
+  music package, and halochant music package.
+- The author's readme credits Dwight Jack for the tracker tune "2 Souls at
+  Once"; [^..^]Nick for suggesting secrets; Vlad's Army; and the Halo creators.
+- Derelict, Halo, and related Halo content are credited to Bungie, Microsoft,
+  and Gearbox.
+
 Player models and character packages
 ------------------------------------
 

@@ -582,6 +582,7 @@ def copy_runtime_assets(build_root):
     if os.path.isdir(runtime_src):
         copied = 0
         runtime_system_dirs = ("System", "Textures")
+        runtime_root_dirs = ("Maps", "Music")
         if not os.path.isdir(system_dst):
             os.makedirs(system_dst)
         for subdir in runtime_system_dirs:
@@ -603,7 +604,19 @@ def copy_runtime_assets(build_root):
             copied += 1
 
         remove_stale_runtime_asset_files(build_root, runtime_src, ("Maps", "Textures", "Sounds", "Music"))
-        print("Copied {} Xbox RuntimeAssets files to {}".format(copied, system_dst))
+        for subdir in runtime_root_dirs:
+            src_root = os.path.join(runtime_src, subdir)
+            if not os.path.isdir(src_root):
+                continue
+            for dirpath, _, filenames in os.walk(src_root):
+                rel_dir = os.path.relpath(dirpath, runtime_src)
+                dst_dir = build_root if rel_dir == "." else os.path.join(build_root, rel_dir)
+                if not os.path.isdir(dst_dir):
+                    os.makedirs(dst_dir)
+                for name in filenames:
+                    shutil.copy2(os.path.join(dirpath, name), os.path.join(dst_dir, name))
+                    copied += 1
+        print("Copied {} Xbox RuntimeAssets files to {}".format(copied, build_root))
 
     stale_debug_udp = os.path.join(build_root, "XboxDebugUDP.ini")
     if os.path.isfile(stale_debug_udp):

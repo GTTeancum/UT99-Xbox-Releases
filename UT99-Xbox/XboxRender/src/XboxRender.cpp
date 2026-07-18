@@ -3110,6 +3110,12 @@ extern "C" void XboxRenderDrawMenuRect( FSceneNode* Frame, FLOAT X1, FLOAT Y1, F
     if( !Ren || !Ren->Device || !Frame )
         return;
 
+    // Menu coordinates are canvas-local, just like UCanvas text coordinates.
+    X1 += Frame->XB;
+    X2 += Frame->XB;
+    Y1 += Frame->YB;
+    Y2 += Frame->YB;
+
     if( GRD_MenuRectBatchVerts + 6 > XBOX_MENU_RECT_BATCH_VERTS )
         XboxRenderFlushMenuRectBatch( Ren, "menu-rect-full" );
 
@@ -3141,6 +3147,9 @@ extern "C" void XboxRenderDrawMenuRingSlice( FSceneNode* Frame, FLOAT CX, FLOAT 
     UXboxRenderDevice* Ren = Cast<UXboxRenderDevice>( GRenderDevice );
     if( !Ren || !Ren->Device || !Frame || OuterR <= InnerR || EndAngle <= StartAngle )
         return;
+
+    CX += Frame->XB;
+    CY += Frame->YB;
 
     Ren->FlushDGPBatch( "menu-ring-slice" );
     Ren->FlushDTBatch( "menu-ring-slice" );
@@ -3559,6 +3568,9 @@ extern "C" UBOOL XboxRenderDrawMenuTexture( FSceneNode* Frame, const char* Name,
     if( !Ren || !Ren->Device || !Frame || !Name )
         return 0;
 
+    X += Frame->XB;
+    Y += Frame->YB;
+
     FXboxMenuTexture* Tex = XboxLoadMenuTexture( Ren, Name );
     if( !Tex || !Tex->Texture )
         return 0;
@@ -3621,6 +3633,9 @@ extern "C" UBOOL XboxRenderDrawMenuUTexture( FSceneNode* Frame, UTexture* Textur
     UXboxRenderDevice* Ren = Cast<UXboxRenderDevice>( GRenderDevice );
     if( !Ren || !Ren->Device || !Frame || !Texture )
         return 0;
+
+    X += Frame->XB;
+    Y += Frame->YB;
 
     DOUBLE Time = (Frame->Viewport) ? Frame->Viewport->CurrentTime : 0.0;
     UTexture* DrawTexture = GIsEditor ? Texture : Texture->Get( Time );

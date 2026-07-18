@@ -15,6 +15,13 @@ CTF-Titania
 - The Titania readme notes that most of the map textures are from Quake III.
   Original Quake III Arena artwork is credited to id Software.
 
+DM-HangEmHigh
+- Map author: jkcrmptn
+- This map is a Unreal Tournament remake of Hang 'Em High from Halo: Combat
+  Evolved multiplayer.
+- The original Hang 'Em High map, Halo, and related Halo content are credited
+  to Bungie and Microsoft.
+
 Player models and character packages
 ------------------------------------
 
@@ -27,4 +34,3 @@ PS2 Character Pack 3.0
 - Original PS2 models: James Green (Epic Games)
 - Original models, textures, and animations: Epic Games
 - Included dependency: Advanced Model Support, by Psychic_313
-

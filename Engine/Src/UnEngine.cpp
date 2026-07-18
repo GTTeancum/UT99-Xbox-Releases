@@ -121,10 +121,8 @@ void UEngine::Init()
 	}
 	if( GIsClient )
 	{
-		debugf( NAME_Init, TEXT("Xbox: using 256 KB object cache for hardware memory headroom") );
-		GCache.Init( 256 * 1024, 4096 );
+		debugf( NAME_Init, TEXT("Xbox: using %i MB object cache for static-lightmap headroom"), CacheSizeMegs );
 	}
-	else
 #endif
 		GCache.Init( 1024 * 1024 * Clamp(GIsClient ? CacheSizeMegs : 1,1,1024), 4096 );
 

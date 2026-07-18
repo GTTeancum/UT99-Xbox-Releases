@@ -8,6 +8,11 @@ extern "C" void XboxSplitTickDummies( UClient* Client );
 extern "C" UBOOL XboxSplitShouldRenderViewport( UViewport* Viewport, INT ViewportIndex );
 extern "C" void XboxSplitClearUnusedRenderRegions( UClient* Client );
 
+static INT XboxClientClampAction( INT Action, INT DefaultAction )
+{
+    return (Action >= XCA_None && Action <= XCA_CenterView) ? Action : DefaultAction;
+}
+
 void UXboxClient::StaticConstructor()
 {
     new(GetClass(),TEXT("NumLocalPlayers"),       RF_Public) UIntProperty  (CPP_PROPERTY(NumLocalPlayers),       TEXT("Display"), CPF_Config);
@@ -17,6 +22,21 @@ void UXboxClient::StaticConstructor()
     new(GetClass(),TEXT("ScaleXYZ"),               RF_Public) UFloatProperty(CPP_PROPERTY(ScaleXYZ),              TEXT("Display"), CPF_Config);
     new(GetClass(),TEXT("ScaleRUV"),               RF_Public) UFloatProperty(CPP_PROPERTY(ScaleRUV),              TEXT("Display"), CPF_Config);
     new(GetClass(),TEXT("ButtonLayout"),           RF_Public) UIntProperty  (CPP_PROPERTY(ButtonLayout),          TEXT("Display"), CPF_Config);
+    new(GetClass(),TEXT("ControlPreset"),          RF_Public) UIntProperty  (CPP_PROPERTY(ControlPreset),         TEXT("Display"), CPF_Config);
+    new(GetClass(),TEXT("StickLayout"),            RF_Public) UIntProperty  (CPP_PROPERTY(StickLayout),           TEXT("Display"), CPF_Config);
+    new(GetClass(),TEXT("SafeAreaSize"),           RF_Public) UIntProperty  (CPP_PROPERTY(SafeAreaSize),          TEXT("Display"), CPF_Config);
+    new(GetClass(),TEXT("SafeAreaX"),              RF_Public) UIntProperty  (CPP_PROPERTY(SafeAreaX),             TEXT("Display"), CPF_Config);
+    new(GetClass(),TEXT("SafeAreaY"),              RF_Public) UIntProperty  (CPP_PROPERTY(SafeAreaY),             TEXT("Display"), CPF_Config);
+    new(GetClass(),TEXT("ButtonActionA"),          RF_Public) UIntProperty  (CPP_PROPERTY(ButtonActionA),         TEXT("Display"), CPF_Config);
+    new(GetClass(),TEXT("ButtonActionB"),          RF_Public) UIntProperty  (CPP_PROPERTY(ButtonActionB),         TEXT("Display"), CPF_Config);
+    new(GetClass(),TEXT("ButtonActionX"),          RF_Public) UIntProperty  (CPP_PROPERTY(ButtonActionX),         TEXT("Display"), CPF_Config);
+    new(GetClass(),TEXT("ButtonActionY"),          RF_Public) UIntProperty  (CPP_PROPERTY(ButtonActionY),         TEXT("Display"), CPF_Config);
+    new(GetClass(),TEXT("ButtonActionLeftTrigger"), RF_Public) UIntProperty (CPP_PROPERTY(ButtonActionLeftTrigger), TEXT("Display"), CPF_Config);
+    new(GetClass(),TEXT("ButtonActionRightTrigger"), RF_Public) UIntProperty(CPP_PROPERTY(ButtonActionRightTrigger),TEXT("Display"), CPF_Config);
+    new(GetClass(),TEXT("ButtonActionWhite"),      RF_Public) UIntProperty  (CPP_PROPERTY(ButtonActionWhite),     TEXT("Display"), CPF_Config);
+    new(GetClass(),TEXT("ButtonActionBlack"),      RF_Public) UIntProperty  (CPP_PROPERTY(ButtonActionBlack),     TEXT("Display"), CPF_Config);
+    new(GetClass(),TEXT("ButtonActionBack"),       RF_Public) UIntProperty  (CPP_PROPERTY(ButtonActionBack),      TEXT("Display"), CPF_Config);
+    new(GetClass(),TEXT("ButtonActionRightThumb"), RF_Public) UIntProperty  (CPP_PROPERTY(ButtonActionRightThumb),TEXT("Display"), CPF_Config);
 }
 
 void UXboxClient::Init( UEngine* InEngine )
@@ -33,6 +53,21 @@ void UXboxClient::Init( UEngine* InEngine )
     ScaleXYZ              = 100.0f;
     ScaleRUV              = 100.0f;
     ButtonLayout          = 0;
+    ControlPreset         = 0;
+    StickLayout           = XSL_Default;
+    SafeAreaSize          = 92;
+    SafeAreaX             = 0;
+    SafeAreaY             = 0;
+    ButtonActionA         = XCA_Jump;
+    ButtonActionB         = XCA_Duck;
+    ButtonActionX         = XCA_Use;
+    ButtonActionY         = XCA_Dodge;
+    ButtonActionLeftTrigger  = XCA_AltFire;
+    ButtonActionRightTrigger = XCA_Fire;
+    ButtonActionWhite     = XCA_PrevWeaponWheel;
+    ButtonActionBlack     = XCA_NextWeaponWheel;
+    ButtonActionBack      = XCA_Scoreboard;
+    ButtonActionRightThumb= XCA_CenterView;
 
     LoadConfig();
     if( ButtonLayout == 1 )
@@ -48,6 +83,33 @@ void UXboxClient::Init( UEngine* InEngine )
         SaveConfig();
     }
 
+    if( ButtonLayout == 2 && ControlPreset == 0 )
+    {
+        ControlPreset = 1;
+        ButtonActionA = XCA_Fire;
+        ButtonActionRightTrigger = XCA_Jump;
+        GXboxLog.Write( "XboxClient::Init: migrated legacy Face Fire ButtonLayout=2 to configurable controls preset" );
+        SaveConfig();
+    }
+
+    if( ControlPreset < -1 || ControlPreset >= XBOX_CONTROL_PRESET_COUNT )
+        ControlPreset = 0;
+    if( StickLayout < XSL_Default || StickLayout > XSL_LegacySouthpaw )
+        StickLayout = XSL_Default;
+    SafeAreaSize = Clamp<INT>( SafeAreaSize, 85, 100 );
+    SafeAreaX = Clamp<INT>( SafeAreaX, -48, 48 );
+    SafeAreaY = Clamp<INT>( SafeAreaY, -36, 36 );
+    ButtonActionA = XboxClientClampAction( ButtonActionA, XCA_Jump );
+    ButtonActionB = XboxClientClampAction( ButtonActionB, XCA_Duck );
+    ButtonActionX = XboxClientClampAction( ButtonActionX, XCA_Use );
+    ButtonActionY = XboxClientClampAction( ButtonActionY, XCA_Dodge );
+    ButtonActionLeftTrigger = XboxClientClampAction( ButtonActionLeftTrigger, XCA_AltFire );
+    ButtonActionRightTrigger = XboxClientClampAction( ButtonActionRightTrigger, XCA_Fire );
+    ButtonActionWhite = XboxClientClampAction( ButtonActionWhite, XCA_PrevWeaponWheel );
+    ButtonActionBlack = XboxClientClampAction( ButtonActionBlack, XCA_NextWeaponWheel );
+    ButtonActionBack = XboxClientClampAction( ButtonActionBack, XCA_Scoreboard );
+    ButtonActionRightThumb = XboxClientClampAction( ButtonActionRightThumb, XCA_CenterView );
+
     NumLocalPlayers       = 1;
     HasFocus              = 1;
 
@@ -62,8 +124,8 @@ void UXboxClient::Init( UEngine* InEngine )
     TextureLODSet[LODSET_World] = 0;
     TextureLODSet[LODSET_Skin]  = 0;
 
-    GXboxLog.Write( "XboxClient::Init: settings flashes=%d decals=%d dynLights=%d minFPS=%.1f scaleXYZ=%.1f scaleRUV=%.1f layout=%d",
-        ScreenFlashes, Decals, NoDynamicLights, MinDesiredFrameRate, ScaleXYZ, ScaleRUV, ButtonLayout );
+    GXboxLog.Write( "XboxClient::Init: settings flashes=%d decals=%d dynLights=%d minFPS=%.1f scaleXYZ=%.1f scaleRUV=%.1f preset=%d stick=%d safeSize=%d safePos=%d,%d",
+        ScreenFlashes, Decals, NoDynamicLights, MinDesiredFrameRate, ScaleXYZ, ScaleRUV, ControlPreset, StickLayout, SafeAreaSize, SafeAreaX, SafeAreaY );
 
     PostEditChange();
     unguard;

@@ -541,6 +541,16 @@ class UXboxAudioDevice : public UAudioSubsystem
     UBOOL           MusicPaused;
     UBOOL           MusicFailed;
     UBOOL           SuppressEffects;
+    struct FXboxLoopingSound
+    {
+        AActor* Actor;
+        INT Id;
+        USound* Sound;
+        IDirectSoundBuffer* Buffer;
+        DOUBLE LastSeen;
+    };
+    FXboxLoopingSound LoopingSounds[16];
+    INT             LoopingSoundLogCount;
 
 public:
     void StaticConstructor()
@@ -579,6 +589,8 @@ public:
         MusicPaused      = 0;
         MusicFailed      = 0;
         SuppressEffects  = 0;
+        appMemzero( LoopingSounds, sizeof(LoopingSounds) );
+        LoopingSoundLogCount = 0;
     }
 
     UBOOL Init()
@@ -645,6 +657,7 @@ public:
         USound::Audio = NULL;
         UMusic::Audio = NULL;
         StopMusic();
+        StopAllEffects();
 #if XBOX_ENABLE_UMX_MUSIC
         if( MusicContext )
         {
@@ -777,6 +790,101 @@ public:
         return 0;
     }
 
+    void StopLoopingSoundSlot( INT Slot )
+    {
+        if( Slot < 0 || Slot >= ARRAY_COUNT(LoopingSounds) )
+            return;
+        if( LoopingSounds[Slot].Buffer )
+            LoopingSounds[Slot].Buffer->Stop();
+        appMemzero( &LoopingSounds[Slot], sizeof(LoopingSounds[Slot]) );
+    }
+
+    void StopLoopingSoundsForActor( AActor* Actor )
+    {
+        if( !Actor )
+            return;
+        for( INT i=0; i<ARRAY_COUNT(LoopingSounds); i++ )
+            if( LoopingSounds[i].Actor == Actor )
+                StopLoopingSoundSlot( i );
+    }
+
+    void StopLoopingSoundsForSound( USound* Sound )
+    {
+        if( !Sound )
+            return;
+        for( INT i=0; i<ARRAY_COUNT(LoopingSounds); i++ )
+            if( LoopingSounds[i].Sound == Sound )
+                StopLoopingSoundSlot( i );
+    }
+
+    void CullLoopingSounds()
+    {
+        DOUBLE Now = appSeconds();
+        for( INT i=0; i<ARRAY_COUNT(LoopingSounds); i++ )
+        {
+            if( LoopingSounds[i].Buffer && (Now - LoopingSounds[i].LastSeen) > 0.35 )
+                StopLoopingSoundSlot( i );
+        }
+    }
+
+    UBOOL PlayLoopingSound( AActor* Actor, INT Id, USound* Sound, IDirectSoundBuffer* Buffer, FLOAT Volume, FLOAT Pitch, DWORD BaseRate )
+    {
+        if( !Actor || !Sound || !Buffer )
+            return 0;
+
+        INT Slot = -1;
+        INT EmptySlot = -1;
+        for( INT i=0; i<ARRAY_COUNT(LoopingSounds); i++ )
+        {
+            if( LoopingSounds[i].Actor == Actor && LoopingSounds[i].Id == Id && LoopingSounds[i].Sound == Sound )
+            {
+                Slot = i;
+                break;
+            }
+            if( EmptySlot < 0 && !LoopingSounds[i].Buffer )
+                EmptySlot = i;
+        }
+        if( Slot < 0 )
+            Slot = EmptySlot >= 0 ? EmptySlot : 0;
+
+        FXboxLoopingSound& Loop = LoopingSounds[Slot];
+        if( Loop.Buffer && (Loop.Actor != Actor || Loop.Id != Id || Loop.Sound != Sound) )
+            StopLoopingSoundSlot( Slot );
+
+        Loop.Actor = Actor;
+        Loop.Id = Id;
+        Loop.Sound = Sound;
+        Loop.Buffer = Buffer;
+        Loop.LastSeen = appSeconds();
+
+        FLOAT ClampedPitch = Clamp( Pitch, 0.25f, 4.0f );
+        Buffer->SetVolume( XboxVolumeToDS( Clamp( Volume * ((FLOAT)SoundVolume / 255.0f), 0.0f, 1.0f ) ) );
+        Buffer->SetFrequency( Max<DWORD>( 100, (DWORD)(BaseRate * ClampedPitch) ) );
+
+        DWORD Status = 0;
+        Buffer->GetStatus( &Status );
+        if( !(Status & DSBSTATUS_PLAYING) )
+        {
+            Buffer->SetCurrentPosition( 0 );
+            HRESULT hr = Buffer->Play( 0, 0, DSBPLAY_LOOPING );
+            if( FAILED(hr) )
+            {
+                if( FailedSounds < 64 )
+                    GXboxLog.Write( "XboxAudio: Loop play failed %s hr=0x%08X", TCHAR_TO_ANSI(Sound->GetName()), (DWORD)hr );
+                FailedSounds++;
+                StopLoopingSoundSlot( Slot );
+                return 0;
+            }
+            if( LoopingSoundLogCount < 24 )
+            {
+                LoopingSoundLogCount++;
+                GXboxLog.Write( "XboxAudio: loop #%d sound=%s actor=0x%08X id=%d",
+                    LoopingSoundLogCount, TCHAR_TO_ANSI(Sound->GetName()), (DWORD)Actor, Id );
+            }
+        }
+        return 1;
+    }
+
     void Update( FPointRegion Region, FCoords& Listener )
     {
         guard(UXboxAudioDevice::Update);
@@ -807,6 +915,7 @@ public:
 
         ServiceMusicStream();
         ServiceToneSmokeStream();
+        CullLoopingSounds();
         if( DirectSound )
             DirectSoundDoWork();
 
@@ -919,6 +1028,7 @@ public:
         if( Sound && Sound->Handle )
         {
             IDirectSoundBuffer* Buffer = (IDirectSoundBuffer*)Sound->Handle;
+            StopLoopingSoundsForSound( Sound );
             Buffer->Stop();
             Buffer->Release();
             Sound->Handle = NULL;
@@ -964,6 +1074,8 @@ public:
             return 0;
 
         DWORD BaseRate = XboxSoundMetaGetBaseRate( Sound );
+        if( Actor && Actor->AmbientSound == Sound )
+            return PlayLoopingSound( Actor, Id, Sound, Buffer, Volume, Pitch, BaseRate );
 
         FLOAT ClampedPitch = Clamp( Pitch, 0.25f, 4.0f );
         Buffer->Stop();
@@ -991,6 +1103,7 @@ public:
 
     void NoteDestroy( AActor* Actor )
     {
+        StopLoopingSoundsForActor( Actor );
     }
 
     UBOOL GetLowQualitySetting()
@@ -1940,6 +2053,8 @@ private:
     void StopAllEffects()
     {
         guard(UXboxAudioDevice::StopAllEffects);
+        for( INT i=0; i<ARRAY_COUNT(LoopingSounds); i++ )
+            StopLoopingSoundSlot( i );
         for( TObjectIterator<USound> It; It; ++It )
         {
             if( It->Handle )

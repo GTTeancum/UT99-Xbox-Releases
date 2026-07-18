@@ -10,6 +10,31 @@
 #define XBOX_SCREEN_WIDTH       640
 #define XBOX_SCREEN_HEIGHT      480
 
+enum EXboxControlAction
+{
+    XCA_None = 0,
+    XCA_Fire,
+    XCA_AltFire,
+    XCA_Jump,
+    XCA_Duck,
+    XCA_Use,
+    XCA_Dodge,
+    XCA_PrevWeaponWheel,
+    XCA_NextWeaponWheel,
+    XCA_Scoreboard,
+    XCA_CenterView
+};
+
+enum EXboxStickLayout
+{
+    XSL_Default = 0,
+    XSL_Southpaw,
+    XSL_Legacy,
+    XSL_LegacySouthpaw
+};
+
+#define XBOX_CONTROL_PRESET_COUNT 8
+
 class UXboxViewport;
 
 class UXboxClient : public UClient
@@ -25,6 +50,21 @@ public:
     FLOAT           ScaleXYZ;
     FLOAT           ScaleRUV;
     INT             ButtonLayout;
+    INT             ControlPreset;
+    INT             StickLayout;
+    INT             SafeAreaSize;
+    INT             SafeAreaX;
+    INT             SafeAreaY;
+    INT             ButtonActionA;
+    INT             ButtonActionB;
+    INT             ButtonActionX;
+    INT             ButtonActionY;
+    INT             ButtonActionLeftTrigger;
+    INT             ButtonActionRightTrigger;
+    INT             ButtonActionWhite;
+    INT             ButtonActionBlack;
+    INT             ButtonActionBack;
+    INT             ButtonActionRightThumb;
 
     void            StaticConstructor();
     void            Init( UEngine* InEngine );

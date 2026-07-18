@@ -42,6 +42,67 @@ static FLOAT XboxStickAxis( SHORT Raw, FLOAT DeadZone )
     return 0.0f;
 }
 
+static INT XboxStickLayoutClamp( INT Layout )
+{
+    return Clamp<INT>( Layout, XSL_Default, XSL_LegacySouthpaw );
+}
+
+static const TCHAR* XboxStickLayoutLabel( INT Layout )
+{
+    switch( XboxStickLayoutClamp(Layout) )
+    {
+        case XSL_Southpaw:       return TEXT("SOUTHPAW");
+        case XSL_Legacy:         return TEXT("LEGACY");
+        case XSL_LegacySouthpaw: return TEXT("LEGACY SOUTHPAW");
+        default:                 return TEXT("DEFAULT");
+    }
+}
+
+static void XboxStickLayoutAxes
+(
+    INT Layout,
+    FLOAT LeftX,
+    FLOAT LeftY,
+    FLOAT RightX,
+    FLOAT RightY,
+    FLOAT& MoveX,
+    FLOAT& MoveY,
+    FLOAT& LookX,
+    FLOAT& LookY
+)
+{
+    switch( XboxStickLayoutClamp(Layout) )
+    {
+        case XSL_Southpaw:
+            MoveX = RightX;
+            MoveY = RightY;
+            LookX = LeftX;
+            LookY = LeftY;
+            break;
+
+        case XSL_Legacy:
+            MoveX = RightX;
+            MoveY = LeftY;
+            LookX = LeftX;
+            LookY = RightY;
+            break;
+
+        case XSL_LegacySouthpaw:
+            MoveX = LeftX;
+            MoveY = RightY;
+            LookX = RightX;
+            LookY = LeftY;
+            break;
+
+        default:
+            MoveX = LeftX;
+            MoveY = LeftY;
+            LookX = RightX;
+            LookY = RightY;
+            break;
+    }
+}
+
 static HANDLE XboxOpenControllerOnPort( INT Port, DWORD DeviceMask )
 {
     HANDLE Handle = XInputOpen( XDEVICE_TYPE_GAMEPAD, Port, XDEVICE_NO_SLOT, NULL );
@@ -111,10 +172,14 @@ enum EXboxMenuScreen
     XMS_SystemLink,
     XMS_SystemLinkMapSelect,
     XMS_Tournament,
+    XMS_TournamentPostMatch,
     XMS_SplitReady,
     XMS_SplitMapSelect,
     XMS_PlayerSetup,
+    XMS_Controls,
     XMS_Settings,
+    XMS_SettingsAudio,
+    XMS_SettingsVideo,
     XMS_ComingSoon
 };
 
@@ -131,6 +196,7 @@ struct FXboxMenuState
     INT TournamentSkill;
     INT SplitFocus;
     INT PlayerFocus;
+    INT ControlsFocus;
     INT SettingsFocus;
     INT InstantGameType;
     INT InstantMap[64];
@@ -148,6 +214,35 @@ struct FXboxMenuState
     FLOAT Pulse;
     UBOOL PausedMatch;
     TCHAR ComingSoonTitle[64];
+};
+
+struct FXboxTournamentPostMatchState
+{
+    UBOOL Valid;
+    UBOOL Advanced;
+    INT LadderIndex;
+    INT CompletedMatch;
+    INT NextMatch;
+    INT PendingRank;
+    INT PreviousPosition;
+    INT NewPosition;
+    TCHAR MatchTitle[96];
+    TCHAR MapName[96];
+    TCHAR RankTitle[64];
+};
+
+struct FXboxPendingMatchRules
+{
+    UBOOL Active;
+    ULevel* AppliedLevel;
+    TCHAR GameClass[96];
+    INT ScoreLimit;
+    INT TimeLimit;
+    INT MinPlayers;
+    INT Skill;
+    INT DesiredBots;
+    UBOOL TeamScore;
+    UBOOL ObjectiveRules;
 };
 
 struct FXboxWeaponWheelSlot
@@ -183,13 +278,19 @@ static FXboxWeaponWheelSlot GXboxWeaponWheelSlots[] =
 
 static UBOOL GXboxWeaponWheelActive[4] = { 0, 0, 0, 0 };
 static INT   GXboxWeaponWheelFocus[4]  = { 0, 0, 0, 0 };
-static DOUBLE GXboxWeaponWheelPressTime[4][2] = { {0,0}, {0,0}, {0,0}, {0,0} };
+enum { XBOX_CONTROL_BUTTON_COUNT = 10 };
+static DOUBLE GXboxWeaponWheelPressTime[4][XBOX_CONTROL_BUTTON_COUNT];
 static INT   GXboxWeaponWheelLogCount  = 0;
 static INT   GXboxWeaponWheelSpriteFailLogCount = 0;
 static AActor* GXboxWeaponWheelPreviewActor = NULL;
 static ULevel* GXboxWeaponWheelPreviewLevel = NULL;
 static INT   GXboxMenuVoiceSampleBypass = 0;
 static UBOOL GXboxFrontendMenuOpenPending = 0;
+static UBOOL GXboxFrontendTournamentOpenPending = 0;
+static UBOOL GXboxFrontendTournamentPostMatchPending = 0;
+static FXboxTournamentPostMatchState GXboxTournamentPostMatch;
+static FXboxPendingMatchRules GXboxPendingMatchRules = { 0, NULL, TEXT(""), 0, 0, 0, 0, 0, 0, 0 };
+static ULevel* GXboxTournamentTransitionHandledLevel = NULL;
 static ULevel* GXboxTournamentLastLoggedLevel = NULL;
 static APlayerPawn* GXboxTournamentLastLoggedPlayer = NULL;
 
@@ -277,6 +378,7 @@ static FXboxMenuState GXboxMenu =
     0,
     0,
     1,
+    0,
     0,
     0,
     0,
@@ -385,36 +487,156 @@ static const FXboxTournamentLadderOption GXboxTournamentLadders[] =
     { TEXT("FINAL CHALLENGE"),  TEXT("Botpack.LadderChal"), TEXT("Botpack.ChallengeDMP"),   1, 5 }
 };
 
-enum EXboxSettingsRow
+enum EXboxSettingsHubRow
 {
-    XSR_LookSensitivity,
-    XSR_MoveSensitivity,
-    XSR_InvertY,
-    XSR_DeadZone,
-    XSR_ButtonLayout,
-    XSR_MusicVolume,
-    XSR_SoundVolume,
-    XSR_AnnouncerVolume,
-    XSR_Crosshair,
-    XSR_HudColor,
-    XSR_CrosshairColor,
-    XSR_HudOpacity,
-    XSR_WeaponHand,
-    XSR_AutoSwitch,
-    XSR_MatureLanguage,
-    XSR_Count
+    XSH_Controls,
+    XSH_Audio,
+    XSH_Video,
+    XSH_Count
 };
 
-static const TCHAR* GXboxButtonLayouts[] =
+enum EXboxAudioSettingsRow
 {
-    TEXT("DEFAULT"),
-    TEXT("FACE FIRE")
+    XAR_MusicVolume,
+    XAR_SoundVolume,
+    XAR_AnnouncerVolume,
+    XAR_Count
 };
 
-static const INT GXboxButtonLayoutValues[] =
+enum EXboxVideoSettingsRow
 {
-    0,
-    2
+    XVR_SafeAreaSize,
+    XVR_SafeAreaX,
+    XVR_SafeAreaY,
+    XVR_Crosshair,
+    XVR_HudColor,
+    XVR_CrosshairColor,
+    XVR_HudOpacity,
+    XVR_MatureLanguage,
+    XVR_Count
+};
+
+enum EXboxControlsRow
+{
+    XCR_LookSensitivity,
+    XCR_MoveSensitivity,
+    XCR_InvertY,
+    XCR_DeadZone,
+    XCR_Preset,
+    XCR_StickLayout,
+    XCR_WeaponHand,
+    XCR_AutoSwitch,
+    XCR_FirstButton
+};
+
+enum EXboxControlButton
+{
+    XCB_A,
+    XCB_B,
+    XCB_X,
+    XCB_Y,
+    XCB_LeftTrigger,
+    XCB_RightTrigger,
+    XCB_White,
+    XCB_Black,
+    XCB_Back,
+    XCB_RightThumb,
+    XCB_Count
+};
+
+static INT XboxControlsRowCount()
+{
+    return XCR_FirstButton + XCB_Count;
+}
+
+static INT XboxControlsVisibleRows()
+{
+    return Min<INT>( XboxControlsRowCount(), 12 );
+}
+
+static UBOOL XboxControlsCanScroll()
+{
+    return XboxControlsRowCount() > XboxControlsVisibleRows();
+}
+
+static INT XboxControlsScrollTop()
+{
+    INT TotalRows = XboxControlsRowCount();
+    INT VisibleRows = XboxControlsVisibleRows();
+    INT Focus = Clamp<INT>( GXboxMenu.ControlsFocus, 0, TotalRows - 1 );
+    INT Top = 0;
+
+    if( Focus >= VisibleRows )
+        Top = Focus - VisibleRows + 1;
+
+    return Clamp<INT>( Top, 0, Max<INT>( 0, TotalRows - VisibleRows ) );
+}
+
+struct FXboxControlButtonInfo
+{
+    const char* Image;
+    INT AnalogIndex;
+    WORD DigitalMask;
+};
+
+static const FXboxControlButtonInfo GXboxControlButtons[XCB_Count] =
+{
+    { "button_a.xui",      XINPUT_GAMEPAD_A,             0 },
+    { "button_b.xui",      XINPUT_GAMEPAD_B,             0 },
+    { "button_x.xui",      XINPUT_GAMEPAD_X,             0 },
+    { "button_y.xui",      XINPUT_GAMEPAD_Y,             0 },
+    { "button_lt.xui",     XINPUT_GAMEPAD_LEFT_TRIGGER,  0 },
+    { "button_rt.xui",     XINPUT_GAMEPAD_RIGHT_TRIGGER, 0 },
+    { "button_white.xui",  XINPUT_GAMEPAD_WHITE,         0 },
+    { "button_black.xui",  XINPUT_GAMEPAD_BLACK,         0 },
+    { "button_back.xui",   -1,                           XINPUT_GAMEPAD_BACK },
+    { "button_rstick.xui", -1,                           XINPUT_GAMEPAD_RIGHT_THUMB }
+};
+
+struct FXboxControlActionInfo
+{
+    const TCHAR* Label;
+    EInputKey Key;
+    INT CycleDir;
+    UBOOL bWheelHold;
+    UBOOL bDodge;
+    UBOOL bReadyFire;
+    UBOOL bReadyAltFire;
+};
+
+static const FXboxControlActionInfo GXboxControlActions[] =
+{
+    { TEXT("NONE"),             IK_None,  0, 0, 0, 0, 0 },
+    { TEXT("FIRE"),             IK_Joy1,  0, 0, 0, 1, 0 },
+    { TEXT("ALT FIRE"),         IK_Joy3,  0, 0, 0, 0, 1 },
+    { TEXT("JUMP"),             IK_Joy2,  0, 0, 0, 0, 0 },
+    { TEXT("DUCK"),             IK_Joy4,  0, 0, 0, 0, 0 },
+    { TEXT("USE"),              IK_Enter, 0, 0, 0, 0, 0 },
+    { TEXT("DODGE"),            IK_None,  0, 0, 1, 0, 0 },
+    { TEXT("PREV WEAPON/WHEEL"),IK_None, -1, 1, 0, 0, 0 },
+    { TEXT("NEXT WEAPON/WHEEL"),IK_None,  1, 1, 0, 0, 0 },
+    { TEXT("SCOREBOARD"),       IK_Tab,   0, 0, 0, 0, 0 },
+    { TEXT("CENTER VIEW"),      IK_Joy6,  0, 0, 0, 0, 0 }
+};
+
+struct FXboxControlPreset
+{
+    const TCHAR* Label;
+    INT LegacyButtonLayout;
+    INT StickLayout;
+    INT Actions[XCB_Count];
+};
+
+static const FXboxControlPreset GXboxControlPresets[] =
+{
+    { TEXT("DEFAULT"),          0, XSL_Default,        { XCA_Jump, XCA_Duck, XCA_Use, XCA_Dodge, XCA_AltFire, XCA_Fire, XCA_PrevWeaponWheel, XCA_NextWeaponWheel, XCA_Scoreboard, XCA_CenterView } },
+    { TEXT("FACE FIRE"),        2, XSL_Default,        { XCA_Fire, XCA_Duck, XCA_Use, XCA_Dodge, XCA_AltFire, XCA_Jump, XCA_PrevWeaponWheel, XCA_NextWeaponWheel, XCA_Scoreboard, XCA_CenterView } },
+    { TEXT("ALT SWAP"),         0, XSL_Default,        { XCA_Jump, XCA_Duck, XCA_Use, XCA_Dodge, XCA_Fire, XCA_AltFire, XCA_PrevWeaponWheel, XCA_NextWeaponWheel, XCA_Scoreboard, XCA_CenterView } },
+    { TEXT("SOUTHPAW"),         0, XSL_Southpaw,       { XCA_Jump, XCA_Duck, XCA_Use, XCA_Dodge, XCA_AltFire, XCA_Fire, XCA_PrevWeaponWheel, XCA_NextWeaponWheel, XCA_Scoreboard, XCA_CenterView } },
+    { TEXT("LEGACY"),           0, XSL_Legacy,         { XCA_Jump, XCA_Duck, XCA_Use, XCA_Dodge, XCA_AltFire, XCA_Fire, XCA_PrevWeaponWheel, XCA_NextWeaponWheel, XCA_Scoreboard, XCA_CenterView } },
+    { TEXT("LEGACY SOUTHPAW"),  0, XSL_LegacySouthpaw, { XCA_Jump, XCA_Duck, XCA_Use, XCA_Dodge, XCA_AltFire, XCA_Fire, XCA_PrevWeaponWheel, XCA_NextWeaponWheel, XCA_Scoreboard, XCA_CenterView } },
+    { TEXT("BUMPER JUMPER"),    0, XSL_Default,        { XCA_Use, XCA_Duck, XCA_AltFire, XCA_Dodge, XCA_Jump, XCA_Fire, XCA_PrevWeaponWheel, XCA_NextWeaponWheel, XCA_Scoreboard, XCA_CenterView } },
+    { TEXT("TACTICAL"),         0, XSL_Default,        { XCA_Jump, XCA_Dodge, XCA_Use, XCA_AltFire, XCA_PrevWeaponWheel, XCA_Fire, XCA_Scoreboard, XCA_NextWeaponWheel, XCA_None, XCA_Duck } }
 };
 
 static const TCHAR* GXboxColorNames[] =
@@ -582,12 +804,25 @@ static UBOOL GXboxSplitReadyInitialized = 0;
 
 static UBOOL XboxSetObjectPropertyText( UObject* Object, const TCHAR* PropertyName, const TCHAR* Value );
 static UBOOL XboxSetClassDefaultPropertyText( const TCHAR* ClassName, const TCHAR* PropertyName, const TCHAR* Value );
+static UBOOL XboxSetClassDefaultPropertyInt( const TCHAR* ClassName, const TCHAR* PropertyName, INT Value );
+static UBOOL XboxMenuGameUsesTeamScore( const TCHAR* GameClassName );
+static UBOOL XboxMenuGameUsesObjectiveRules( const TCHAR* GameClassName );
+static void XboxMenuApplyMatchRuleDefaults( const TCHAR* GameClassName, INT ScoreLimit, INT MinPlayers );
+static void XboxMenuBuildMatchRuleOptions( const TCHAR* GameClassName, INT ScoreLimit, INT TimeLimit, INT MinPlayers, INT Skill, TCHAR* Out );
+static void XboxMenuQueuePendingMatchRules( const TCHAR* GameClassName, INT ScoreLimit, INT TimeLimit, INT MinPlayers, INT Skill, INT DesiredBots );
+static void XboxMenuApplyPendingMatchRules( UXboxViewport* Viewport );
+static void XboxMenuActivate( UXboxViewport* Viewport );
+static void XboxMenuAdjustInstantAction( INT Delta );
+static const TCHAR* XboxInstantRulesProofRequestedPrefix();
 static INT XboxSplitReadyJoinedCount();
 static UBOOL XboxSplitReadyCanBegin();
 static void XboxSplitReadyEnsure();
 static const FXboxPlayerClassOption& XboxSplitReadyPlayerClass( INT Port );
 static void XboxSplitBuildPlayerURLForSlot( INT Port, TCHAR* Out, INT OutCount, UBOOL bForceDummy );
 static void XboxMenuClose( UXboxViewport* Viewport );
+static void XboxMenuReturnToFrontend( UXboxViewport* Viewport );
+static void XboxTournamentClampSelection( UXboxViewport* Viewport );
+static const TCHAR* XboxMenuScreenName( EXboxMenuScreen Screen );
 static INT XboxMenuGameTypeCount();
 static INT XboxInstantMapList( INT GameType );
 static const FXboxDiscoveredOption& XboxMenuGameType( INT Index );
@@ -1239,10 +1474,135 @@ static UBOOL XboxTournamentSmokeEnabled()
     return XboxSmokeMarkerExists( "XboxTournamentSmoke.ini", Cached );
 }
 
+static UBOOL XboxControlsProofSmokeEnabled()
+{
+    static INT Cached = -1;
+    return XboxSmokeMarkerExists( "XboxControlsProofSmoke.ini", Cached );
+}
+
+static UBOOL XboxSettingsProofSmokeEnabled()
+{
+    static INT Cached = -1;
+    return XboxSmokeMarkerExists( "XboxSettingsProofSmoke.ini", Cached );
+}
+
+static UBOOL XboxAudioSettingsProofSmokeEnabled()
+{
+    static INT Cached = -1;
+    return XboxSmokeMarkerExists( "XboxAudioSettingsProofSmoke.ini", Cached );
+}
+
+static UBOOL XboxVideoSettingsProofSmokeEnabled()
+{
+    static INT Cached = -1;
+    return XboxSmokeMarkerExists( "XboxVideoSettingsProofSmoke.ini", Cached );
+}
+
+static UBOOL XboxMainMenuProofSmokeEnabled()
+{
+    static INT Cached = -1;
+    return XboxSmokeMarkerExists( "XboxMainMenuProofSmoke.ini", Cached );
+}
+
+enum EXboxFullMenuProofRequest
+{
+    XFMP_None = 0,
+    XFMP_Main,
+    XFMP_Pause,
+    XFMP_InstantAction,
+    XFMP_Mutators,
+    XFMP_Tournament,
+    XFMP_TournamentResult,
+    XFMP_SystemLinkDiscovery,
+    XFMP_SystemLinkReady,
+    XFMP_SystemLinkHostMap,
+    XFMP_SystemLinkClientMap,
+    XFMP_SplitReady,
+    XFMP_SplitMap,
+    XFMP_PlayerSetup,
+    XFMP_ControlsTop,
+    XFMP_ControlsButtons,
+    XFMP_Settings,
+    XFMP_Audio,
+    XFMP_Video,
+    XFMP_ComingSoon
+};
+
+static INT XboxFullMenuProofRequested()
+{
+    static INT Cached = -2;
+    if( Cached != -2 )
+        return Cached;
+
+    static const char* MarkerNames[] =
+    {
+        "",
+        "XboxProofMain.ini",
+        "XboxProofPause.ini",
+        "XboxProofInstantAction.ini",
+        "XboxProofMutators.ini",
+        "XboxProofTournament.ini",
+        "XboxProofTournamentResult.ini",
+        "XboxProofSystemLinkDiscovery.ini",
+        "XboxProofSystemLinkReady.ini",
+        "XboxProofSystemLinkHostMap.ini",
+        "XboxProofSystemLinkClientMap.ini",
+        "XboxProofSplitReady.ini",
+        "XboxProofSplitMap.ini",
+        "XboxProofPlayerSetup.ini",
+        "XboxProofControlsTop.ini",
+        "XboxProofControlsButtons.ini",
+        "XboxProofSettings.ini",
+        "XboxProofAudio.ini",
+        "XboxProofVideo.ini",
+        "XboxProofComingSoon.ini"
+    };
+
+    for( INT i=1; i<ARRAY_COUNT(MarkerNames); i++ )
+    {
+        char DPath[128];
+        appSprintf( DPath, "D:\\%s", MarkerNames[i] );
+        if( GetFileAttributesA(DPath) != 0xFFFFFFFF || GetFileAttributesA(MarkerNames[i]) != 0xFFFFFFFF )
+        {
+            Cached = i;
+            GXboxLog.Write( "XMENU FULL PROOF request=%d marker=%s", i, MarkerNames[i] );
+            return Cached;
+        }
+    }
+
+    Cached = XFMP_None;
+    return Cached;
+}
+
+static UBOOL XboxIsSystemLinkProofRequest( INT Request )
+{
+    return Request == XFMP_SystemLinkDiscovery
+        || Request == XFMP_SystemLinkReady
+        || Request == XFMP_SystemLinkHostMap
+        || Request == XFMP_SystemLinkClientMap;
+}
+
+static UBOOL XboxSafeAreaProofSmokeEnabled()
+{
+    static INT Cached = -1;
+    return XboxSmokeMarkerExists( "XboxSafeAreaProofSmoke.ini", Cached );
+}
+
+static UBOOL XboxInstantRulesProofSmokeEnabled()
+{
+    return XboxInstantRulesProofRequestedPrefix() != NULL;
+}
+
 static UBOOL XboxSoakSmokeEnabled()
 {
     static INT Cached = -1;
     return XboxSmokeMarkerExists( "XboxSoakSmoke.ini", Cached );
+}
+
+static UBOOL XboxIssueMapSmokeEnabled()
+{
+    static INT Cached = -1;
+    return XboxSmokeMarkerExists( "XboxIssueMapSmoke.ini", Cached );
 }
 
 static UBOOL XboxSystemLinkSmokeEnabled()
@@ -1427,16 +1787,45 @@ extern "C" UBOOL XboxSplitShouldClearRenderLock()
     return 1;
 }
 
+static void XboxViewportApplySafeArea( UXboxClient* Client, INT& X, INT& Y, INT& W, INT& H )
+{
+    if( !Client || W <= 1 || H <= 1 )
+        return;
+
+    INT SizePercent = Clamp<INT>( Client->SafeAreaSize, 85, 100 );
+    INT InsetX = (W * (100 - SizePercent) + 100) / 200;
+    INT InsetY = (H * (100 - SizePercent) + 100) / 200;
+    INT OffsetX = Clamp<INT>( Client->SafeAreaX, -InsetX, InsetX );
+    INT OffsetY = Clamp<INT>( Client->SafeAreaY, -InsetY, InsetY );
+
+    X += InsetX + OffsetX;
+    Y += InsetY + OffsetY;
+    W -= InsetX * 2;
+    H -= InsetY * 2;
+}
+
 extern "C" void XboxViewportApplyViewRegion( UViewport* Viewport, FSceneNode* Frame )
 {
     UXboxViewport* XboxViewport = Cast<UXboxViewport>( Viewport );
     if( !XboxViewport || !Frame )
         return;
 
-    Frame->XB = XboxViewport->ViewX;
-    Frame->YB = XboxViewport->ViewY;
-    Frame->X  = Max<INT>( XboxViewport->ViewWidth,  1 );
-    Frame->Y  = Max<INT>( XboxViewport->ViewHeight, 1 );
+    INT X = XboxViewport->ViewX;
+    INT Y = XboxViewport->ViewY;
+    INT W = XboxViewport->ViewWidth;
+    INT H = XboxViewport->ViewHeight;
+
+    if( !GXboxSplitActive && !XboxViewport->bXboxSplitDummy )
+    {
+        UXboxClient* Client = Cast<UXboxClient>( XboxViewport->GetOuter() );
+        if( Client )
+            XboxViewportApplySafeArea( Client, X, Y, W, H );
+    }
+
+    Frame->XB = X;
+    Frame->YB = Y;
+    Frame->X  = Max<INT>( W, 1 );
+    Frame->Y  = Max<INT>( H, 1 );
     Frame->ComputeRenderSize();
 }
 
@@ -2951,19 +3340,25 @@ static UBOOL XboxSystemLinkBuildSelectedMapURL( TCHAR* Out, INT OutCount, UBOOL 
 
     if( bListen )
     {
-        XboxSetClassDefaultPropertyText( *Game.URLValue, TEXT("InitialBots"), TEXT("0") );
-        XboxSetClassDefaultPropertyText( *Game.URLValue, TEXT("MinPlayers"), TEXT("0") );
+        TCHAR RuleURL[256];
+        XboxMenuApplyMatchRuleDefaults( *Game.URLValue, FragLimit, 0 );
+        XboxMenuBuildMatchRuleOptions( *Game.URLValue, FragLimit, TimeLimit, 0, Skill, RuleURL );
+        XboxMenuQueuePendingMatchRules( *Game.URLValue, FragLimit, TimeLimit, 0, Skill, 0 );
         appSprintf
         (
             Out,
-            TEXT("%s?Game=%s?FragLimit=%i?TimeLimit=%i?MinPlayers=0?MaxPlayers=16?Difficulty=%i?Listen?LAN%s"),
+            TEXT("%s?Game=%s?%s?MaxPlayers=16?Listen?LAN%s"),
             *Map.URLValue,
             *Game.URLValue,
-            FragLimit,
-            TimeLimit,
-            Skill,
+            RuleURL,
             PlayerURL
         );
+        GXboxLog.Write( "XSL host rules teamScore=%d objective=%d score=%d time=%d minPlayers=0: %s",
+            XboxMenuGameUsesTeamScore( *Game.URLValue ) ? 1 : 0,
+            XboxMenuGameUsesObjectiveRules( *Game.URLValue ) ? 1 : 0,
+            FragLimit,
+            TimeLimit,
+            TCHAR_TO_ANSI(Out) );
     }
     else
     {
@@ -3307,6 +3702,10 @@ static void XboxSystemLinkTick( UXboxViewport* Viewport )
 {
     XboxSystemLinkEnsureState();
     if( GXboxMenu.Screen != XMS_SystemLink && GXboxMenu.Screen != XMS_SystemLinkMapSelect )
+        return;
+
+    // Proof screens must remain deterministic and never touch live network state.
+    if( XboxIsSystemLinkProofRequest(XboxFullMenuProofRequested()) )
         return;
 
     if( !GXboxSystemLink.Started )
@@ -4235,19 +4634,75 @@ static INT XboxMenuWrapInt( INT Value, INT Delta, INT Count )
     return (Value + Delta + Count) % Count;
 }
 
-static INT XboxMenuButtonLayoutIndex( INT Layout )
+static INT XboxControlClampAction( INT Action )
 {
-    for( INT i=0; i<ARRAY_COUNT(GXboxButtonLayoutValues); i++ )
-    {
-        if( GXboxButtonLayoutValues[i] == Layout )
-            return i;
-    }
-    return 0;
+    return Clamp<INT>( Action, XCA_None, XCA_CenterView );
 }
 
-static INT XboxMenuButtonLayoutValue( INT Index )
+static INT XboxControlButtonAction( UXboxClient* Client, INT Button )
 {
-    return GXboxButtonLayoutValues[XboxMenuWrapInt(Index, 0, ARRAY_COUNT(GXboxButtonLayoutValues))];
+    if( !Client )
+        return GXboxControlPresets[0].Actions[Clamp<INT>(Button, 0, XCB_Count-1)];
+
+    switch( Button )
+    {
+        case XCB_A:            return XboxControlClampAction( Client->ButtonActionA );
+        case XCB_B:            return XboxControlClampAction( Client->ButtonActionB );
+        case XCB_X:            return XboxControlClampAction( Client->ButtonActionX );
+        case XCB_Y:            return XboxControlClampAction( Client->ButtonActionY );
+        case XCB_LeftTrigger:  return XboxControlClampAction( Client->ButtonActionLeftTrigger );
+        case XCB_RightTrigger: return XboxControlClampAction( Client->ButtonActionRightTrigger );
+        case XCB_White:        return XboxControlClampAction( Client->ButtonActionWhite );
+        case XCB_Black:        return XboxControlClampAction( Client->ButtonActionBlack );
+        case XCB_Back:         return XboxControlClampAction( Client->ButtonActionBack );
+        case XCB_RightThumb:   return XboxControlClampAction( Client->ButtonActionRightThumb );
+    }
+    return XCA_None;
+}
+
+static void XboxControlSetButtonAction( UXboxClient* Client, INT Button, INT Action )
+{
+    if( !Client )
+        return;
+
+    Action = XboxControlClampAction( Action );
+    switch( Button )
+    {
+        case XCB_A:            Client->ButtonActionA = Action; break;
+        case XCB_B:            Client->ButtonActionB = Action; break;
+        case XCB_X:            Client->ButtonActionX = Action; break;
+        case XCB_Y:            Client->ButtonActionY = Action; break;
+        case XCB_LeftTrigger:  Client->ButtonActionLeftTrigger = Action; break;
+        case XCB_RightTrigger: Client->ButtonActionRightTrigger = Action; break;
+        case XCB_White:        Client->ButtonActionWhite = Action; break;
+        case XCB_Black:        Client->ButtonActionBlack = Action; break;
+        case XCB_Back:         Client->ButtonActionBack = Action; break;
+        case XCB_RightThumb:   Client->ButtonActionRightThumb = Action; break;
+    }
+}
+
+static void XboxControlApplyPreset( UXboxClient* Client, INT PresetIndex )
+{
+    if( !Client )
+        return;
+
+    PresetIndex = XboxMenuWrapInt( PresetIndex, 0, ARRAY_COUNT(GXboxControlPresets) );
+    const FXboxControlPreset& Preset = GXboxControlPresets[PresetIndex];
+    for( INT i=0; i<XCB_Count; i++ )
+        XboxControlSetButtonAction( Client, i, Preset.Actions[i] );
+    Client->ControlPreset = PresetIndex;
+    Client->ButtonLayout = Preset.LegacyButtonLayout;
+    Client->StickLayout = XboxStickLayoutClamp( Preset.StickLayout );
+    Client->SaveConfig();
+    GXboxLog.Write( "XMENU controls preset=%d label=%s stick=%d", PresetIndex, TCHAR_TO_ANSI(Preset.Label), Client->StickLayout );
+}
+
+static void XboxControlMarkCustom( UXboxClient* Client )
+{
+    if( !Client )
+        return;
+    Client->ControlPreset = -1;
+    Client->ButtonLayout = 0;
 }
 
 static void XboxMenuCleanExportedText( FString& Value )
@@ -4307,6 +4762,19 @@ static UBOOL XboxSetObjectPropertyText( UObject* Object, const TCHAR* PropertyNa
         return 0;
 
     Property->ImportText( Value, (BYTE*)Object + Property->Offset, 0 );
+    return 1;
+}
+
+static UBOOL XboxSetClassDefaultPropertyText( UClass* Class, const TCHAR* PropertyName, const TCHAR* Value )
+{
+    if( !Class || !PropertyName || !Value || Class->Defaults.Num() <= 0 )
+        return 0;
+
+    UProperty* Property = FindField<UProperty>( Class, PropertyName );
+    if( !Property || Property->Offset + Property->ElementSize > Class->Defaults.Num() )
+        return 0;
+
+    Property->ImportText( Value, &Class->Defaults(0) + Property->Offset, 0 );
     return 1;
 }
 
@@ -4441,6 +4909,13 @@ static UBOOL XboxSetClassDefaultPropertyText( const TCHAR* ClassName, const TCHA
 
     Property->ImportText( Value, &Class->Defaults(0) + Property->Offset, 0 );
     return 1;
+}
+
+static UBOOL XboxSetClassDefaultPropertyInt( const TCHAR* ClassName, const TCHAR* PropertyName, INT Value )
+{
+    TCHAR Text[32];
+    appSprintf( Text, TEXT("%i"), Value );
+    return XboxSetClassDefaultPropertyText( ClassName, PropertyName, Text );
 }
 
 static void XboxMenuItemName( const FString& FullName, FString& OutItem )
@@ -6048,18 +6523,47 @@ static void XboxMenuPlayVoiceSample( UXboxViewport* Viewport )
         bPlayed ? 1 : 0 );
 }
 
-static void XboxMenuSaveTripletColor( const TCHAR* Key, INT ColorIndex )
+static void XboxMenuFormatTripletColor( INT ColorIndex, TCHAR* Value, INT ValueCount )
 {
-    if( !GConfig )
+    if( !Value || ValueCount <= 0 )
         return;
     ColorIndex = Clamp<INT>( ColorIndex, 0, ARRAY_COUNT(GXboxColorNames)-1 );
-    TCHAR Value[64];
     appSprintf( Value, TEXT("(R=%i,G=%i,B=%i)"),
         GXboxColorTriples[ColorIndex][0],
         GXboxColorTriples[ColorIndex][1],
         GXboxColorTriples[ColorIndex][2] );
+    Value[ValueCount-1] = 0;
+}
+
+static void XboxMenuSaveTripletColor( const TCHAR* Key, INT ColorIndex )
+{
+    if( !GConfig )
+        return;
+    TCHAR Value[64];
+    XboxMenuFormatTripletColor( ColorIndex, Value, ARRAY_COUNT(Value) );
     GConfig->SetString( TEXT("Botpack.ChallengeHUD"), Key, Value, TEXT("User.ini") );
     GConfig->Flush( 0, TEXT("User.ini") );
+}
+
+static INT XboxMenuLoadTripletColor( const TCHAR* Key, INT DefaultIndex )
+{
+    if( !GConfig )
+        return DefaultIndex;
+
+    FString Value;
+    if( !GConfig->GetString( TEXT("Botpack.ChallengeHUD"), Key, Value, TEXT("User.ini") ) )
+        return DefaultIndex;
+
+    INT R = -1;
+    INT G = -1;
+    INT B = -1;
+    Parse( *Value, TEXT("R="), R );
+    Parse( *Value, TEXT("G="), G );
+    Parse( *Value, TEXT("B="), B );
+    for( INT i=0; i<ARRAY_COUNT(GXboxColorTriples); i++ )
+        if( GXboxColorTriples[i][0] == R && GXboxColorTriples[i][1] == G && GXboxColorTriples[i][2] == B )
+            return i;
+    return DefaultIndex;
 }
 
 static UBOOL XboxMenuGetUserBool( const TCHAR* Section, const TCHAR* Key, UBOOL DefaultValue )
@@ -6098,6 +6602,8 @@ static void XboxMenuLoadSettings()
         GConfig->GetInt( TEXT("XboxAudio.XboxAudioDevice"), TEXT("SoundVolume"), GXboxSettingsSoundVolume );
         GConfig->GetInt( TEXT("Botpack.TournamentPlayer"), TEXT("AnnouncerVolume"), GXboxSettingsAnnouncerVolume, TEXT("User.ini") );
         GConfig->GetInt( TEXT("Botpack.ChallengeHUD"), TEXT("Opacity"), GXboxSettingsHudOpacity, TEXT("User.ini") );
+        GXboxSettingsHudColor = XboxMenuLoadTripletColor( TEXT("FavoriteHUDColor"), GXboxSettingsHudColor );
+        GXboxSettingsCrosshairColor = XboxMenuLoadTripletColor( TEXT("CrosshairColor"), GXboxSettingsCrosshairColor );
     }
 
     GXboxSettingsMusicVolume = Clamp<INT>( GXboxSettingsMusicVolume, 0, 255 );
@@ -6132,7 +6638,13 @@ static void XboxMenuApplyHudColor( UXboxViewport* Viewport, INT Index )
     GXboxSettingsHudColor = XboxMenuWrapInt( Index, 0, ARRAY_COUNT(GXboxColorNames) );
     APlayerPawn* Player = Viewport ? Viewport->Actor : NULL;
     if( Player && Player->myHUD )
+    {
+        TCHAR Value[64];
+        XboxMenuFormatTripletColor( GXboxSettingsHudColor, Value, ARRAY_COUNT(Value) );
+        XboxSetObjectPropertyText( Player->myHUD, TEXT("FavoriteHUDColor"), Value );
+        XboxSetClassDefaultPropertyText( Player->myHUD->GetClass(), TEXT("FavoriteHUDColor"), Value );
         Player->myHUD->SaveConfig();
+    }
     XboxMenuSaveTripletColor( TEXT("FavoriteHUDColor"), GXboxSettingsHudColor );
 }
 
@@ -6141,7 +6653,13 @@ static void XboxMenuApplyCrosshairColor( UXboxViewport* Viewport, INT Index )
     GXboxSettingsCrosshairColor = XboxMenuWrapInt( Index, 0, ARRAY_COUNT(GXboxColorNames) );
     XboxMenuSaveTripletColor( TEXT("CrosshairColor"), GXboxSettingsCrosshairColor );
     if( Viewport && Viewport->Actor && Viewport->Actor->myHUD )
+    {
+        TCHAR Value[64];
+        XboxMenuFormatTripletColor( GXboxSettingsCrosshairColor, Value, ARRAY_COUNT(Value) );
+        XboxSetObjectPropertyText( Viewport->Actor->myHUD, TEXT("CrosshairColor"), Value );
+        XboxSetClassDefaultPropertyText( Viewport->Actor->myHUD->GetClass(), TEXT("CrosshairColor"), Value );
         Viewport->Actor->myHUD->SaveConfig();
+    }
 }
 
 static UBOOL XboxMenuShouldPauseMatch( UXboxViewport* Viewport )
@@ -6241,6 +6759,24 @@ static void XboxMenuTickPendingFrontendOpen( UXboxViewport* Viewport )
     GXboxMenu.Screen = XMS_Main;
     GXboxMenu.MainFocus = 0;
     GXboxMenu.PauseFocus = 0;
+    if( GXboxFrontendTournamentOpenPending )
+    {
+        GXboxFrontendTournamentOpenPending = 0;
+        XboxTournamentClampSelection( Viewport );
+        if( GXboxFrontendTournamentPostMatchPending && GXboxTournamentPostMatch.Valid )
+        {
+            GXboxFrontendTournamentPostMatchPending = 0;
+            GXboxMenu.Screen = XMS_TournamentPostMatch;
+            GXboxLog.Write( "XMENU Tournament post-match opened after travel" );
+        }
+        else
+        {
+            GXboxFrontendTournamentPostMatchPending = 0;
+            GXboxMenu.Screen = XMS_Tournament;
+            GXboxMenu.TournamentFocus = 0;
+        }
+        XboxMenuReleaseMapPreviewTexture();
+    }
     GXboxMenu.PausedMatch = 0;
     GXboxLog.Write( "XMENU frontend reopened after travel map=%s availKB=%u",
         Level && Level->URL.Map.Len() ? TCHAR_TO_ANSI(*Level->URL.Map) : "",
@@ -6382,9 +6918,15 @@ extern "C" UBOOL XboxMenuAllowsEffectSound( INT Id )
 
 static void XboxMenuBack( UXboxViewport* Viewport )
 {
-    if( GXboxMenu.Screen == XMS_Pause || GXboxMenu.Screen == XMS_Main )
+    if( GXboxMenu.Screen == XMS_Pause )
     {
         XboxMenuClose( Viewport );
+    }
+    else if( GXboxMenu.Screen == XMS_Main )
+    {
+        ULevel* Level = Viewport && Viewport->Actor ? Viewport->Actor->GetLevel() : NULL;
+        if( !XboxIsFrontendLevel(Level) )
+            XboxMenuClose( Viewport );
     }
     else if( GXboxMenu.Screen == XMS_Mutators )
     {
@@ -6410,6 +6952,45 @@ static void XboxMenuBack( UXboxViewport* Viewport )
         XboxMenuReleaseMapPreviewTexture();
         GXboxMenu.Screen = XMS_Main;
         GXboxLog.Write( "XMENU back from Tournament" );
+    }
+    else if( GXboxMenu.Screen == XMS_TournamentPostMatch )
+    {
+        XboxMenuReleaseMapPreviewTexture();
+        GXboxMenu.Screen = XMS_Tournament;
+        GXboxMenu.TournamentFocus = (GXboxTournamentPostMatch.Valid && !GXboxTournamentPostMatch.Advanced) ? 3 : 0;
+        GXboxLog.Write( "XMENU back from Tournament post-match" );
+    }
+    else if( GXboxMenu.Screen == XMS_Controls )
+    {
+        GXboxMenu.Screen = XMS_Settings;
+        GXboxMenu.SettingsFocus = XSH_Controls;
+        GXboxLog.Write( "XMENU back from Controls" );
+    }
+    else if( GXboxMenu.Screen == XMS_SettingsAudio )
+    {
+        GXboxMenu.Screen = XMS_Settings;
+        GXboxMenu.SettingsFocus = XSH_Audio;
+        GXboxLog.Write( "XMENU back from Audio settings" );
+    }
+    else if( GXboxMenu.Screen == XMS_SettingsVideo )
+    {
+        GXboxMenu.Screen = XMS_Settings;
+        GXboxMenu.SettingsFocus = XSH_Video;
+        GXboxLog.Write( "XMENU back from Video settings" );
+    }
+    else if( GXboxMenu.Screen == XMS_Settings )
+    {
+        if( GXboxMenu.PausedMatch )
+        {
+            GXboxMenu.Screen = XMS_Pause;
+            GXboxMenu.PauseFocus = 2;
+        }
+        else
+        {
+            GXboxMenu.Screen = XMS_Main;
+            GXboxMenu.MainFocus = 5;
+        }
+        GXboxLog.Write( "XMENU back from Settings" );
     }
     else if( GXboxMenu.Screen == XMS_SplitMapSelect )
     {
@@ -6469,6 +7050,40 @@ static const TCHAR* XboxTournamentPositionProperty( INT LadderIndex )
     return TEXT("DMPosition");
 }
 
+static INT XboxTournamentLadderIndexFromChange( INT Change )
+{
+    for( INT i=0; i<ARRAY_COUNT(GXboxTournamentLadders); i++ )
+        if( GXboxTournamentLadders[i].LastMatchType == Change )
+            return i;
+    return 0;
+}
+
+static INT XboxTournamentSavedPosition( INT LadderIndex, INT DefaultPosition )
+{
+    INT Saved = DefaultPosition;
+    if( GConfig )
+        GConfig->GetInt( TEXT("Xbox.Tournament"), XboxTournamentPositionProperty(LadderIndex), Saved, TEXT("User.ini") );
+    return Saved;
+}
+
+static void XboxTournamentSavePosition( INT LadderIndex, INT Position )
+{
+    LadderIndex = Clamp<INT>( LadderIndex, 0, ARRAY_COUNT(GXboxTournamentLadders)-1 );
+    INT FirstMatch = GXboxTournamentLadders[LadderIndex].FirstRatedMatch;
+    INT MatchCount = XboxTournamentMatchCount( LadderIndex );
+    if( MatchCount <= 0 )
+        return;
+
+    Position = Clamp<INT>( Position, FirstMatch, MatchCount - 1 );
+    if( GConfig )
+    {
+        GConfig->SetInt( TEXT("Xbox.Tournament"), XboxTournamentPositionProperty(LadderIndex), Position, TEXT("User.ini") );
+        GConfig->Flush( 0, TEXT("User.ini") );
+    }
+    GXboxLog.Write( "XMENU Tournament saved ladder=%d property=%s position=%d",
+        LadderIndex, TCHAR_TO_ANSI(XboxTournamentPositionProperty(LadderIndex)), Position );
+}
+
 static AInventory* XboxTournamentFindInventory( UXboxViewport* Viewport )
 {
     if( !Viewport || !Viewport->Actor )
@@ -6488,6 +7103,7 @@ static INT XboxTournamentAvailableMatch( UXboxViewport* Viewport, INT LadderInde
 
     AInventory* LadderInv = XboxTournamentFindInventory( Viewport );
     INT Position = LadderInv ? XboxGetObjectPropertyInt( LadderInv, XboxTournamentPositionProperty( LadderIndex ), FirstMatch ) : FirstMatch;
+    Position = Max<INT>( Position, XboxTournamentSavedPosition( LadderIndex, FirstMatch ) );
     if( Position < FirstMatch )
         Position = FirstMatch;
     return Clamp<INT>( Position, FirstMatch, MatchCount - 1 );
@@ -6516,6 +7132,63 @@ static UBOOL XboxTournamentStringAt( INT LadderIndex, const TCHAR* PropertyName,
 {
     UClass* LadderClass = XboxTournamentLadderClass( LadderIndex );
     return XboxMenuClassDefaultStringAt( LadderClass, PropertyName, MatchIndex, OutValue );
+}
+
+static FString XboxTournamentFullMap( INT LadderIndex, INT MatchIndex );
+
+static void XboxTournamentStorePostMatch( INT LadderIndex, INT CompletedMatch, INT NextMatch, INT PendingRank, INT PreviousPosition, INT NewPosition, UBOOL Advanced )
+{
+    appMemzero( &GXboxTournamentPostMatch, sizeof(GXboxTournamentPostMatch) );
+
+    LadderIndex = Clamp<INT>( LadderIndex, 0, ARRAY_COUNT(GXboxTournamentLadders)-1 );
+    INT FirstMatch = GXboxTournamentLadders[LadderIndex].FirstRatedMatch;
+    INT MatchCount = XboxTournamentMatchCount( LadderIndex );
+    if( MatchCount <= 0 )
+        return;
+
+    CompletedMatch = Clamp<INT>( CompletedMatch, FirstMatch, MatchCount - 1 );
+    NextMatch = Clamp<INT>( NextMatch, FirstMatch, MatchCount - 1 );
+
+    FString Title;
+    FString Map;
+    FString RankTitle;
+    XboxTournamentStringAt( LadderIndex, TEXT("MapTitle"), CompletedMatch, Title );
+    Map = XboxTournamentFullMap( LadderIndex, CompletedMatch );
+    if( PendingRank >= 0 )
+        XboxTournamentStringAt( LadderIndex, TEXT("Titles"), PendingRank, RankTitle );
+
+    if( Title.Len() <= 0 )
+        Title = Map.Len() ? Map : FString(TEXT("TOURNAMENT MATCH"));
+    if( Map.Len() <= 0 )
+        Map = Title;
+    if( RankTitle.Len() <= 0 )
+        RankTitle = Advanced ? FString(TEXT("ADVANCED")) : FString(TEXT("UNCHANGED"));
+
+    GXboxTournamentPostMatch.Valid = 1;
+    GXboxTournamentPostMatch.Advanced = Advanced;
+    GXboxTournamentPostMatch.LadderIndex = LadderIndex;
+    GXboxTournamentPostMatch.CompletedMatch = CompletedMatch;
+    GXboxTournamentPostMatch.NextMatch = NextMatch;
+    GXboxTournamentPostMatch.PendingRank = PendingRank;
+    GXboxTournamentPostMatch.PreviousPosition = PreviousPosition;
+    GXboxTournamentPostMatch.NewPosition = NewPosition;
+    appStrncpy( GXboxTournamentPostMatch.MatchTitle, *Title, ARRAY_COUNT(GXboxTournamentPostMatch.MatchTitle) );
+    appStrncpy( GXboxTournamentPostMatch.MapName, *Map, ARRAY_COUNT(GXboxTournamentPostMatch.MapName) );
+    appStrncpy( GXboxTournamentPostMatch.RankTitle, *RankTitle, ARRAY_COUNT(GXboxTournamentPostMatch.RankTitle) );
+    GXboxTournamentPostMatch.MatchTitle[ARRAY_COUNT(GXboxTournamentPostMatch.MatchTitle)-1] = 0;
+    GXboxTournamentPostMatch.MapName[ARRAY_COUNT(GXboxTournamentPostMatch.MapName)-1] = 0;
+    GXboxTournamentPostMatch.RankTitle[ARRAY_COUNT(GXboxTournamentPostMatch.RankTitle)-1] = 0;
+
+    GXboxLog.Write( "XMENU Tournament post-match stored ladder=%d completed=%d next=%d rank=%d advanced=%d old=%d new=%d title=%s map=%s",
+        LadderIndex,
+        CompletedMatch,
+        NextMatch,
+        PendingRank,
+        Advanced ? 1 : 0,
+        PreviousPosition,
+        NewPosition,
+        TCHAR_TO_ANSI(GXboxTournamentPostMatch.MatchTitle),
+        TCHAR_TO_ANSI(GXboxTournamentPostMatch.MapName) );
 }
 
 static FString XboxTournamentFullMap( INT LadderIndex, INT MatchIndex )
@@ -6593,6 +7266,15 @@ static UBOOL XboxTournamentEnsureInventory( UXboxViewport* Viewport )
         return 0;
     }
 
+    for( INT LadderIndex=0; LadderIndex<ARRAY_COUNT(GXboxTournamentLadders); LadderIndex++ )
+    {
+        INT FirstMatch = GXboxTournamentLadders[LadderIndex].FirstRatedMatch;
+        INT CurrentPosition = XboxGetObjectPropertyInt( LadderInv, XboxTournamentPositionProperty(LadderIndex), FirstMatch );
+        INT SavedPosition = XboxTournamentSavedPosition( LadderIndex, FirstMatch );
+        if( SavedPosition > CurrentPosition )
+            XboxSetObjectPropertyInt( LadderInv, XboxTournamentPositionProperty(LadderIndex), SavedPosition );
+    }
+
     TCHAR ClassText[128];
     appSprintf( ClassText, TEXT("class'%s'"), GXboxTournamentLadders[GXboxMenu.TournamentLadder].LadderClass );
     XboxSetObjectPropertyText( LadderInv, TEXT("CurrentLadder"), ClassText );
@@ -6627,6 +7309,60 @@ static UBOOL XboxTournamentEnsureInventory( UXboxViewport* Viewport )
         GXboxMenu.TournamentSkill,
         TeamText.Len() ? TCHAR_TO_ANSI(*TeamText) : "" );
     return 1;
+}
+
+static void XboxTournamentTransitionTick( UXboxViewport* Viewport )
+{
+    if( !Viewport || !Viewport->Actor )
+        return;
+
+    APlayerPawn* Player = Viewport->Actor;
+    ULevel* Level = Player->GetLevel();
+    if( !Level || !Level->GetLevelInfo() || !Level->GetLevelInfo()->Game )
+        return;
+
+    AGameInfo* Game = Level->GetLevelInfo()->Game;
+    UClass* GameClass = Game->GetClass();
+    if( !GameClass || appStricmp( GameClass->GetName(), TEXT("LadderTransition") ) != 0 )
+        return;
+
+    if( GXboxTournamentTransitionHandledLevel == Level )
+        return;
+
+    AInventory* LadderInv = XboxTournamentFindInventory( Viewport );
+    if( !LadderInv )
+        return;
+
+    INT PendingChange = XboxGetObjectPropertyInt( LadderInv, TEXT("PendingChange"), 0 );
+    INT LastMatchType = XboxGetObjectPropertyInt( LadderInv, TEXT("LastMatchType"), PendingChange );
+    INT LadderIndex = XboxTournamentLadderIndexFromChange( PendingChange > 0 ? PendingChange : LastMatchType );
+    INT FirstMatch = GXboxTournamentLadders[LadderIndex].FirstRatedMatch;
+    INT PendingPosition = XboxGetObjectPropertyInt( LadderInv, TEXT("PendingPosition"), FirstMatch );
+    INT PendingRank = XboxGetObjectPropertyInt( LadderInv, TEXT("PendingRank"), 0 );
+    INT CurrentPosition = XboxGetObjectPropertyInt( LadderInv, XboxTournamentPositionProperty(LadderIndex), FirstMatch );
+    INT SavedPosition = XboxTournamentSavedPosition( LadderIndex, FirstMatch );
+    INT NewPosition = Max<INT>( Max<INT>( CurrentPosition, SavedPosition ), PendingPosition );
+    INT MatchCount = XboxTournamentMatchCount( LadderIndex );
+    INT CompletedMatch = PendingPosition > FirstMatch ? PendingPosition - 1 : Max<INT>( CurrentPosition, SavedPosition );
+    if( MatchCount > 0 )
+        CompletedMatch = Clamp<INT>( CompletedMatch, FirstMatch, MatchCount - 1 );
+
+    XboxTournamentStorePostMatch( LadderIndex, CompletedMatch, NewPosition, PendingRank, Max<INT>( CurrentPosition, SavedPosition ), NewPosition, PendingChange > 0 );
+
+    XboxSetObjectPropertyInt( LadderInv, XboxTournamentPositionProperty(LadderIndex), NewPosition );
+    XboxSetObjectPropertyInt( LadderInv, TEXT("PendingChange"), 0 );
+    XboxSetObjectPropertyInt( LadderInv, TEXT("PendingPosition"), 0 );
+    XboxSetObjectPropertyInt( LadderInv, TEXT("PendingRank"), 0 );
+    XboxTournamentSavePosition( LadderIndex, NewPosition );
+
+    GXboxMenu.TournamentLadder = LadderIndex;
+    GXboxMenu.TournamentMatch = XboxTournamentAvailableMatch( Viewport, LadderIndex );
+    GXboxFrontendTournamentOpenPending = 1;
+    GXboxFrontendTournamentPostMatchPending = GXboxTournamentPostMatch.Valid;
+    GXboxTournamentTransitionHandledLevel = Level;
+    GXboxLog.Write( "XMENU Tournament transition captured change=%d last=%d ladder=%d pending=%d rank=%d current=%d saved=%d new=%d post=%d",
+        PendingChange, LastMatchType, LadderIndex, PendingPosition, PendingRank, CurrentPosition, SavedPosition, NewPosition, GXboxFrontendTournamentPostMatchPending ? 1 : 0 );
+    XboxMenuReturnToFrontend( Viewport );
 }
 
 static void XboxMenuStartTournamentMatch( UXboxViewport* Viewport )
@@ -6689,32 +7425,428 @@ static void XboxTournamentSmokeTick( UXboxViewport* Viewport )
 {
     static INT SmokeStage = 0;
     static DOUBLE SmokeStartTime = 0.0;
+    static UBOOL SmokeReadySent = 0;
+    static DOUBLE SmokeLastFirePulse = 0.0;
+    static DOUBLE SmokeLastCombatPulse = 0.0;
+    static DOUBLE SmokeFireDownTime = 0.0;
+    static DOUBLE SmokeLastStatusLog = 0.0;
+    static UBOOL SmokeFireDown = 0;
+    static UBOOL SmokeCombatLogged = 0;
+    static UBOOL SmokeForcedEnd = 0;
 
     if( !XboxTournamentSmokeEnabled() || !Viewport || !Viewport->Actor )
         return;
+
+    UXboxClient* Client = Viewport ? (UXboxClient*)Viewport->GetOuter() : NULL;
+    DOUBLE Now = appSeconds();
+
+    if( SmokeFireDown && Client && Client->Engine && (Now - SmokeFireDownTime) > 0.12 )
+    {
+        Client->Engine->InputEvent( Viewport, IK_LeftMouse, IST_Release, 0.0f );
+        SmokeFireDown = 0;
+    }
 
     if( SmokeStage == 0 )
     {
         XboxMenuOpen( Viewport );
         GXboxMenu.Screen = XMS_Main;
         GXboxMenu.MainFocus = 1;
-        SmokeStartTime = appSeconds();
+        SmokeStartTime = Now;
+        SmokeReadySent = 0;
+        SmokeLastFirePulse = 0.0;
+        SmokeLastCombatPulse = 0.0;
+        SmokeFireDownTime = 0.0;
+        SmokeLastStatusLog = 0.0;
+        SmokeFireDown = 0;
+        SmokeCombatLogged = 0;
+        SmokeForcedEnd = 0;
         SmokeStage = 1;
         GXboxLog.Write( "XMENU TOURNAMENT SMOKE opened main menu" );
     }
-    else if( SmokeStage == 1 && (appSeconds() - SmokeStartTime) > 1.0 )
+    else if( SmokeStage == 1 && (Now - SmokeStartTime) > 1.0 )
     {
         XboxMenuStartTournament( Viewport );
-        SmokeStartTime = appSeconds();
+        SmokeStartTime = Now;
         SmokeStage = 2;
         GXboxLog.Write( "XMENU TOURNAMENT SMOKE selected Tournament" );
     }
-    else if( SmokeStage == 2 && (appSeconds() - SmokeStartTime) > 1.0 )
+    else if( SmokeStage == 2 && (Now - SmokeStartTime) > 1.0 )
     {
         GXboxMenu.TournamentFocus = 3;
         XboxMenuStartTournamentMatch( Viewport );
+        SmokeStartTime = Now;
+        SmokeReadySent = 0;
+        SmokeLastFirePulse = 0.0;
+        SmokeLastCombatPulse = 0.0;
+        SmokeFireDownTime = 0.0;
+        SmokeLastStatusLog = 0.0;
+        SmokeFireDown = 0;
+        SmokeCombatLogged = 0;
+        SmokeForcedEnd = 0;
         SmokeStage = 3;
         GXboxLog.Write( "XMENU TOURNAMENT SMOKE launched native match" );
+    }
+    else if( SmokeStage == 3 )
+    {
+        APlayerPawn* Player = Viewport ? Viewport->Actor : NULL;
+        ULevel* Level = Player ? Player->GetLevel() : NULL;
+        UBOOL bTournamentLevel = Level && !XboxIsFrontendLevel(Level) && XboxIsTournamentLevel(Level);
+        if( !SmokeReadySent && bTournamentLevel && (Now - SmokeStartTime) > 3.0 )
+        {
+            XboxTournamentHandleReadyInput( Viewport, 1, 0 );
+            SmokeReadySent = 1;
+            GXboxLog.Write( "XMENU TOURNAMENT SMOKE sent ready/start" );
+            GXboxLog.Flush();
+        }
+
+        if( bTournamentLevel )
+        {
+            const TCHAR* StateName = XboxPlayerStateName(Player);
+            UObject* Game = (Level && Level->GetLevelInfo()) ? Level->GetLevelInfo()->Game : NULL;
+            if( !SmokeForcedEnd && Player && Game && (Now - SmokeStartTime) > 25.0 )
+            {
+                UClass* BotClass = UObject::StaticLoadClass( APawn::StaticClass(), NULL, TEXT("Botpack.Bot"), NULL, LOAD_NoWarn | LOAD_Quiet, NULL );
+                APawn* WinningBot = NULL;
+                if( BotClass && Level && Level->GetLevelInfo() )
+                {
+                    for( APawn* Pawn = Level->GetLevelInfo()->PawnList; Pawn; Pawn = Pawn->nextPawn )
+                    {
+                        if( Pawn->IsA(BotClass) && Pawn->PlayerReplicationInfo )
+                        {
+                            WinningBot = Pawn;
+                            break;
+                        }
+                    }
+                }
+
+                if( WinningBot && WinningBot->PlayerReplicationInfo && Player->PlayerReplicationInfo )
+                {
+                    INT FragLimit = Max<INT>( 1, XboxGetObjectPropertyInt( Game, TEXT("FragLimit"), 10 ) );
+                    WinningBot->PlayerReplicationInfo->Score = Max<FLOAT>( (FLOAT)FragLimit, Player->PlayerReplicationInfo->Score + 1.0f );
+                    UFunction* EndGameFunc = Game->FindFunction( FName(TEXT("EndGame"), FNAME_Find) );
+                    if( EndGameFunc )
+                    {
+                        struct FEndGameParms
+                        {
+                            FString Reason;
+                        } Parms;
+                        Parms.Reason = TEXT("fraglimit");
+                        Game->ProcessEvent( EndGameFunc, &Parms );
+                        SmokeForcedEnd = 1;
+                        GXboxLog.Write( "XMENU TOURNAMENT SMOKE forced bot win bot=%s score=%.1f player=%.1f fragLimit=%d",
+                            WinningBot->PlayerReplicationInfo->PlayerName.Len() ? TCHAR_TO_ANSI(*WinningBot->PlayerReplicationInfo->PlayerName) : "bot",
+                            WinningBot->PlayerReplicationInfo->Score,
+                            Player->PlayerReplicationInfo->Score,
+                            FragLimit );
+                        GXboxLog.Flush();
+                    }
+                }
+            }
+
+            UBOOL bNeedsFire =
+                Player
+            &&  !GXboxMenu.Active
+            &&  ( Player->Health <= 0
+                || Player->bHidden
+                || appStricmp( StateName, TEXT("Dying") ) == 0
+                || appStricmp( StateName, TEXT("GameEnded") ) == 0 );
+            UBOOL bAliveCombat =
+                Player
+            &&  !GXboxMenu.Active
+            &&  Player->Health > 0
+            &&  !Player->bHidden
+            &&  appStricmp( StateName, TEXT("PlayerWalking") ) == 0;
+
+            if( bAliveCombat )
+            {
+                FLOAT MoveScale = Client ? Max<FLOAT>( Client->ScaleXYZ, 100.0f ) : 100.0f;
+                FLOAT LookScale = Client ? Max<FLOAT>( Client->ScaleRUV, 100.0f ) : 100.0f;
+                FLOAT StrafeSign = appSin( Now * 1.4 ) >= 0.0 ? 1.0f : -1.0f;
+                Player->aForward += MoveScale;
+                Player->aStrafe  += MoveScale * 0.45f * StrafeSign;
+                Player->aTurn    += LookScale * 2.2f;
+
+                if( !SmokeCombatLogged )
+                {
+                    SmokeCombatLogged = 1;
+                    GXboxLog.Write( "XMENU TOURNAMENT SMOKE driving live player with movement/fire input" );
+                }
+
+                if( Client && Client->Engine && !SmokeFireDown && (Now - SmokeLastCombatPulse) > 0.45 )
+                {
+                    Client->Engine->InputEvent( Viewport, IK_LeftMouse, IST_Press, 0.0f );
+                    SmokeFireDown = 1;
+                    SmokeFireDownTime = Now;
+                    SmokeLastCombatPulse = Now;
+                }
+            }
+
+            if( bNeedsFire && Client && Client->Engine && !SmokeFireDown && (Now - SmokeLastFirePulse) > 1.0 )
+            {
+                Client->Engine->InputEvent( Viewport, IK_LeftMouse, IST_Press, 0.0f );
+                SmokeFireDown = 1;
+                SmokeFireDownTime = Now;
+                SmokeLastFirePulse = Now;
+                GXboxLog.Write( "XMENU TOURNAMENT SMOKE fire pulse state=%s health=%d hidden=%d",
+                    TCHAR_TO_ANSI(StateName),
+                    Player ? Player->Health : -999,
+                    Player && Player->bHidden ? 1 : 0 );
+                GXboxLog.Flush();
+            }
+
+            if( (Now - SmokeLastStatusLog) > 5.0 )
+            {
+                SmokeLastStatusLog = Now;
+                INT FragLimit = XboxGetObjectPropertyInt( Game, TEXT("FragLimit"), -1 );
+                FString bGameEnded;
+                XboxGetObjectPropertyString( Game, TEXT("bGameEnded"), bGameEnded );
+                GXboxLog.Write( "XMENU TOURNAMENT SMOKE status state=%s health=%d hidden=%d pscore=%.1f fragLimit=%d ended=%s",
+                    TCHAR_TO_ANSI(StateName),
+                    Player ? Player->Health : -999,
+                    Player && Player->bHidden ? 1 : 0,
+                    (Player && Player->PlayerReplicationInfo) ? Player->PlayerReplicationInfo->Score : -999.0f,
+                    FragLimit,
+                    bGameEnded.Len() ? TCHAR_TO_ANSI(*bGameEnded) : "" );
+            }
+        }
+
+        if( GXboxMenu.Active && GXboxMenu.Screen == XMS_TournamentPostMatch )
+        {
+            SmokeStage = 4;
+            SmokeStartTime = Now;
+            GXboxLog.Write( "XMENU TOURNAMENT SMOKE reached post-match screen" );
+            GXboxLog.Flush();
+        }
+    }
+    else if( SmokeStage == 4 && (Now - SmokeStartTime) > 4.0 )
+    {
+        SmokeStartTime = Now;
+        GXboxLog.Write( "XMENU TOURNAMENT SMOKE holding post-match screen" );
+        GXboxLog.Flush();
+    }
+}
+
+static void XboxConfigureFullMenuProof( UXboxViewport* Viewport, INT Request )
+{
+    XboxMenuOpen( Viewport );
+
+    if( Request == XFMP_Main )
+    {
+        GXboxMenu.Screen = XMS_Main;
+        GXboxMenu.MainFocus = 0;
+    }
+    else if( Request == XFMP_Pause )
+    {
+        GXboxMenu.Screen = XMS_Pause;
+        GXboxMenu.PauseFocus = 0;
+    }
+    else if( Request == XFMP_InstantAction )
+    {
+        GXboxMenu.Screen = XMS_InstantAction;
+        GXboxMenu.InstantFocus = 0;
+    }
+    else if( Request == XFMP_Mutators )
+    {
+        GXboxMenu.Screen = XMS_Mutators;
+        GXboxMenu.InstantFocus = 6;
+        GXboxMenu.InstantMutatorChoice = 0;
+    }
+    else if( Request == XFMP_Tournament )
+    {
+        GXboxMenu.Screen = XMS_Tournament;
+        GXboxMenu.TournamentFocus = 0;
+        XboxTournamentClampSelection( Viewport );
+    }
+    else if( Request == XFMP_TournamentResult )
+    {
+        GXboxMenu.Screen = XMS_TournamentPostMatch;
+        GXboxTournamentPostMatch.Valid = 1;
+        GXboxTournamentPostMatch.Advanced = 1;
+        GXboxTournamentPostMatch.LadderIndex = 0;
+        GXboxTournamentPostMatch.CompletedMatch = 1;
+        GXboxTournamentPostMatch.NextMatch = 2;
+        GXboxTournamentPostMatch.PreviousPosition = 1;
+        GXboxTournamentPostMatch.NewPosition = 2;
+        appStrcpy( GXboxTournamentPostMatch.MatchTitle, TEXT("OBLIVION") );
+        appStrcpy( GXboxTournamentPostMatch.MapName, TEXT("DM-Oblivion") );
+        appStrcpy( GXboxTournamentPostMatch.RankTitle, TEXT("CONTENDER") );
+    }
+    else if( Request == XFMP_SplitReady )
+    {
+        XboxSplitReadyReset();
+        GXboxSplitReadySlots[0].Joined = 1;
+        GXboxSplitReadySlots[0].Locked = 1;
+        GXboxSplitReadySlots[0].Team = 0;
+        GXboxSplitReadySlots[1].Joined = 1;
+        GXboxSplitReadySlots[1].Locked = 1;
+        GXboxSplitReadySlots[1].Team = 1;
+        GXboxMenu.Screen = XMS_SplitReady;
+    }
+    else if( Request == XFMP_SplitMap )
+    {
+        GXboxMenu.Screen = XMS_SplitMapSelect;
+        GXboxMenu.SplitFocus = 0;
+    }
+    else if( Request == XFMP_PlayerSetup )
+    {
+        GXboxMenu.Screen = XMS_PlayerSetup;
+        GXboxMenu.PlayerFocus = 0;
+        XboxMenuLoadPlayerState();
+    }
+    else if( Request == XFMP_ControlsTop || Request == XFMP_ControlsButtons )
+    {
+        GXboxMenu.Screen = XMS_Controls;
+        GXboxMenu.ControlsFocus = Request == XFMP_ControlsButtons ? XCR_FirstButton + XCB_Count - 1 : XCR_Preset;
+    }
+    else if( Request == XFMP_Settings )
+    {
+        GXboxMenu.Screen = XMS_Settings;
+        GXboxMenu.SettingsFocus = XSH_Controls;
+        XboxMenuLoadSettings();
+    }
+    else if( Request == XFMP_Audio )
+    {
+        GXboxMenu.Screen = XMS_SettingsAudio;
+        GXboxMenu.SettingsFocus = XAR_MusicVolume;
+        XboxMenuLoadSettings();
+    }
+    else if( Request == XFMP_Video )
+    {
+        GXboxMenu.Screen = XMS_SettingsVideo;
+        GXboxMenu.SettingsFocus = XVR_SafeAreaSize;
+        XboxMenuLoadSettings();
+    }
+    else if( Request == XFMP_ComingSoon )
+    {
+        GXboxMenu.Screen = XMS_ComingSoon;
+        appStrcpy( GXboxMenu.ComingSoonTitle, TEXT("PLACEHOLDER") );
+    }
+
+    if( XboxIsSystemLinkProofRequest(Request) )
+    {
+        XboxSystemLinkEnsureState();
+        GXboxSystemLink.Started = 1;
+        GXboxSystemLink.SocketsReady = 1;
+        GXboxSystemLink.Socket = INVALID_SOCKET;
+        GXboxSystemLink.LocalPort = GXboxSystemLinkBasePort;
+        GXboxSystemLink.LocalId = 0x10000001;
+        GXboxSystemLink.HostId = Request == XFMP_SystemLinkDiscovery ? 0 : GXboxSystemLink.LocalId;
+        GXboxSystemLink.Role = Request == XFMP_SystemLinkClientMap ? XSLR_Client :
+            Request == XFMP_SystemLinkDiscovery ? XSLR_Seeking : XSLR_Host;
+        GXboxSystemLink.Phase = Request == XFMP_SystemLinkHostMap || Request == XFMP_SystemLinkClientMap ? XSLP_MapSelect :
+            Request == XFMP_SystemLinkReady ? XSLP_Ready : XSLP_Discovery;
+        GXboxSystemLink.ReadyConfirmed = 0;
+        GXboxSystemLink.Peers.Empty();
+
+        if( Request == XFMP_SystemLinkReady )
+        {
+            XboxSplitReadyReset();
+            GXboxSplitReadySlots[0].Joined = 1;
+            GXboxSplitReadySlots[0].Locked = 1;
+            GXboxSplitReadySlots[0].Team = 0;
+            INT PeerIndex = GXboxSystemLink.Peers.AddZeroed();
+            FXboxSystemLinkPeer& Peer = GXboxSystemLink.Peers(PeerIndex);
+            Peer.Id = 0x20000002;
+            Peer.HostId = GXboxSystemLink.HostId;
+            Peer.Role = XSLR_Client;
+            Peer.Phase = XSLP_ReadyConfirmed;
+            Peer.ReadyMask = 1;
+            Peer.LockedMask = 1;
+            Peer.Confirmed = 1;
+            Peer.FirstSeen = appSeconds();
+            Peer.LastSeen = Peer.FirstSeen;
+        }
+
+        GXboxMenu.Screen = Request == XFMP_SystemLinkHostMap || Request == XFMP_SystemLinkClientMap
+            ? XMS_SystemLinkMapSelect : XMS_SystemLink;
+        GXboxMenu.SplitFocus = 0;
+    }
+
+    GXboxLog.Write( "XMENU FULL PROOF configured request=%d screen=%s", Request, TCHAR_TO_ANSI(XboxMenuScreenName(GXboxMenu.Screen)) );
+}
+
+static void XboxMenuProofSmokeTick( UXboxViewport* Viewport )
+{
+    static INT SmokeStage = 0;
+    static DOUBLE SmokeStartTime = 0.0;
+    static UBOOL bControlsProof = 0;
+    static UBOOL bSettingsProof = 0;
+    static UBOOL bAudioProof = 0;
+    static UBOOL bVideoProof = 0;
+    static UBOOL bMainProof = 0;
+    static INT FullProof = XFMP_None;
+
+    if( !Viewport || !Viewport->Actor )
+        return;
+
+    bControlsProof = XboxControlsProofSmokeEnabled();
+    bSettingsProof = XboxSettingsProofSmokeEnabled();
+    bAudioProof = XboxAudioSettingsProofSmokeEnabled();
+    bVideoProof = XboxVideoSettingsProofSmokeEnabled();
+    bMainProof = XboxMainMenuProofSmokeEnabled();
+    FullProof = XboxFullMenuProofRequested();
+    if( !bControlsProof && !bSettingsProof && !bAudioProof && !bVideoProof && !bMainProof && FullProof == XFMP_None )
+        return;
+
+    if( SmokeStage == 0 )
+    {
+        if( FullProof != XFMP_None )
+        {
+            XboxConfigureFullMenuProof( Viewport, FullProof );
+        }
+        else
+        {
+            XboxMenuOpen( Viewport );
+            if( bMainProof )
+            {
+                GXboxMenu.Screen = XMS_Main;
+                GXboxMenu.MainFocus = 0;
+                GXboxLog.Write( "XMENU PROOF opened Main menu screen" );
+            }
+            else if( bControlsProof )
+            {
+                GXboxMenu.Screen = XMS_Controls;
+                GXboxMenu.ControlsFocus = XCR_Preset;
+                GXboxLog.Write( "XMENU PROOF opened Controls screen" );
+            }
+            else if( bAudioProof )
+            {
+                GXboxMenu.Screen = XMS_SettingsAudio;
+                GXboxMenu.SettingsFocus = XAR_MusicVolume;
+                XboxMenuLoadSettings();
+                GXboxLog.Write( "XMENU PROOF opened Audio settings screen" );
+            }
+            else if( bVideoProof )
+            {
+                UXboxClient* Client = XboxMenuGetClient( Viewport );
+                if( Client )
+                {
+                    Client->SafeAreaSize = 92;
+                    Client->SafeAreaX = 18;
+                    Client->SafeAreaY = -12;
+                }
+                GXboxMenu.Screen = XMS_SettingsVideo;
+                GXboxMenu.SettingsFocus = XVR_SafeAreaSize;
+                XboxMenuLoadSettings();
+                GXboxLog.Write( "XMENU PROOF opened Video settings screen safeAreaSize=92 safeAreaX=18 safeAreaY=-12" );
+            }
+            else
+            {
+                GXboxMenu.Screen = XMS_Settings;
+                GXboxMenu.SettingsFocus = XSH_Controls;
+                XboxMenuLoadSettings();
+                GXboxLog.Write( "XMENU PROOF opened Settings hub screen" );
+            }
+        }
+        SmokeStartTime = appSeconds();
+        SmokeStage = 1;
+        GXboxLog.Flush();
+    }
+    else if( SmokeStage == 1 && (appSeconds() - SmokeStartTime) > 4.0 )
+    {
+        SmokeStartTime = appSeconds();
+        GXboxLog.Write( "XMENU PROOF holding screen=%s", TCHAR_TO_ANSI(XboxMenuScreenName(GXboxMenu.Screen)) );
+        GXboxLog.Flush();
     }
 }
 
@@ -6890,6 +8022,235 @@ static void XboxSystemLinkSmokeTick( UXboxViewport* Viewport )
     }
 }
 
+static UClass* XboxMenuLoadGameClass( const TCHAR* GameClassName )
+{
+    if( !GameClassName || !GameClassName[0] )
+        return NULL;
+    return UObject::StaticLoadClass( AGameInfo::StaticClass(), NULL, GameClassName, NULL, LOAD_NoWarn | LOAD_Quiet, NULL );
+}
+
+static UBOOL XboxMenuGameIsChildOf( const TCHAR* GameClassName, const TCHAR* ParentClassName )
+{
+    UClass* GameClass = XboxMenuLoadGameClass( GameClassName );
+    UClass* ParentClass = XboxMenuLoadGameClass( ParentClassName );
+    return GameClass && ParentClass && GameClass->IsChildOf( ParentClass );
+}
+
+static UBOOL XboxMenuGameUsesObjectiveRules( const TCHAR* GameClassName )
+{
+    return XboxMenuGameIsChildOf( GameClassName, TEXT("Botpack.Assault") );
+}
+
+static UBOOL XboxMenuGameUsesTeamScore( const TCHAR* GameClassName )
+{
+    if( XboxMenuGameUsesObjectiveRules( GameClassName ) )
+        return 0;
+    return XboxMenuGameIsChildOf( GameClassName, TEXT("Botpack.TeamGamePlus") );
+}
+
+static void XboxMenuApplyMatchRuleDefaults( const TCHAR* GameClassName, INT ScoreLimit, INT MinPlayers )
+{
+    ScoreLimit = Max<INT>( 0, ScoreLimit );
+    MinPlayers = Max<INT>( 0, MinPlayers );
+    UBOOL bObjective = XboxMenuGameUsesObjectiveRules( GameClassName );
+    UBOOL bTeamScore = XboxMenuGameUsesTeamScore( GameClassName );
+
+    XboxSetClassDefaultPropertyInt( GameClassName, TEXT("InitialBots"), 0 );
+    XboxSetClassDefaultPropertyInt( GameClassName, TEXT("MinPlayers"), MinPlayers );
+
+    if( bObjective )
+    {
+        XboxSetClassDefaultPropertyInt( GameClassName, TEXT("FragLimit"), 0 );
+        XboxSetClassDefaultPropertyInt( GameClassName, TEXT("GoalTeamScore"), 0 );
+    }
+    else if( bTeamScore )
+    {
+        XboxSetClassDefaultPropertyInt( GameClassName, TEXT("FragLimit"), 0 );
+        XboxSetClassDefaultPropertyInt( GameClassName, TEXT("GoalTeamScore"), ScoreLimit );
+    }
+    else
+    {
+        XboxSetClassDefaultPropertyInt( GameClassName, TEXT("FragLimit"), ScoreLimit );
+        XboxSetClassDefaultPropertyInt( GameClassName, TEXT("GoalTeamScore"), 0 );
+    }
+}
+
+static void XboxMenuBuildMatchRuleOptions( const TCHAR* GameClassName, INT ScoreLimit, INT TimeLimit, INT MinPlayers, INT Skill, TCHAR* Out )
+{
+    ScoreLimit = Max<INT>( 0, ScoreLimit );
+    TimeLimit = Max<INT>( 0, TimeLimit );
+    MinPlayers = Max<INT>( 0, MinPlayers );
+    Skill = Max<INT>( 0, Skill );
+
+    if( XboxMenuGameUsesObjectiveRules( GameClassName ) )
+    {
+        appSprintf
+        (
+            Out,
+            TEXT("FragLimit=0?GoalTeamScore=0?TimeLimit=%i?MinPlayers=%i?Difficulty=%i"),
+            TimeLimit,
+            MinPlayers,
+            Skill
+        );
+    }
+    else if( XboxMenuGameUsesTeamScore( GameClassName ) )
+    {
+        appSprintf
+        (
+            Out,
+            TEXT("FragLimit=0?GoalTeamScore=%i?TimeLimit=%i?MinPlayers=%i?Difficulty=%i"),
+            ScoreLimit,
+            TimeLimit,
+            MinPlayers,
+            Skill
+        );
+    }
+    else
+    {
+        appSprintf
+        (
+            Out,
+            TEXT("FragLimit=%i?TimeLimit=%i?MinPlayers=%i?Difficulty=%i"),
+            ScoreLimit,
+            TimeLimit,
+            MinPlayers,
+            Skill
+        );
+    }
+}
+
+static void XboxMenuQueuePendingMatchRules( const TCHAR* GameClassName, INT ScoreLimit, INT TimeLimit, INT MinPlayers, INT Skill, INT DesiredBots )
+{
+    GXboxPendingMatchRules.Active = 1;
+    GXboxPendingMatchRules.AppliedLevel = NULL;
+    appStrncpy( GXboxPendingMatchRules.GameClass, GameClassName ? GameClassName : TEXT(""), ARRAY_COUNT(GXboxPendingMatchRules.GameClass) );
+    GXboxPendingMatchRules.GameClass[ARRAY_COUNT(GXboxPendingMatchRules.GameClass)-1] = 0;
+    GXboxPendingMatchRules.ScoreLimit = Max<INT>( 0, ScoreLimit );
+    GXboxPendingMatchRules.TimeLimit = Max<INT>( 0, TimeLimit );
+    GXboxPendingMatchRules.MinPlayers = Max<INT>( 0, MinPlayers );
+    GXboxPendingMatchRules.Skill = Max<INT>( 0, Skill );
+    GXboxPendingMatchRules.DesiredBots = Max<INT>( 0, DesiredBots );
+    GXboxPendingMatchRules.ObjectiveRules = XboxMenuGameUsesObjectiveRules( GameClassName );
+    GXboxPendingMatchRules.TeamScore = XboxMenuGameUsesTeamScore( GameClassName );
+}
+
+static void XboxMenuAdjustPendingBots( ULevel* Level, UObject* Game, INT DesiredBots )
+{
+    if( !Level || !Level->GetLevelInfo() || !Game )
+        return;
+
+    UClass* BotClass = UObject::StaticLoadClass( APawn::StaticClass(), NULL, TEXT("Botpack.Bot"), NULL, LOAD_NoWarn | LOAD_Quiet, NULL );
+    INT NumBots = XboxGetObjectPropertyInt( Game, TEXT("NumBots"), 0 );
+    INT Removed = 0;
+    if( BotClass )
+    {
+        for( APawn* Pawn = Level->GetLevelInfo()->PawnList; Pawn && NumBots > DesiredBots; )
+        {
+            APawn* Next = Pawn->nextPawn;
+            if( Pawn->IsA(BotClass) )
+            {
+                Level->DestroyActor( Pawn );
+                Removed++;
+                NumBots--;
+            }
+            Pawn = Next;
+        }
+    }
+    if( Removed )
+    {
+        XboxSetObjectPropertyInt( Game, TEXT("NumBots"), NumBots );
+        GXboxLog.Write( "XMENU pending rules trimmed bots desired=%d removed=%d remaining=%d", DesiredBots, Removed, NumBots );
+    }
+
+    UFunction* AddBot = Game->FindFunction( FName(TEXT("AddBot"), FNAME_Find) );
+    if( !AddBot )
+        return;
+
+    for( INT Safety=0; Safety<16; Safety++ )
+    {
+        NumBots = XboxGetObjectPropertyInt( Game, TEXT("NumBots"), 0 );
+        if( NumBots >= DesiredBots )
+            break;
+
+        BYTE Parms[64];
+        appMemzero( Parms, sizeof(Parms) );
+        Game->ProcessEvent( AddBot, Parms );
+    }
+}
+
+static void XboxMenuApplyPendingMatchRules( UXboxViewport* Viewport )
+{
+    if( !GXboxPendingMatchRules.Active || !Viewport || !Viewport->Actor )
+        return;
+
+    APlayerPawn* Player = Viewport->Actor;
+    ULevel* Level = Player ? Player->GetLevel() : NULL;
+    if( !Level || XboxIsFrontendLevel(Level) || GXboxPendingMatchRules.AppliedLevel == Level )
+        return;
+
+    ALevelInfo* Info = Level->GetLevelInfo();
+    AGameInfo* GameInfo = Info ? Cast<AGameInfo>(Info->Game) : NULL;
+    UObject* Game = GameInfo;
+    if( !Game )
+        return;
+
+    INT FragLimit = GXboxPendingMatchRules.ScoreLimit;
+    INT GoalTeamScore = 0;
+    if( GXboxPendingMatchRules.ObjectiveRules )
+    {
+        FragLimit = 0;
+        GoalTeamScore = 0;
+    }
+    else if( GXboxPendingMatchRules.TeamScore )
+    {
+        FragLimit = 0;
+        GoalTeamScore = GXboxPendingMatchRules.ScoreLimit;
+    }
+
+    XboxSetObjectPropertyInt( Game, TEXT("FragLimit"), FragLimit );
+    XboxSetObjectPropertyInt( Game, TEXT("GoalTeamScore"), GoalTeamScore );
+    XboxSetObjectPropertyInt( Game, TEXT("TimeLimit"), GXboxPendingMatchRules.TimeLimit );
+    XboxSetObjectPropertyInt( Game, TEXT("MinPlayers"), GXboxPendingMatchRules.MinPlayers );
+    XboxSetObjectPropertyInt( Game, TEXT("InitialBots"), GXboxPendingMatchRules.DesiredBots );
+    XboxSetObjectPropertyInt( Game, TEXT("Difficulty"), GXboxPendingMatchRules.Skill );
+
+    INT RemainingTime = GXboxPendingMatchRules.TimeLimit > 0 ? GXboxPendingMatchRules.TimeLimit * 60 : 0;
+    XboxSetObjectPropertyInt( Game, TEXT("RemainingTime"), RemainingTime );
+    XboxSetObjectPropertyInt( Game, TEXT("RemainingBots"), 0 );
+
+    UObject* GRI = GameInfo->GameReplicationInfo;
+    if( GRI )
+    {
+        XboxSetObjectPropertyInt( GRI, TEXT("FragLimit"), FragLimit );
+        XboxSetObjectPropertyInt( GRI, TEXT("GoalTeamScore"), GoalTeamScore );
+        XboxSetObjectPropertyInt( GRI, TEXT("TimeLimit"), GXboxPendingMatchRules.TimeLimit );
+        XboxSetObjectPropertyInt( GRI, TEXT("RemainingTime"), RemainingTime );
+        XboxSetObjectPropertyInt( GRI, TEXT("RemainingMinute"), RemainingTime );
+    }
+
+    INT BotsBefore = XboxGetObjectPropertyInt( Game, TEXT("NumBots"), 0 );
+    XboxMenuAdjustPendingBots( Level, Game, GXboxPendingMatchRules.DesiredBots );
+    INT BotsAfter = XboxGetObjectPropertyInt( Game, TEXT("NumBots"), 0 );
+    XboxSetObjectPropertyInt( Game, TEXT("RemainingBots"), Max<INT>( 0, GXboxPendingMatchRules.DesiredBots - BotsAfter ) );
+
+    GXboxPendingMatchRules.AppliedLevel = Level;
+    GXboxPendingMatchRules.Active = 0;
+    GXboxLog.Write( "XMENU pending rules applied map=%s game=%s queuedGame=%s teamScore=%d objective=%d frag=%d goalTeam=%d time=%d minPlayers=%d skill=%d desiredBots=%d botsBefore=%d botsAfter=%d",
+        Level->URL.Map.Len() ? TCHAR_TO_ANSI(*Level->URL.Map) : "",
+        Game->GetClass() ? TCHAR_TO_ANSI(Game->GetClass()->GetName()) : "None",
+        TCHAR_TO_ANSI(GXboxPendingMatchRules.GameClass),
+        GXboxPendingMatchRules.TeamScore ? 1 : 0,
+        GXboxPendingMatchRules.ObjectiveRules ? 1 : 0,
+        FragLimit,
+        GoalTeamScore,
+        GXboxPendingMatchRules.TimeLimit,
+        GXboxPendingMatchRules.MinPlayers,
+        GXboxPendingMatchRules.Skill,
+        GXboxPendingMatchRules.DesiredBots,
+        BotsBefore,
+        BotsAfter );
+}
+
 static void XboxMenuStartInstantAction( UXboxViewport* Viewport )
 {
     UXboxClient* Client = Viewport ? (UXboxClient*)Viewport->GetOuter() : NULL;
@@ -6915,20 +8276,23 @@ static void XboxMenuStartInstantAction( UXboxViewport* Viewport )
     INT Skill = Clamp<INT>( GXboxMenu.InstantSkill, 0, ARRAY_COUNT(GXboxSkillLabels)-1 );
     TCHAR MutatorURL[256];
     TCHAR PlayerURL[512];
+    TCHAR RuleURL[256];
     TCHAR URL[1024];
+    UBOOL bTeamScore = XboxMenuGameUsesTeamScore( *Game.URLValue );
+    UBOOL bObjective = XboxMenuGameUsesObjectiveRules( *Game.URLValue );
+    INT MinPlayers = Bots + 1;
     XboxMenuBuildMutatorURL( MutatorURL, ARRAY_COUNT(MutatorURL) );
     XboxMenuBuildPlayerURL( PlayerURL, ARRAY_COUNT(PlayerURL) );
-
+    XboxMenuApplyMatchRuleDefaults( *Game.URLValue, FragLimit, MinPlayers );
+    XboxMenuBuildMatchRuleOptions( *Game.URLValue, FragLimit, TimeLimit, MinPlayers, Skill, RuleURL );
+    XboxMenuQueuePendingMatchRules( *Game.URLValue, FragLimit, TimeLimit, MinPlayers, Skill, Bots );
     appSprintf
     (
         URL,
-        TEXT("%s?Game=%s?FragLimit=%i?TimeLimit=%i?MinPlayers=%i?Difficulty=%i%s%s%s"),
+        TEXT("%s?Game=%s?%s%s%s%s"),
         *Map.URLValue,
         *Game.URLValue,
-        FragLimit,
-        TimeLimit,
-        Bots + 1,
-        Skill,
+        RuleURL,
         PlayerURL,
         MutatorURL[0] ? TEXT("?Mutator=") : TEXT(""),
         MutatorURL[0] ? MutatorURL : TEXT("")
@@ -6936,7 +8300,13 @@ static void XboxMenuStartInstantAction( UXboxViewport* Viewport )
 
     XboxMenuClose( Viewport );
     XboxSplitResetRuntime( Client, "InstantAction" );
-    GXboxLog.Write( "XMENU Begin Match travel: %s", TCHAR_TO_ANSI(URL) );
+    GXboxLog.Write( "XMENU Begin Match travel teamScore=%d objective=%d score=%d bots=%d minPlayers=%d: %s",
+        bTeamScore ? 1 : 0,
+        bObjective ? 1 : 0,
+        FragLimit,
+        Bots,
+        MinPlayers,
+        TCHAR_TO_ANSI(URL) );
     Client->Engine->SetClientTravel( Viewport, URL, 0, TRAVEL_Absolute );
 }
 
@@ -6982,32 +8352,38 @@ static void XboxMenuStartSplitMatch( UXboxViewport* Viewport )
     INT TimeLimit = GXboxTimeLimits[Clamp<INT>(GXboxMenu.InstantTimeLimit, 0, ARRAY_COUNT(GXboxTimeLimits)-1)];
     INT Skill = Clamp<INT>( GXboxMenu.InstantSkill, 0, ARRAY_COUNT(GXboxSkillLabels)-1 );
 
-    XboxSetClassDefaultPropertyText( *Game.URLValue, TEXT("InitialBots"), TEXT("0") );
-    XboxSetClassDefaultPropertyText( *Game.URLValue, TEXT("MinPlayers"), TEXT("0") );
+    XboxMenuApplyMatchRuleDefaults( *Game.URLValue, FragLimit, 0 );
 
     XboxSplitResetRuntime( Client, "SplitReadyLaunch" );
     GXboxSplitUseReadySlots = 1;
     GXboxSplitPending = 1;
 
     TCHAR PlayerURL[512];
+    TCHAR RuleURL[256];
     TCHAR URL[1024];
     XboxSplitBuildPlayerURLForSlot( 0, PlayerURL, ARRAY_COUNT(PlayerURL), !GXboxSplitReadySlots[0].Joined );
+    XboxMenuBuildMatchRuleOptions( *Game.URLValue, FragLimit, TimeLimit, 0, Skill, RuleURL );
+    XboxMenuQueuePendingMatchRules( *Game.URLValue, FragLimit, TimeLimit, 0, Skill, 0 );
     appSprintf
     (
         URL,
-        TEXT("%s?Game=%s?FragLimit=%i?TimeLimit=%i?MinPlayers=0?MaxPlayers=4?Difficulty=%i%s"),
+        TEXT("%s?Game=%s?%s?MaxPlayers=4%s"),
         *Map.URLValue,
         *Game.URLValue,
-        FragLimit,
-        TimeLimit,
-        Skill,
+        RuleURL,
         PlayerURL
     );
 
     XboxMenuClose( Viewport );
     XboxSplitReadyReleaseControllers();
-    GXboxLog.Write( "XSPLIT ready travel joined=%d map=%s game=%s url=%s",
-        XboxSplitReadyJoinedCount(), TCHAR_TO_ANSI(*Map.URLValue), TCHAR_TO_ANSI(*Game.URLValue), TCHAR_TO_ANSI(URL) );
+    GXboxLog.Write( "XSPLIT ready travel joined=%d teamScore=%d objective=%d score=%d map=%s game=%s url=%s",
+        XboxSplitReadyJoinedCount(),
+        XboxMenuGameUsesTeamScore( *Game.URLValue ) ? 1 : 0,
+        XboxMenuGameUsesObjectiveRules( *Game.URLValue ) ? 1 : 0,
+        FragLimit,
+        TCHAR_TO_ANSI(*Map.URLValue),
+        TCHAR_TO_ANSI(*Game.URLValue),
+        TCHAR_TO_ANSI(URL) );
     Client->Engine->SetClientTravel( Viewport, URL, 0, TRAVEL_Absolute );
 }
 
@@ -7020,6 +8396,8 @@ static void XboxMenuReturnToFrontend( UXboxViewport* Viewport )
     XboxMenuReleaseFrontendTransientAssets( "return frontend", 1 );
     XboxMenuReleaseMatchPause( Viewport );
     XboxSplitResetRuntime( Client, "ReturnToFrontend" );
+    GXboxPendingMatchRules.Active = 0;
+    GXboxPendingMatchRules.AppliedLevel = NULL;
     XboxMenuEnsureConsoleClass( Viewport, TEXT("Engine.Console"), "ReturnToFrontend" );
     GXboxMenu.Active = 0;
     GXboxMenu.Screen = XMS_Main;
@@ -7053,10 +8431,14 @@ static const TCHAR* XboxMenuScreenName( EXboxMenuScreen Screen )
         case XMS_SystemLink: return TEXT("SystemLink");
         case XMS_SystemLinkMapSelect: return TEXT("SystemLinkMapSelect");
         case XMS_Tournament: return TEXT("Tournament");
+        case XMS_TournamentPostMatch: return TEXT("TournamentPostMatch");
         case XMS_SplitReady: return TEXT("SplitReady");
         case XMS_SplitMapSelect: return TEXT("SplitMapSelect");
         case XMS_PlayerSetup: return TEXT("PlayerSetup");
+        case XMS_Controls: return TEXT("Controls");
         case XMS_Settings: return TEXT("Settings");
+        case XMS_SettingsAudio: return TEXT("SettingsAudio");
+        case XMS_SettingsVideo: return TEXT("SettingsVideo");
         case XMS_ComingSoon: return TEXT("ComingSoon");
     }
     return TEXT("Unknown");
@@ -7189,6 +8571,713 @@ static void XboxSoakStartInstantMap( UXboxViewport* Viewport, const TCHAR* MapFi
         XboxMenuStartInstantAction( Viewport );
 }
 
+static void XboxInstantRulesProofLogGame( UXboxViewport* Viewport, const char* Tag )
+{
+    APlayerPawn* Player = Viewport ? Viewport->Actor : NULL;
+    ULevel* Level = Player ? Player->GetLevel() : NULL;
+    UObject* Game = (Level && Level->GetLevelInfo()) ? Level->GetLevelInfo()->Game : NULL;
+    const TCHAR* MapName = (Level && Level->URL.Map.Len()) ? *Level->URL.Map : TEXT("");
+    const TCHAR* UrlText = (Level && Level->URL.Map.Len()) ? *Level->URL.String() : TEXT("");
+
+    if( !Game )
+    {
+        GXboxLog.Write( "XINSTANT RULES proof tag=%s map=%s url=%s game=None",
+            Tag ? Tag : "",
+            TCHAR_TO_ANSI(MapName),
+            TCHAR_TO_ANSI(UrlText) );
+        return;
+    }
+
+    GXboxLog.Write( "XINSTANT RULES proof tag=%s map=%s url=%s game=%s frag=%d goalTeam=%d minPlayers=%d initialBots=%d numBots=%d numPlayers=%d remainingBots=%d timeLimit=%d difficulty=%d ready=%d",
+        Tag ? Tag : "",
+        TCHAR_TO_ANSI(MapName),
+        TCHAR_TO_ANSI(UrlText),
+        Game->GetClass() ? TCHAR_TO_ANSI(Game->GetClass()->GetName()) : "None",
+        XboxGetObjectPropertyInt( Game, TEXT("FragLimit"), -1 ),
+        XboxGetObjectPropertyInt( Game, TEXT("GoalTeamScore"), -1 ),
+        XboxGetObjectPropertyInt( Game, TEXT("MinPlayers"), -1 ),
+        XboxGetObjectPropertyInt( Game, TEXT("InitialBots"), -1 ),
+        XboxGetObjectPropertyInt( Game, TEXT("NumBots"), -1 ),
+        XboxGetObjectPropertyInt( Game, TEXT("NumPlayers"), -1 ),
+        XboxGetObjectPropertyInt( Game, TEXT("RemainingBots"), -1 ),
+        XboxGetObjectPropertyInt( Game, TEXT("TimeLimit"), -1 ),
+        XboxGetObjectPropertyInt( Game, TEXT("Difficulty"), -1 ),
+        Player && Player->bReadyToPlay ? 1 : 0 );
+}
+
+static const TCHAR* XboxInstantRulesProofRequestedPrefix()
+{
+    static INT DMCached = -1;
+    static INT CTFCached = -1;
+    static INT DOMCached = -1;
+    static INT ASCached = -1;
+    static INT JBCached = -1;
+    static INT GenericCached = -1;
+
+    if( XboxSmokeMarkerExists( "XboxInstantMenuProof_DM.ini", DMCached ) )
+        return TEXT("DM");
+    if( XboxSmokeMarkerExists( "XboxInstantMenuProof_CTF.ini", CTFCached ) )
+        return TEXT("CTF");
+    if( XboxSmokeMarkerExists( "XboxInstantMenuProof_DOM.ini", DOMCached ) )
+        return TEXT("DOM");
+    if( XboxSmokeMarkerExists( "XboxInstantMenuProof_AS.ini", ASCached ) )
+        return TEXT("AS");
+    if( XboxSmokeMarkerExists( "XboxInstantMenuProof_JB.ini", JBCached ) )
+        return TEXT("JB");
+    if( XboxSmokeMarkerExists( "XboxInstantMenuProofSmoke.ini", GenericCached ) )
+        return TEXT("DM");
+    return NULL;
+}
+
+static INT XboxInstantRulesProofFindGameTypeByPrefix( const TCHAR* Prefix )
+{
+    INT GameTypeCount = XboxMenuGameTypeCount();
+    if( !Prefix || !Prefix[0] )
+        return GameTypeCount > 0 ? 0 : INDEX_NONE;
+
+    for( INT i=0; i<GameTypeCount; i++ )
+    {
+        const FXboxDiscoveredOption& Game = XboxMenuGameType( i );
+        if( appStricmp( *Game.MapPrefix, Prefix ) == 0 )
+            return i;
+    }
+    return GameTypeCount > 0 ? 0 : INDEX_NONE;
+}
+
+struct FXboxInstantRulesProofProfile
+{
+    INT BotIndex;
+    INT SkillIndex;
+    INT ScoreIndex;
+    INT TimeIndex;
+    const TCHAR* PreferredMap;
+};
+
+static FXboxInstantRulesProofProfile XboxInstantRulesProofProfileForGame( const FXboxDiscoveredOption& Game )
+{
+    FXboxInstantRulesProofProfile Profile;
+    Profile.BotIndex = 2;
+    Profile.SkillIndex = 2;
+    Profile.ScoreIndex = 1;
+    Profile.TimeIndex = 1;
+    Profile.PreferredMap = TEXT("");
+
+    if( appStricmp( *Game.MapPrefix, TEXT("DM") ) == 0 )
+    {
+        Profile.BotIndex = 2;
+        Profile.SkillIndex = 2;
+        Profile.ScoreIndex = 1;
+        Profile.TimeIndex = 1;
+        Profile.PreferredMap = TEXT("DM-Deck16][.unr");
+    }
+    else if( appStricmp( *Game.MapPrefix, TEXT("CTF") ) == 0 )
+    {
+        Profile.BotIndex = 3;
+        Profile.SkillIndex = 3;
+        Profile.ScoreIndex = 1;
+        Profile.TimeIndex = 1;
+        Profile.PreferredMap = TEXT("CTF-Face][.unr");
+    }
+    else if( appStricmp( *Game.MapPrefix, TEXT("DOM") ) == 0 )
+    {
+        Profile.BotIndex = 2;
+        Profile.SkillIndex = 0;
+        Profile.ScoreIndex = 1;
+        Profile.TimeIndex = 1;
+        Profile.PreferredMap = TEXT("DOM-Sesmar.unr");
+    }
+    else if( appStricmp( *Game.MapPrefix, TEXT("AS") ) == 0 )
+    {
+        Profile.BotIndex = 1;
+        Profile.SkillIndex = 1;
+        Profile.ScoreIndex = 1;
+        Profile.TimeIndex = 1;
+        Profile.PreferredMap = TEXT("AS-Guardia.unr");
+    }
+    else if( appStricmp( *Game.MapPrefix, TEXT("JB") ) == 0 )
+    {
+        Profile.BotIndex = 2;
+        Profile.SkillIndex = 2;
+        Profile.ScoreIndex = 1;
+        Profile.TimeIndex = 1;
+        Profile.PreferredMap = TEXT("JB-Pharynx.unr");
+    }
+
+    Profile.BotIndex = Clamp<INT>( Profile.BotIndex, 0, ARRAY_COUNT(GXboxBotCounts)-1 );
+    Profile.SkillIndex = Clamp<INT>( Profile.SkillIndex, 0, ARRAY_COUNT(GXboxSkillLabels)-1 );
+    Profile.ScoreIndex = Clamp<INT>( Profile.ScoreIndex, 0, ARRAY_COUNT(GXboxFragLimits)-1 );
+    Profile.TimeIndex = Clamp<INT>( Profile.TimeIndex, 0, ARRAY_COUNT(GXboxTimeLimits)-1 );
+    return Profile;
+}
+
+static INT XboxInstantRulesProofCurrentMenuIndex( INT Row )
+{
+    switch( Row )
+    {
+        case 0: return GXboxMenu.InstantGameType;
+        case 1: return GXboxMenu.InstantMap[Clamp<INT>(GXboxMenu.InstantGameType, 0, 63)];
+        case 2: return GXboxMenu.InstantBots;
+        case 3: return GXboxMenu.InstantSkill;
+        case 4: return GXboxMenu.InstantFragLimit;
+        case 5: return GXboxMenu.InstantTimeLimit;
+    }
+    return 0;
+}
+
+static INT XboxInstantRulesProofMenuRowCount( INT Row )
+{
+    switch( Row )
+    {
+        case 0: return XboxMenuGameTypeCount();
+        case 1: return XboxInstantMapList( Clamp<INT>(GXboxMenu.InstantGameType, 0, XboxMenuGameTypeCount()-1) );
+        case 2: return ARRAY_COUNT(GXboxBotCounts);
+        case 3: return ARRAY_COUNT(GXboxSkillLabels);
+        case 4: return ARRAY_COUNT(GXboxFragLimits);
+        case 5: return ARRAY_COUNT(GXboxTimeLimits);
+    }
+    return 0;
+}
+
+static void XboxInstantRulesProofAdjustMenuRowToIndex( INT Row, INT TargetIndex )
+{
+    INT Count = XboxInstantRulesProofMenuRowCount( Row );
+    if( Count <= 0 )
+        return;
+
+    GXboxMenu.Screen = XMS_InstantAction;
+    GXboxMenu.InstantFocus = Row;
+    TargetIndex = Clamp<INT>( TargetIndex, 0, Count-1 );
+    INT CurrentIndex = Clamp<INT>( XboxInstantRulesProofCurrentMenuIndex(Row), 0, Count-1 );
+    INT Forward = (TargetIndex - CurrentIndex + Count) % Count;
+    INT Backward = (CurrentIndex - TargetIndex + Count) % Count;
+    INT Steps = Min<INT>( Forward, Backward );
+    INT Delta = (Forward <= Backward) ? 1 : -1;
+
+    for( INT i=0; i<Steps; i++ )
+        XboxMenuAdjustInstantAction( Delta );
+
+    GXboxLog.Write( "XINSTANT MENU adjusted row=%d target=%d final=%d count=%d steps=%d delta=%d",
+        Row,
+        TargetIndex,
+        XboxInstantRulesProofCurrentMenuIndex(Row),
+        Count,
+        Steps,
+        Steps ? Delta : 0 );
+}
+
+static UBOOL XboxInstantRulesProofPrepareBeforeSelection( INT GameType )
+{
+    INT GameTypeCount = XboxMenuGameTypeCount();
+    if( GameType < 0 || GameType >= GameTypeCount )
+        return 0;
+
+    XboxSoakConfigureMatchDefaults();
+    GXboxMenu.Active = 1;
+    GXboxMenu.Screen = XMS_InstantAction;
+    GXboxMenu.InstantFocus = 0;
+    GXboxMenu.PausedMatch = 0;
+
+    XboxInstantRulesProofAdjustMenuRowToIndex( 0, GameType );
+
+    const FXboxDiscoveredOption& Game = XboxMenuGameType( GameType );
+    FXboxInstantRulesProofProfile Profile = XboxInstantRulesProofProfileForGame( Game );
+    INT MapCount = XboxInstantMapList( GameType );
+    if( MapCount <= 0 )
+        return 0;
+
+    INT MapIndex = INDEX_NONE;
+    if( Profile.PreferredMap && Profile.PreferredMap[0] )
+        MapIndex = XboxMenuFindMapIndexByFile( GameType, Profile.PreferredMap );
+    if( MapIndex == INDEX_NONE )
+        MapIndex = 0;
+
+    XboxInstantRulesProofAdjustMenuRowToIndex( 1, MapIndex );
+    XboxInstantRulesProofAdjustMenuRowToIndex( 2, 0 );
+    XboxInstantRulesProofAdjustMenuRowToIndex( 3, 0 );
+    XboxInstantRulesProofAdjustMenuRowToIndex( 4, 0 );
+    XboxInstantRulesProofAdjustMenuRowToIndex( 5, 0 );
+
+    GXboxMenu.InstantFocus = 2;
+
+    const FXboxDiscoveredOption& SelectedMap = XboxMenuMap( GameType, GXboxMenu.InstantMap[GameType] );
+    UBOOL bObjective = XboxMenuGameUsesObjectiveRules( *Game.URLValue );
+    UBOOL bTeamScore = XboxMenuGameUsesTeamScore( *Game.URLValue );
+    GXboxLog.Write( "XINSTANT MENU BEFORE index=%d game=%s prefix=%s map=%s mapIndex=%d botsIndex=%d bots=%d skillIndex=%d skillLabel=%s scoreIndex=%d score=%d timeIndex=%d time=%d minPlayers=%d mode=%s focus=%d active=%d",
+        GameType,
+        TCHAR_TO_ANSI(*Game.URLValue),
+        TCHAR_TO_ANSI(*Game.MapPrefix),
+        TCHAR_TO_ANSI(*SelectedMap.URLValue),
+        GXboxMenu.InstantMap[GameType],
+        GXboxMenu.InstantBots,
+        GXboxBotCounts[Clamp<INT>(GXboxMenu.InstantBots, 0, ARRAY_COUNT(GXboxBotCounts)-1)],
+        GXboxMenu.InstantSkill,
+        TCHAR_TO_ANSI(GXboxSkillLabels[Clamp<INT>(GXboxMenu.InstantSkill, 0, ARRAY_COUNT(GXboxSkillLabels)-1)]),
+        GXboxMenu.InstantFragLimit,
+        GXboxFragLimits[Clamp<INT>(GXboxMenu.InstantFragLimit, 0, ARRAY_COUNT(GXboxFragLimits)-1)],
+        GXboxMenu.InstantTimeLimit,
+        GXboxTimeLimits[Clamp<INT>(GXboxMenu.InstantTimeLimit, 0, ARRAY_COUNT(GXboxTimeLimits)-1)],
+        GXboxBotCounts[Clamp<INT>(GXboxMenu.InstantBots, 0, ARRAY_COUNT(GXboxBotCounts)-1)] + 1,
+        bObjective ? "objective" : (bTeamScore ? "teamScore" : "frag"),
+        GXboxMenu.InstantFocus,
+        GXboxMenu.Active ? 1 : 0 );
+    return 1;
+}
+
+static UBOOL XboxInstantRulesProofPrepareMenuSelection( INT GameType )
+{
+    INT GameTypeCount = XboxMenuGameTypeCount();
+    if( GameType < 0 || GameType >= GameTypeCount )
+        return 0;
+
+    GXboxMenu.Active = 1;
+    GXboxMenu.Screen = XMS_InstantAction;
+    GXboxMenu.InstantFocus = 0;
+    GXboxMenu.PausedMatch = 0;
+
+    XboxInstantRulesProofAdjustMenuRowToIndex( 0, GameType );
+
+    const FXboxDiscoveredOption& Game = XboxMenuGameType( GameType );
+    FXboxInstantRulesProofProfile Profile = XboxInstantRulesProofProfileForGame( Game );
+    INT MapCount = XboxInstantMapList( GameType );
+    if( MapCount <= 0 )
+        return 0;
+
+    INT MapIndex = INDEX_NONE;
+    if( Profile.PreferredMap && Profile.PreferredMap[0] )
+        MapIndex = XboxMenuFindMapIndexByFile( GameType, Profile.PreferredMap );
+    if( MapIndex == INDEX_NONE )
+        MapIndex = 0;
+
+    XboxInstantRulesProofAdjustMenuRowToIndex( 1, MapIndex );
+    XboxInstantRulesProofAdjustMenuRowToIndex( 2, Profile.BotIndex );
+    XboxInstantRulesProofAdjustMenuRowToIndex( 3, Profile.SkillIndex );
+    XboxInstantRulesProofAdjustMenuRowToIndex( 4, Profile.ScoreIndex );
+    XboxInstantRulesProofAdjustMenuRowToIndex( 5, Profile.TimeIndex );
+
+    GXboxMenu.InstantFocus = 7;
+
+    const FXboxDiscoveredOption& SelectedMap = XboxMenuMap( GameType, GXboxMenu.InstantMap[GameType] );
+    INT DesiredBots = GXboxBotCounts[Clamp<INT>(GXboxMenu.InstantBots, 0, ARRAY_COUNT(GXboxBotCounts)-1)];
+    INT ScoreLimit = GXboxFragLimits[Clamp<INT>(GXboxMenu.InstantFragLimit, 0, ARRAY_COUNT(GXboxFragLimits)-1)];
+    INT TimeLimit = GXboxTimeLimits[Clamp<INT>(GXboxMenu.InstantTimeLimit, 0, ARRAY_COUNT(GXboxTimeLimits)-1)];
+    INT Skill = Clamp<INT>( GXboxMenu.InstantSkill, 0, ARRAY_COUNT(GXboxSkillLabels)-1 );
+    UBOOL bObjective = XboxMenuGameUsesObjectiveRules( *Game.URLValue );
+    UBOOL bTeamScore = XboxMenuGameUsesTeamScore( *Game.URLValue );
+
+    GXboxLog.Write( "XINSTANT MENU AFTER index=%d game=%s prefix=%s map=%s mapIndex=%d botsIndex=%d bots=%d skillIndex=%d skillLabel=%s scoreIndex=%d score=%d timeIndex=%d time=%d minPlayers=%d mode=%s focus=%d active=%d",
+        GameType,
+        TCHAR_TO_ANSI(*Game.URLValue),
+        TCHAR_TO_ANSI(*Game.MapPrefix),
+        TCHAR_TO_ANSI(*SelectedMap.URLValue),
+        GXboxMenu.InstantMap[GameType],
+        GXboxMenu.InstantBots,
+        DesiredBots,
+        Skill,
+        TCHAR_TO_ANSI(GXboxSkillLabels[Skill]),
+        GXboxMenu.InstantFragLimit,
+        ScoreLimit,
+        GXboxMenu.InstantTimeLimit,
+        TimeLimit,
+        DesiredBots + 1,
+        bObjective ? "objective" : (bTeamScore ? "teamScore" : "frag"),
+        GXboxMenu.InstantFocus,
+        GXboxMenu.Active ? 1 : 0 );
+    return 1;
+}
+
+static UBOOL XboxInstantRulesProofEvaluate( UXboxViewport* Viewport, INT GameType )
+{
+    APlayerPawn* Player = Viewport ? Viewport->Actor : NULL;
+    ULevel* Level = Player ? Player->GetLevel() : NULL;
+    UObject* GameObject = (Level && Level->GetLevelInfo()) ? Level->GetLevelInfo()->Game : NULL;
+    if( !GameObject )
+        return 0;
+
+    const FXboxDiscoveredOption& Game = XboxMenuGameType( GameType );
+    FXboxInstantRulesProofProfile Profile = XboxInstantRulesProofProfileForGame( Game );
+    INT SelectedMapIndex = Clamp<INT>( GXboxMenu.InstantMap[GameType], 0, Max<INT>(1, XboxInstantMapList(GameType))-1 );
+    const FXboxDiscoveredOption& SelectedMap = XboxMenuMap( GameType, SelectedMapIndex );
+    INT ScoreLimit = GXboxFragLimits[Profile.ScoreIndex];
+    INT TimeLimit = GXboxTimeLimits[Profile.TimeIndex];
+    INT DesiredBots = GXboxBotCounts[Profile.BotIndex];
+    INT MinPlayers = DesiredBots + 1;
+    INT Skill = Profile.SkillIndex;
+    UBOOL bObjective = XboxMenuGameUsesObjectiveRules( *Game.URLValue );
+    UBOOL bTeamScore = XboxMenuGameUsesTeamScore( *Game.URLValue );
+    INT ExpectedFrag = bTeamScore || bObjective ? 0 : ScoreLimit;
+    INT ExpectedGoal = bObjective ? 0 : (bTeamScore ? ScoreLimit : -9999);
+    INT Frag = XboxGetObjectPropertyInt( GameObject, TEXT("FragLimit"), -9999 );
+    INT Goal = XboxGetObjectPropertyInt( GameObject, TEXT("GoalTeamScore"), -9999 );
+    INT ActualMinPlayers = XboxGetObjectPropertyInt( GameObject, TEXT("MinPlayers"), -9999 );
+    INT InitialBots = XboxGetObjectPropertyInt( GameObject, TEXT("InitialBots"), -9999 );
+    INT NumBots = XboxGetObjectPropertyInt( GameObject, TEXT("NumBots"), -9999 );
+    INT ActualTime = XboxGetObjectPropertyInt( GameObject, TEXT("TimeLimit"), -9999 );
+    INT ActualSkill = XboxGetObjectPropertyInt( GameObject, TEXT("Difficulty"), -9999 );
+    const TCHAR* UrlSkillText = Level ? Level->URL.GetOption( TEXT("Difficulty="), NULL ) : NULL;
+    INT UrlSkill = UrlSkillText ? appAtoi( UrlSkillText ) : -9999;
+    UBOOL bMapMatches = Level && Level->URL.Map.Len() && appStricmp( *Level->URL.Map, *SelectedMap.URLValue ) == 0;
+    UBOOL bPass =
+        bMapMatches &&
+        Frag == ExpectedFrag &&
+        ( ExpectedGoal == -9999 || Goal == ExpectedGoal ) &&
+        ActualMinPlayers == MinPlayers &&
+        InitialBots == DesiredBots &&
+        NumBots == DesiredBots &&
+        ActualTime == TimeLimit &&
+        ActualSkill == Skill &&
+        UrlSkill == Skill;
+
+    GXboxLog.Write( "XINSTANT MENU LIVE index=%d status=%s game=%s prefix=%s selectedMap=%s liveMap=%s mapMatch=%d liveGame=%s mode=%s selectedScore=%d frag=%d expectedFrag=%d goalTeam=%d expectedGoal=%d selectedBots=%d minPlayers=%d expectedMin=%d initialBots=%d expectedInitialBots=%d numBots=%d desiredBots=%d selectedSkill=%d gameDifficulty=%d urlDifficulty=%d selectedTime=%d timeLimit=%d expectedTime=%d",
+        GameType,
+        bPass ? "PASS" : "FAIL",
+        TCHAR_TO_ANSI(*Game.URLValue),
+        TCHAR_TO_ANSI(*Game.MapPrefix),
+        TCHAR_TO_ANSI(*SelectedMap.URLValue),
+        Level && Level->URL.Map.Len() ? TCHAR_TO_ANSI(*Level->URL.Map) : "",
+        bMapMatches ? 1 : 0,
+        GameObject->GetClass() ? TCHAR_TO_ANSI(GameObject->GetClass()->GetName()) : "None",
+        bObjective ? "objective" : (bTeamScore ? "teamScore" : "frag"),
+        ScoreLimit,
+        Frag,
+        ExpectedFrag,
+        Goal,
+        ExpectedGoal,
+        DesiredBots,
+        ActualMinPlayers,
+        MinPlayers,
+        InitialBots,
+        DesiredBots,
+        NumBots,
+        DesiredBots,
+        Skill,
+        ActualSkill,
+        UrlSkill,
+        TimeLimit,
+        ActualTime,
+        TimeLimit );
+    return bPass;
+}
+
+static void XboxInstantRulesProofBuildScoreboard( ULevel* Level, TCHAR* Out, INT OutCount )
+{
+    if( !Out || OutCount <= 0 )
+        return;
+
+    Out[0] = 0;
+    if( !Level || !Level->GetLevelInfo() )
+        return;
+
+    for( APawn* Pawn = Level->GetLevelInfo()->PawnList; Pawn; Pawn = Pawn->nextPawn )
+    {
+        APlayerReplicationInfo* PRI = Pawn->PlayerReplicationInfo;
+        if( !PRI || PRI->bIsSpectator )
+            continue;
+
+        TCHAR Entry[96];
+        const TCHAR* Name = PRI->PlayerName.Len() ? *PRI->PlayerName : TEXT("Player");
+        appSprintf( Entry, TEXT("%s%s:T%d:%s:S%.1f:D%.1f"),
+            Out[0] ? TEXT(";") : TEXT(""),
+            Name,
+            PRI->Team,
+            PRI->bIsABot ? TEXT("bot") : TEXT("human"),
+            PRI->Score,
+            PRI->Deaths );
+        appStrncat( Out, Entry, OutCount );
+    }
+}
+
+static UBOOL XboxInstantRulesProofIsGameEnded( UXboxViewport* Viewport )
+{
+    APlayerPawn* Player = Viewport ? Viewport->Actor : NULL;
+    ULevel* Level = Player ? Player->GetLevel() : NULL;
+    AGameInfo* Game = (Level && Level->GetLevelInfo()) ? Cast<AGameInfo>(Level->GetLevelInfo()->Game) : NULL;
+    if( Game && Game->bGameEnded )
+        return 1;
+
+    const TCHAR* StateName = XboxPlayerStateName( Player );
+    if( StateName && appStricmp( StateName, TEXT("GameEnded") ) == 0 )
+        return 1;
+
+    FString bGameEnded;
+    if( XboxGetObjectPropertyString( Game, TEXT("bGameEnded"), bGameEnded )
+    && (appStricmp( *bGameEnded, TEXT("True") ) == 0 || appStricmp( *bGameEnded, TEXT("1") ) == 0) )
+        return 1;
+
+    return 0;
+}
+
+static void XboxInstantRulesProofDriveGameplay( UXboxViewport* Viewport, DOUBLE Now, UBOOL& FireDown, DOUBLE& FireDownTime, DOUBLE& LastFirePulse, UBOOL& MovementLogged )
+{
+    UXboxClient* Client = Viewport ? (UXboxClient*)Viewport->GetOuter() : NULL;
+    APlayerPawn* Player = Viewport ? Viewport->Actor : NULL;
+    if( !Client || !Client->Engine || !Player || GXboxMenu.Active )
+        return;
+
+    const TCHAR* StateName = XboxPlayerStateName( Player );
+    if( Player->Health > 0 && !Player->bHidden && appStricmp( StateName, TEXT("PlayerWalking") ) == 0 )
+    {
+        FLOAT MoveScale = Client ? Max<FLOAT>( Client->ScaleXYZ, 100.0f ) : 100.0f;
+        FLOAT LookScale = Client ? Max<FLOAT>( Client->ScaleRUV, 100.0f ) : 100.0f;
+        FLOAT StrafeSign = appSin( Now * 1.4 ) >= 0.0 ? 1.0f : -1.0f;
+        Player->aForward += MoveScale;
+        Player->aStrafe  += MoveScale * 0.45f * StrafeSign;
+        Player->aTurn    += LookScale * 2.2f;
+
+        if( !MovementLogged )
+        {
+            MovementLogged = 1;
+            GXboxLog.Write( "XINSTANT MENU gameplay drive active state=%s", TCHAR_TO_ANSI(StateName) );
+        }
+
+        if( !FireDown && (Now - LastFirePulse) > 0.45 )
+        {
+            Client->Engine->InputEvent( Viewport, IK_LeftMouse, IST_Press, 0.0f );
+            FireDown = 1;
+            FireDownTime = Now;
+            LastFirePulse = Now;
+        }
+    }
+
+    if( FireDown && (Now - FireDownTime) > 0.12 )
+    {
+        Client->Engine->InputEvent( Viewport, IK_LeftMouse, IST_Release, 0.0f );
+        FireDown = 0;
+    }
+}
+
+static UBOOL XboxInstantRulesProofLogEnd( UXboxViewport* Viewport, INT GameType, UBOOL bLivePass, const char* Reason )
+{
+    APlayerPawn* Player = Viewport ? Viewport->Actor : NULL;
+    ULevel* Level = Player ? Player->GetLevel() : NULL;
+    AGameInfo* GameInfo = (Level && Level->GetLevelInfo()) ? Cast<AGameInfo>(Level->GetLevelInfo()->Game) : NULL;
+    UObject* GameObject = GameInfo;
+    AGameReplicationInfo* GRI = GameInfo ? GameInfo->GameReplicationInfo : NULL;
+    if( !GameObject )
+        return 0;
+
+    const FXboxDiscoveredOption& Game = XboxMenuGameType( GameType );
+    FXboxInstantRulesProofProfile Profile = XboxInstantRulesProofProfileForGame( Game );
+    INT SelectedMapIndex = Clamp<INT>( GXboxMenu.InstantMap[GameType], 0, Max<INT>(1, XboxInstantMapList(GameType))-1 );
+    const FXboxDiscoveredOption& SelectedMap = XboxMenuMap( GameType, SelectedMapIndex );
+    INT ScoreLimit = GXboxFragLimits[Profile.ScoreIndex];
+    INT TimeLimit = GXboxTimeLimits[Profile.TimeIndex];
+    INT DesiredBots = GXboxBotCounts[Profile.BotIndex];
+    TCHAR Scores[512];
+    XboxInstantRulesProofBuildScoreboard( Level, Scores, ARRAY_COUNT(Scores) );
+
+    FString EndedText;
+    XboxGetObjectPropertyString( GameObject, TEXT("bGameEnded"), EndedText );
+    UBOOL bEnded = XboxInstantRulesProofIsGameEnded( Viewport );
+    UBOOL bPass = bLivePass && bEnded;
+
+    GXboxLog.Write( "XINSTANT MENU END index=%d status=%s reason=%s game=%s prefix=%s selectedMap=%s liveMap=%s ended=%d bGameEnded=%s state=%s selectedScore=%d frag=%d goalTeam=%d selectedBots=%d numBots=%d selectedSkill=%d gameDifficulty=%d selectedTime=%d timeLimit=%d remainingTime=%d elapsedTime=%d scores=%s",
+        GameType,
+        bPass ? "PASS" : "FAIL",
+        Reason ? Reason : "",
+        TCHAR_TO_ANSI(*Game.URLValue),
+        TCHAR_TO_ANSI(*Game.MapPrefix),
+        TCHAR_TO_ANSI(*SelectedMap.URLValue),
+        Level && Level->URL.Map.Len() ? TCHAR_TO_ANSI(*Level->URL.Map) : "",
+        bEnded ? 1 : 0,
+        EndedText.Len() ? TCHAR_TO_ANSI(*EndedText) : "",
+        TCHAR_TO_ANSI(XboxPlayerStateName(Player)),
+        ScoreLimit,
+        XboxGetObjectPropertyInt( GameObject, TEXT("FragLimit"), -9999 ),
+        XboxGetObjectPropertyInt( GameObject, TEXT("GoalTeamScore"), -9999 ),
+        DesiredBots,
+        XboxGetObjectPropertyInt( GameObject, TEXT("NumBots"), -9999 ),
+        Profile.SkillIndex,
+        XboxGetObjectPropertyInt( GameObject, TEXT("Difficulty"), -9999 ),
+        TimeLimit,
+        XboxGetObjectPropertyInt( GameObject, TEXT("TimeLimit"), -9999 ),
+        GRI ? GRI->RemainingTime : -9999,
+        GRI ? GRI->ElapsedTime : -9999,
+        TCHAR_TO_ANSI(Scores) );
+    return bPass;
+}
+
+static void XboxInstantRulesProofSmokeTick( UXboxViewport* Viewport )
+{
+    static INT RulesStage = 0;
+    static INT GameTypeIndex = INDEX_NONE;
+    static DOUBLE StageStartTime = 0.0;
+    static DOUBLE LastLogTime = 0.0;
+    static UBOOL ReadySent = 0;
+    static UBOOL LivePass = 0;
+    static UBOOL FireDown = 0;
+    static DOUBLE FireDownTime = 0.0;
+    static DOUBLE LastFirePulse = 0.0;
+    static UBOOL MovementLogged = 0;
+    static UBOOL CompleteLogged = 0;
+
+    if( !XboxInstantRulesProofSmokeEnabled() || !Viewport || !Viewport->Actor )
+        return;
+
+    APlayerPawn* Player = Viewport->Actor;
+    ULevel* Level = Player ? Player->GetLevel() : NULL;
+    UBOOL bFrontend = XboxIsFrontendLevel( Level );
+    DOUBLE Now = appSeconds();
+    FLOAT StageElapsed = StageStartTime > 0.0 ? (FLOAT)(Now - StageStartTime) : 0.0f;
+
+    if( RulesStage == 0 )
+    {
+        const TCHAR* Prefix = XboxInstantRulesProofRequestedPrefix();
+        GameTypeIndex = XboxInstantRulesProofFindGameTypeByPrefix( Prefix );
+        StageStartTime = Now;
+        LastLogTime = 0.0;
+        ReadySent = 0;
+        LivePass = 0;
+        FireDown = 0;
+        FireDownTime = 0.0;
+        LastFirePulse = 0.0;
+        MovementLogged = 0;
+        CompleteLogged = 0;
+        RulesStage = 1;
+        GXboxLog.Write( "XINSTANT MENU START targetPrefix=%s targetIndex=%d proof=single-gametype-menu-driven",
+            Prefix ? TCHAR_TO_ANSI(Prefix) : "",
+            GameTypeIndex );
+        XboxSoakLogState( Viewport, "instant-menu-start" );
+        return;
+    }
+
+    if( Now - LastLogTime >= 3.0 )
+    {
+        LastLogTime = Now;
+        XboxSoakLogState( Viewport, "instant-menu-heartbeat" );
+        XboxInstantRulesProofLogGame( Viewport, "heartbeat" );
+    }
+
+    if( RulesStage == 1 && bFrontend && StageElapsed >= 1.0f )
+    {
+        if( GameTypeIndex == INDEX_NONE )
+        {
+            GXboxLog.Write( "XINSTANT MENU COMPLETE status=FAIL reason=no-target" );
+            CompleteLogged = 1;
+            RulesStage = 99;
+            return;
+        }
+
+        if( XboxInstantRulesProofPrepareBeforeSelection( GameTypeIndex ) )
+        {
+            StageStartTime = Now;
+            RulesStage = 2;
+        }
+        else
+        {
+            const FXboxDiscoveredOption& Game = XboxMenuGameType( GameTypeIndex );
+            GXboxLog.Write( "XINSTANT MENU COMPLETE index=%d status=FAIL game=%s prefix=%s reason=no-map-before",
+                GameTypeIndex,
+                TCHAR_TO_ANSI(*Game.URLValue),
+                TCHAR_TO_ANSI(*Game.MapPrefix) );
+            CompleteLogged = 1;
+            StageStartTime = Now;
+            RulesStage = 99;
+        }
+        return;
+    }
+
+    if( RulesStage == 2 && bFrontend && StageElapsed >= 12.0f )
+    {
+        if( XboxInstantRulesProofPrepareMenuSelection( GameTypeIndex ) )
+        {
+            StageStartTime = Now;
+            RulesStage = 3;
+        }
+        else
+        {
+            const FXboxDiscoveredOption& Game = XboxMenuGameType( GameTypeIndex );
+            GXboxLog.Write( "XINSTANT MENU COMPLETE index=%d status=FAIL game=%s prefix=%s reason=no-map-after",
+                GameTypeIndex,
+                TCHAR_TO_ANSI(*Game.URLValue),
+                TCHAR_TO_ANSI(*Game.MapPrefix) );
+            CompleteLogged = 1;
+            StageStartTime = Now;
+            RulesStage = 99;
+        }
+        return;
+    }
+
+    if( RulesStage == 3 && bFrontend && StageElapsed >= 12.0f )
+    {
+        GXboxMenu.Active = 1;
+        GXboxMenu.Screen = XMS_InstantAction;
+        GXboxMenu.InstantFocus = 7;
+        GXboxLog.Write( "XINSTANT MENU LAUNCH index=%d via=activate focus=%d", GameTypeIndex, GXboxMenu.InstantFocus );
+        XboxMenuActivate( Viewport );
+        StageStartTime = Now;
+        ReadySent = 0;
+        LivePass = 0;
+        MovementLogged = 0;
+        FireDown = 0;
+        FireDownTime = 0.0;
+        LastFirePulse = 0.0;
+        RulesStage = 4;
+        return;
+    }
+
+    if( RulesStage == 4 && !bFrontend )
+    {
+        if( !ReadySent && StageElapsed >= 3.0f && Player && !Player->bReadyToPlay )
+        {
+            XboxSoakForceStartMatch( Viewport, "instant-menu-ready" );
+            ReadySent = 1;
+        }
+        XboxInstantRulesProofDriveGameplay( Viewport, Now, FireDown, FireDownTime, LastFirePulse, MovementLogged );
+        if( StageElapsed >= 8.0f )
+        {
+            XboxInstantRulesProofLogGame( Viewport, "loaded" );
+            LivePass = XboxInstantRulesProofEvaluate( Viewport, GameTypeIndex );
+            StageStartTime = Now;
+            RulesStage = 5;
+        }
+        return;
+    }
+
+    if( RulesStage == 5 && !bFrontend )
+    {
+        XboxInstantRulesProofDriveGameplay( Viewport, Now, FireDown, FireDownTime, LastFirePulse, MovementLogged );
+        if( XboxInstantRulesProofIsGameEnded( Viewport ) )
+        {
+            XboxInstantRulesProofLogGame( Viewport, "ended" );
+            UBOOL bEndPass = XboxInstantRulesProofLogEnd( Viewport, GameTypeIndex, LivePass, "game-ended" );
+            GXboxLog.Write( "XINSTANT MENU COMPLETE index=%d status=%s livePass=%d endPass=%d",
+                GameTypeIndex,
+                (LivePass && bEndPass) ? "PASS" : "FAIL",
+                LivePass ? 1 : 0,
+                bEndPass ? 1 : 0 );
+            CompleteLogged = 1;
+            StageStartTime = Now;
+            RulesStage = 99;
+        }
+        else if( StageElapsed >= 390.0f )
+        {
+            XboxInstantRulesProofLogGame( Viewport, "end-timeout" );
+            XboxInstantRulesProofLogEnd( Viewport, GameTypeIndex, LivePass, "timeout-waiting-for-end" );
+            GXboxLog.Write( "XINSTANT MENU COMPLETE index=%d status=FAIL livePass=%d endPass=0 reason=timeout-waiting-for-end",
+                GameTypeIndex,
+                LivePass ? 1 : 0 );
+            CompleteLogged = 1;
+            StageStartTime = Now;
+            RulesStage = 99;
+        }
+        return;
+    }
+
+    if( RulesStage == 99 && !CompleteLogged )
+    {
+        GXboxLog.Write( "XINSTANT MENU COMPLETE index=%d status=FAIL reason=unexpected-complete", GameTypeIndex );
+        CompleteLogged = 1;
+    }
+    else if( RulesStage == 99 && StageElapsed >= 20.0f )
+    {
+        if( !bFrontend )
+        {
+            XboxMenuReturnToFrontend( Viewport );
+            StageStartTime = Now;
+        }
+    }
+}
+
 static void XboxSoakStartSplitMap( UXboxViewport* Viewport, const TCHAR* MapFile )
 {
     XboxSoakConfigureMatchDefaults();
@@ -7196,6 +9285,156 @@ static void XboxSoakStartSplitMap( UXboxViewport* Viewport, const TCHAR* MapFile
         return;
     XboxSoakConfigureFourSplitSlots();
     XboxMenuStartSplitMatch( Viewport );
+}
+
+static void XboxIssueMapSmokeTick( UXboxViewport* Viewport )
+{
+    static INT IssueStage = 0;
+    static INT IssueMapIndex = 0;
+    static DOUBLE StageStartTime = 0.0;
+    static DOUBLE LastLogTime = 0.0;
+    static const TCHAR* IssueMaps[] =
+    {
+        TEXT("DM-Pantheon.unr"),
+        TEXT("DM-Halberd.unr"),
+        TEXT("DM-Hood.unr"),
+        TEXT("DM-CanyonFear.unr")
+    };
+
+    if( !XboxIssueMapSmokeEnabled() || !Viewport || !Viewport->Actor )
+        return;
+
+    APlayerPawn* Player = Viewport->Actor;
+    ULevel* Level = Player ? Player->GetLevel() : NULL;
+    UBOOL bFrontend = XboxIsFrontendLevel( Level );
+    DOUBLE Now = appSeconds();
+    FLOAT StageElapsed = StageStartTime > 0.0 ? (FLOAT)(Now - StageStartTime) : 0.0f;
+
+    if( IssueStage == 0 )
+    {
+        StageStartTime = Now;
+        LastLogTime = 0.0;
+        IssueMapIndex = 0;
+        IssueStage = 1;
+        GXboxLog.Write( "XISSUE START maps=DM-Pantheon,DM-Halberd,DM-Hood,DM-CanyonFear" );
+        XboxSoakLogState( Viewport, "issue-start" );
+        return;
+    }
+
+    if( Now - LastLogTime >= 4.0 )
+    {
+        LastLogTime = Now;
+        XboxSoakLogState( Viewport, "issue-heartbeat" );
+    }
+
+    if( IssueMapIndex >= ARRAY_COUNT(IssueMaps) )
+    {
+        if( IssueStage != 9 )
+        {
+            GXboxLog.Write( "XISSUE DONE maps=%d", IssueMapIndex );
+            XboxSoakLogState( Viewport, "issue-done" );
+            GXboxLog.Flush();
+            IssueStage = 9;
+        }
+        return;
+    }
+
+    if( IssueStage == 1 && bFrontend && StageElapsed >= 1.5f )
+    {
+        const TCHAR* MapFile = IssueMaps[IssueMapIndex];
+        GXboxLog.Write( "XISSUE travel mapIndex=%d map=%s", IssueMapIndex, TCHAR_TO_ANSI(MapFile) );
+        XboxSoakStartInstantMap( Viewport, MapFile );
+        StageStartTime = Now;
+        IssueStage = 2;
+        return;
+    }
+
+    if( IssueStage == 2 )
+    {
+        if( !bFrontend && StageElapsed >= 3.0f && Player && !Player->bReadyToPlay )
+            XboxSoakForceStartMatch( Viewport, "issue-ready" );
+        if( StageElapsed >= 9.0f )
+        {
+            XboxSoakLogState( Viewport, "issue-map-hold-complete" );
+            XboxMenuReturnToFrontend( Viewport );
+            IssueMapIndex++;
+            StageStartTime = Now;
+            IssueStage = 3;
+        }
+        return;
+    }
+
+    if( IssueStage == 3 && bFrontend && StageElapsed >= 1.5f )
+    {
+        StageStartTime = Now;
+        IssueStage = 1;
+        return;
+    }
+}
+
+static void XboxSafeAreaProofSmokeTick( UXboxViewport* Viewport )
+{
+    static INT SafeStage = 0;
+    static DOUBLE StageStartTime = 0.0;
+    static DOUBLE LastLogTime = 0.0;
+    static UBOOL ReadySent = 0;
+
+    if( !XboxSafeAreaProofSmokeEnabled() || !Viewport || !Viewport->Actor )
+        return;
+
+    APlayerPawn* Player = Viewport->Actor;
+    ULevel* Level = Player ? Player->GetLevel() : NULL;
+    UBOOL bFrontend = XboxIsFrontendLevel( Level );
+    DOUBLE Now = appSeconds();
+    FLOAT StageElapsed = StageStartTime > 0.0 ? (FLOAT)(Now - StageStartTime) : 0.0f;
+    UXboxClient* Client = Cast<UXboxClient>( Viewport->GetOuter() );
+    if( Client )
+    {
+        Client->SafeAreaSize = 92;
+        Client->SafeAreaX = 0;
+        Client->SafeAreaY = 0;
+    }
+
+    if( SafeStage == 0 )
+    {
+        StageStartTime = Now;
+        LastLogTime = 0.0;
+        ReadySent = 0;
+        SafeStage = 1;
+        GXboxLog.Write( "XSAFEAREA START safeAreaSize=92 safeAreaX=0 safeAreaY=0" );
+        XboxSoakLogState( Viewport, "safearea-start" );
+        return;
+    }
+
+    if( Now - LastLogTime >= 3.0 )
+    {
+        LastLogTime = Now;
+        XboxSoakLogState( Viewport, "safearea-heartbeat" );
+    }
+
+    if( SafeStage == 1 && bFrontend && StageElapsed >= 1.0f )
+    {
+        XboxSoakStartInstantMap( Viewport, TEXT("DM-Deck16][.unr") );
+        StageStartTime = Now;
+        ReadySent = 0;
+        SafeStage = 2;
+        GXboxLog.Write( "XSAFEAREA travel map=DM-Deck16][.unr" );
+        return;
+    }
+
+    if( SafeStage == 2 && !bFrontend )
+    {
+        if( !ReadySent && StageElapsed >= 3.0f && Player && !Player->bReadyToPlay )
+        {
+            XboxSoakForceStartMatch( Viewport, "safearea-ready" );
+            ReadySent = 1;
+        }
+        if( StageElapsed >= 7.0f )
+        {
+            XboxSoakLogState( Viewport, "safearea-proof-hold" );
+            SafeStage = 3;
+        }
+    }
 }
 
 static void XboxSoakSmokeTick( UXboxViewport* Viewport )
@@ -7443,7 +9682,9 @@ static void XboxMenuAdjustInstantAction( INT Delta );
 static void XboxMenuAdjustTournament( UXboxViewport* Viewport, INT Delta );
 static void XboxMenuAdjustSplitMapSelect( INT Delta );
 static void XboxMenuAdjustPlayerSetup( UXboxViewport* Viewport, INT Delta );
-static void XboxMenuAdjustSettings( UXboxViewport* Viewport, INT Delta );
+static void XboxMenuAdjustControls( UXboxViewport* Viewport, INT Delta );
+static void XboxMenuAdjustAudioSettings( UXboxViewport* Viewport, INT Delta );
+static void XboxMenuAdjustVideoSettings( UXboxViewport* Viewport, INT Delta );
 
 static void XboxMenuActivate( UXboxViewport* Viewport )
 {
@@ -7459,7 +9700,7 @@ static void XboxMenuActivate( UXboxViewport* Viewport )
                 break;
             case 2:
                 GXboxMenu.Screen = XMS_Settings;
-                GXboxMenu.SettingsFocus = 0;
+                GXboxMenu.SettingsFocus = XSH_Controls;
                 XboxMenuLoadSettings();
                 GXboxLog.Write( "XMENU screen: Settings" );
                 break;
@@ -7494,7 +9735,7 @@ static void XboxMenuActivate( UXboxViewport* Viewport )
                 break;
             case 5:
                 GXboxMenu.Screen = XMS_Settings;
-                GXboxMenu.SettingsFocus = 0;
+                GXboxMenu.SettingsFocus = XSH_Controls;
                 XboxMenuLoadSettings();
                 GXboxLog.Write( "XMENU screen: Settings" );
                 break;
@@ -7527,6 +9768,14 @@ static void XboxMenuActivate( UXboxViewport* Viewport )
         else
             XboxMenuMove( 1 );
     }
+    else if( GXboxMenu.Screen == XMS_TournamentPostMatch )
+    {
+        XboxMenuReleaseMapPreviewTexture();
+        XboxTournamentClampSelection( Viewport );
+        GXboxMenu.Screen = XMS_Tournament;
+        GXboxMenu.TournamentFocus = (GXboxTournamentPostMatch.Valid && !GXboxTournamentPostMatch.Advanced) ? 3 : 0;
+        GXboxLog.Write( "XMENU Tournament post-match continue" );
+    }
     else if( GXboxMenu.Screen == XMS_SystemLink )
     {
         GXboxLog.Write( "XSL activate role=%s phase=%s host=0x%08X peers=%d machines=%d confirmed=%d",
@@ -7555,9 +9804,44 @@ static void XboxMenuActivate( UXboxViewport* Viewport )
     {
         XboxMenuAdjustPlayerSetup( Viewport, 1 );
     }
+    else if( GXboxMenu.Screen == XMS_Controls )
+    {
+        XboxMenuAdjustControls( Viewport, 1 );
+    }
     else if( GXboxMenu.Screen == XMS_Settings )
     {
-        XboxMenuAdjustSettings( Viewport, 1 );
+        switch( GXboxMenu.SettingsFocus )
+        {
+            case XSH_Controls:
+                GXboxMenu.Screen = XMS_Controls;
+                GXboxMenu.ControlsFocus = XCR_Preset;
+                GXboxLog.Write( "XMENU screen: Settings > Controls" );
+                break;
+            case XSH_Audio:
+                GXboxMenu.Screen = XMS_SettingsAudio;
+                GXboxMenu.SettingsFocus = XAR_MusicVolume;
+                XboxMenuLoadSettings();
+                GXboxLog.Write( "XMENU screen: Settings > Audio" );
+                break;
+            case XSH_Video:
+                GXboxMenu.Screen = XMS_SettingsVideo;
+                GXboxMenu.SettingsFocus = XVR_SafeAreaSize;
+                XboxMenuLoadSettings();
+                GXboxLog.Write( "XMENU screen: Settings > Video" );
+                break;
+        }
+    }
+    else if( GXboxMenu.Screen == XMS_SettingsAudio )
+    {
+        XboxMenuAdjustAudioSettings( Viewport, 1 );
+    }
+    else if( GXboxMenu.Screen == XMS_SettingsVideo )
+    {
+        XboxMenuAdjustVideoSettings( Viewport, 1 );
+    }
+    else if( GXboxMenu.Screen == XMS_ComingSoon )
+    {
+        return;
     }
     else
     {
@@ -7711,54 +9995,87 @@ static void XboxMenuAdjustPlayerSetup( UXboxViewport* Viewport, INT Delta )
     GXboxLog.Write( "XMENU player adjust row=%d delta=%d", GXboxMenu.PlayerFocus, Delta );
 }
 
-static void XboxMenuAdjustSettings( UXboxViewport* Viewport, INT Delta )
+static void XboxMenuAdjustControls( UXboxViewport* Viewport, INT Delta )
 {
-    if( GXboxMenu.Screen != XMS_Settings || Delta == 0 )
+    if( GXboxMenu.Screen != XMS_Controls || Delta == 0 )
+        return;
+
+    UXboxClient* Client = XboxMenuGetClient( Viewport );
+    if( !Client )
+        return;
+
+    if( GXboxMenu.ControlsFocus == XCR_LookSensitivity )
+    {
+        Client->ScaleRUV = Clamp<FLOAT>( Client->ScaleRUV + Delta * 5.0f, 25.0f, 200.0f );
+        Client->SaveConfig();
+    }
+    else if( GXboxMenu.ControlsFocus == XCR_MoveSensitivity )
+    {
+        Client->ScaleXYZ = Clamp<FLOAT>( Client->ScaleXYZ + Delta * 5.0f, 25.0f, 200.0f );
+        Client->SaveConfig();
+    }
+    else if( GXboxMenu.ControlsFocus == XCR_InvertY )
+    {
+        Client->InvertVertical = !Client->InvertVertical;
+        Client->SaveConfig();
+    }
+    else if( GXboxMenu.ControlsFocus == XCR_DeadZone )
+    {
+        Client->DeadZone = Clamp<FLOAT>( Client->DeadZone + Delta * 0.05f, 0.05f, 0.40f );
+        Client->SaveConfig();
+    }
+    else if( GXboxMenu.ControlsFocus == XCR_Preset )
+    {
+        INT Preset = Client->ControlPreset;
+        if( Preset < 0 )
+            Preset = 0;
+        XboxControlApplyPreset( Client, Preset + Delta );
+    }
+    else if( GXboxMenu.ControlsFocus == XCR_StickLayout )
+    {
+        Client->StickLayout = XboxMenuWrapInt( XboxStickLayoutClamp(Client->StickLayout), Delta, XSL_LegacySouthpaw + 1 );
+        XboxControlMarkCustom( Client );
+        Client->SaveConfig();
+        GXboxLog.Write( "XMENU controls stickLayout=%d label=%s", Client->StickLayout, TCHAR_TO_ANSI(XboxStickLayoutLabel(Client->StickLayout)) );
+    }
+    else if( GXboxMenu.ControlsFocus == XCR_WeaponHand )
+    {
+        XboxMenuSetWeaponHand( Viewport ? Viewport->Actor : NULL, XboxMenuWrapInt( XboxMenuWeaponHandIndex(Viewport ? Viewport->Actor : NULL), Delta, ARRAY_COUNT(GXboxWeaponHands) ) );
+    }
+    else if( GXboxMenu.ControlsFocus == XCR_AutoSwitch )
+    {
+        APlayerPawn* Player = Viewport ? Viewport->Actor : NULL;
+        if( Player )
+        {
+            Player->bNeverAutoSwitch = !Player->bNeverAutoSwitch;
+            Player->bNeverSwitchOnPickup = Player->bNeverAutoSwitch;
+            Player->SaveConfig();
+        }
+    }
+    else
+    {
+        INT Button = Clamp<INT>( GXboxMenu.ControlsFocus - XCR_FirstButton, 0, XCB_Count-1 );
+        INT Action = XboxControlButtonAction( Client, Button );
+        Action = XboxMenuWrapInt( Action, Delta, ARRAY_COUNT(GXboxControlActions) );
+        XboxControlSetButtonAction( Client, Button, Action );
+        XboxControlMarkCustom( Client );
+        Client->SaveConfig();
+        GXboxLog.Write( "XMENU controls button=%d action=%d label=%s",
+            Button, Action, TCHAR_TO_ANSI(GXboxControlActions[Action].Label) );
+    }
+}
+
+static void XboxMenuAdjustAudioSettings( UXboxViewport* Viewport, INT Delta )
+{
+    if( GXboxMenu.Screen != XMS_SettingsAudio || Delta == 0 )
         return;
 
     XboxMenuLoadSettings();
     UXboxClient* Client = XboxMenuGetClient( Viewport );
-    APlayerPawn* Player = Viewport ? Viewport->Actor : NULL;
 
     switch( GXboxMenu.SettingsFocus )
     {
-        case XSR_LookSensitivity:
-            if( Client )
-            {
-                Client->ScaleRUV = Clamp<FLOAT>( Client->ScaleRUV + Delta * 5.0f, 25.0f, 200.0f );
-                Client->SaveConfig();
-            }
-            break;
-        case XSR_MoveSensitivity:
-            if( Client )
-            {
-                Client->ScaleXYZ = Clamp<FLOAT>( Client->ScaleXYZ + Delta * 5.0f, 25.0f, 200.0f );
-                Client->SaveConfig();
-            }
-            break;
-        case XSR_InvertY:
-            if( Client )
-            {
-                Client->InvertVertical = !Client->InvertVertical;
-                Client->SaveConfig();
-            }
-            break;
-        case XSR_DeadZone:
-            if( Client )
-            {
-                Client->DeadZone = Clamp<FLOAT>( Client->DeadZone + Delta * 0.05f, 0.05f, 0.40f );
-                Client->SaveConfig();
-            }
-            break;
-        case XSR_ButtonLayout:
-            if( Client )
-            {
-                INT LayoutIndex = XboxMenuButtonLayoutIndex( Client->ButtonLayout );
-                Client->ButtonLayout = XboxMenuButtonLayoutValue( LayoutIndex + Delta );
-                Client->SaveConfig();
-            }
-            break;
-        case XSR_MusicVolume:
+        case XAR_MusicVolume:
             GXboxSettingsMusicVolume = Clamp<INT>( GXboxSettingsMusicVolume + Delta * 16, 0, 255 );
             if( Client && Client->Engine && Client->Engine->Audio )
             {
@@ -7767,7 +10084,7 @@ static void XboxMenuAdjustSettings( UXboxViewport* Viewport, INT Delta )
                 Client->Engine->Audio->Exec( Cmd );
             }
             break;
-        case XSR_SoundVolume:
+        case XAR_SoundVolume:
             GXboxSettingsSoundVolume = Clamp<INT>( GXboxSettingsSoundVolume + Delta * 16, 0, 255 );
             if( Client && Client->Engine && Client->Engine->Audio )
             {
@@ -7776,47 +10093,99 @@ static void XboxMenuAdjustSettings( UXboxViewport* Viewport, INT Delta )
                 Client->Engine->Audio->Exec( Cmd );
             }
             break;
-        case XSR_AnnouncerVolume:
+        case XAR_AnnouncerVolume:
+        {
             GXboxSettingsAnnouncerVolume = Clamp<INT>( GXboxSettingsAnnouncerVolume + Delta, 0, 4 );
+            if( Viewport && Viewport->Actor )
+                XboxSetObjectPropertyInt( Viewport->Actor, TEXT("AnnouncerVolume"), GXboxSettingsAnnouncerVolume );
+            UClass* TournamentPlayerClass = UObject::StaticLoadClass( APlayerPawn::StaticClass(), NULL, TEXT("Botpack.TournamentPlayer"), NULL, LOAD_NoWarn | LOAD_Quiet, NULL );
+            if( TournamentPlayerClass )
+            {
+                TCHAR NewValue[16];
+                appSprintf( NewValue, TEXT("%i"), GXboxSettingsAnnouncerVolume );
+                XboxSetClassDefaultPropertyText( TournamentPlayerClass, TEXT("AnnouncerVolume"), NewValue );
+            }
             XboxMenuSetUserInt( TEXT("Botpack.TournamentPlayer"), TEXT("AnnouncerVolume"), GXboxSettingsAnnouncerVolume );
             break;
-        case XSR_Crosshair:
+        }
+    }
+
+    GXboxLog.Write( "XMENU audio adjust row=%d delta=%d", GXboxMenu.SettingsFocus, Delta );
+}
+
+static void XboxMenuAdjustVideoSettings( UXboxViewport* Viewport, INT Delta )
+{
+    if( GXboxMenu.Screen != XMS_SettingsVideo || Delta == 0 )
+        return;
+
+    XboxMenuLoadSettings();
+    UXboxClient* Client = XboxMenuGetClient( Viewport );
+    APlayerPawn* Player = Viewport ? Viewport->Actor : NULL;
+
+    switch( GXboxMenu.SettingsFocus )
+    {
+        case XVR_SafeAreaSize:
+            if( Client )
+            {
+                Client->SafeAreaSize = Clamp<INT>( Client->SafeAreaSize + Delta, 85, 100 );
+                Client->SaveConfig();
+            }
+            break;
+        case XVR_SafeAreaX:
+            if( Client )
+            {
+                Client->SafeAreaX = Clamp<INT>( Client->SafeAreaX + Delta * 2, -48, 48 );
+                Client->SaveConfig();
+            }
+            break;
+        case XVR_SafeAreaY:
+            if( Client )
+            {
+                Client->SafeAreaY = Clamp<INT>( Client->SafeAreaY + Delta * 2, -36, 36 );
+                Client->SaveConfig();
+            }
+            break;
+        case XVR_Crosshair:
             if( Player && Player->myHUD )
             {
                 Player->myHUD->Crosshair = XboxMenuWrapInt( Player->myHUD->Crosshair, Delta, 9 );
                 Player->myHUD->SaveConfig();
             }
             break;
-        case XSR_HudColor:
+        case XVR_HudColor:
             XboxMenuApplyHudColor( Viewport, GXboxSettingsHudColor + Delta );
             break;
-        case XSR_CrosshairColor:
+        case XVR_CrosshairColor:
             XboxMenuApplyCrosshairColor( Viewport, GXboxSettingsCrosshairColor + Delta );
             break;
-        case XSR_HudOpacity:
+        case XVR_HudOpacity:
             GXboxSettingsHudOpacity = Clamp<INT>( GXboxSettingsHudOpacity + Delta, 1, 16 );
+            if( Player && Player->myHUD )
+            {
+                XboxSetObjectPropertyInt( Player->myHUD, TEXT("Opacity"), GXboxSettingsHudOpacity );
+                TCHAR NewValue[16];
+                appSprintf( NewValue, TEXT("%i"), GXboxSettingsHudOpacity );
+                XboxSetClassDefaultPropertyText( Player->myHUD->GetClass(), TEXT("Opacity"), NewValue );
+                Player->myHUD->SaveConfig();
+            }
             XboxMenuSetUserInt( TEXT("Botpack.ChallengeHUD"), TEXT("Opacity"), GXboxSettingsHudOpacity );
             break;
-        case XSR_WeaponHand:
-            XboxMenuSetWeaponHand( Player, XboxMenuWrapInt( XboxMenuWeaponHandIndex(Player), Delta, ARRAY_COUNT(GXboxWeaponHands) ) );
-            break;
-        case XSR_AutoSwitch:
-            if( Player )
-            {
-                Player->bNeverAutoSwitch = !Player->bNeverAutoSwitch;
-                Player->bNeverSwitchOnPickup = Player->bNeverAutoSwitch;
-                Player->SaveConfig();
-            }
-            break;
-        case XSR_MatureLanguage:
+        case XVR_MatureLanguage:
         {
             UBOOL bNoMature = XboxMenuGetUserBool( TEXT("Botpack.TournamentPlayer"), TEXT("bNoMatureLanguage"), 0 );
-            XboxMenuSetUserBool( TEXT("Botpack.TournamentPlayer"), TEXT("bNoMatureLanguage"), !bNoMature );
+            UBOOL bNewNoMature = !bNoMature;
+            const TCHAR* NewValue = bNewNoMature ? TEXT("True") : TEXT("False");
+            if( Player )
+                XboxSetObjectPropertyText( Player, TEXT("bNoMatureLanguage"), NewValue );
+            UClass* TournamentPlayerClass = UObject::StaticLoadClass( APlayerPawn::StaticClass(), NULL, TEXT("Botpack.TournamentPlayer"), NULL, LOAD_NoWarn | LOAD_Quiet, NULL );
+            if( TournamentPlayerClass )
+                XboxSetClassDefaultPropertyText( TournamentPlayerClass, TEXT("bNoMatureLanguage"), NewValue );
+            XboxMenuSetUserBool( TEXT("Botpack.TournamentPlayer"), TEXT("bNoMatureLanguage"), bNewNoMature );
             break;
         }
     }
 
-    GXboxLog.Write( "XMENU settings adjust row=%d delta=%d", GXboxMenu.SettingsFocus, Delta );
+    GXboxLog.Write( "XMENU video adjust row=%d delta=%d", GXboxMenu.SettingsFocus, Delta );
 }
 
 static void XboxMenuMove( INT Delta )
@@ -7854,9 +10223,22 @@ static void XboxMenuMove( INT Delta )
         GXboxMenu.PlayerFocus = XboxMenuWrapInt( GXboxMenu.PlayerFocus, Delta, GXboxPlayerSetupRowCount );
         GXboxLog.Write( "XMENU player focus=%d", GXboxMenu.PlayerFocus );
     }
+    else if( GXboxMenu.Screen == XMS_Controls )
+    {
+        GXboxMenu.ControlsFocus = XboxMenuWrapInt( GXboxMenu.ControlsFocus, Delta, XCR_FirstButton + XCB_Count );
+        GXboxLog.Write( "XMENU controls focus=%d", GXboxMenu.ControlsFocus );
+    }
     else if( GXboxMenu.Screen == XMS_Settings )
     {
-        GXboxMenu.SettingsFocus = XboxMenuWrapInt( GXboxMenu.SettingsFocus, Delta, XSR_Count );
+        GXboxMenu.SettingsFocus = XboxMenuWrapInt( GXboxMenu.SettingsFocus, Delta, XSH_Count );
+    }
+    else if( GXboxMenu.Screen == XMS_SettingsAudio )
+    {
+        GXboxMenu.SettingsFocus = XboxMenuWrapInt( GXboxMenu.SettingsFocus, Delta, XAR_Count );
+    }
+    else if( GXboxMenu.Screen == XMS_SettingsVideo )
+    {
+        GXboxMenu.SettingsFocus = XboxMenuWrapInt( GXboxMenu.SettingsFocus, Delta, XVR_Count );
     }
 }
 
@@ -7869,6 +10251,14 @@ static UBOOL XboxAnalogPressed( const XINPUT_GAMEPAD& CurPad, const XINPUT_GAMEP
 {
     const BYTE Threshold = XINPUT_GAMEPAD_MAX_CROSSTALK;
     return CurPad.bAnalogButtons[Index] > Threshold && PrevPad.bAnalogButtons[Index] <= Threshold;
+}
+
+static UBOOL XboxControlButtonDown( const XINPUT_GAMEPAD& Pad, INT Button, BYTE Threshold )
+{
+    Button = Clamp<INT>( Button, 0, XCB_Count-1 );
+    if( GXboxControlButtons[Button].AnalogIndex >= 0 )
+        return Pad.bAnalogButtons[GXboxControlButtons[Button].AnalogIndex] > Threshold;
+    return (Pad.wButtons & GXboxControlButtons[Button].DigitalMask) != 0;
 }
 
 static UBOOL XboxThumbPressed( SHORT Cur, SHORT Prev, SHORT Threshold )
@@ -8117,6 +10507,9 @@ static UBOOL XboxMenuHandleInput( UXboxViewport* Viewport, const XINPUT_GAMEPAD&
         return 1;
     }
 
+    if( GXboxMenu.Screen == XMS_SystemLink && GXboxSystemLink.Phase == XSLP_Launching )
+        return 1;
+
     if( GXboxMenu.Screen == XMS_SystemLink
     &&  GXboxSystemLink.HostId
     &&  XboxSystemLinkGroupMachineCount() >= 2
@@ -8128,6 +10521,14 @@ static UBOOL XboxMenuHandleInput( UXboxViewport* Viewport, const XINPUT_GAMEPAD&
 
     if( (GXboxMenu.Screen == XMS_SplitMapSelect || GXboxMenu.Screen == XMS_SystemLinkMapSelect) && XboxViewportIndex(Viewport) != 0 )
         return 1;
+
+    if( GXboxMenu.Screen == XMS_SystemLinkMapSelect && GXboxSystemLink.Role != XSLR_Host )
+    {
+        if( XboxButtonPressed( CurDigital, PrevDigital, XINPUT_GAMEPAD_BACK )
+        ||  XboxAnalogPressed( Pad, PrevPad, XINPUT_GAMEPAD_B ) )
+            XboxMenuBack( Viewport );
+        return 1;
+    }
 
     if( XboxButtonPressed( CurDigital, PrevDigital, XINPUT_GAMEPAD_DPAD_UP )
     ||  XboxThumbPressed( Pad.sThumbLY, PrevPad.sThumbLY, 18000 ) )
@@ -8142,7 +10543,9 @@ static UBOOL XboxMenuHandleInput( UXboxViewport* Viewport, const XINPUT_GAMEPAD&
         XboxMenuAdjustTournament( Viewport, -1 );
         XboxMenuAdjustSplitMapSelect( -1 );
         XboxMenuAdjustPlayerSetup( Viewport, -1 );
-        XboxMenuAdjustSettings( Viewport, -1 );
+        XboxMenuAdjustControls( Viewport, -1 );
+        XboxMenuAdjustAudioSettings( Viewport, -1 );
+        XboxMenuAdjustVideoSettings( Viewport, -1 );
     }
     if( XboxButtonPressed( CurDigital, PrevDigital, XINPUT_GAMEPAD_DPAD_RIGHT )
     ||  XboxThumbPressed( Pad.sThumbLX, PrevPad.sThumbLX, 18000 ) )
@@ -8151,17 +10554,22 @@ static UBOOL XboxMenuHandleInput( UXboxViewport* Viewport, const XINPUT_GAMEPAD&
         XboxMenuAdjustTournament( Viewport, 1 );
         XboxMenuAdjustSplitMapSelect( 1 );
         XboxMenuAdjustPlayerSetup( Viewport, 1 );
-        XboxMenuAdjustSettings( Viewport, 1 );
+        XboxMenuAdjustControls( Viewport, 1 );
+        XboxMenuAdjustAudioSettings( Viewport, 1 );
+        XboxMenuAdjustVideoSettings( Viewport, 1 );
+    }
+    if( GXboxMenu.Screen == XMS_Controls && XboxAnalogPressed( Pad, PrevPad, XINPUT_GAMEPAD_Y ) )
+    {
+        XboxControlApplyPreset( XboxMenuGetClient(Viewport), 0 );
+        GXboxMenu.ControlsFocus = XCR_Preset;
+        return 1;
     }
     if( XboxButtonPressed( CurDigital, PrevDigital, XINPUT_GAMEPAD_START ) )
     {
         if( GXboxMenu.PausedMatch )
             XboxMenuClose( Viewport );
-        else
-            XboxMenuActivate( Viewport );
     }
-    if( XboxAnalogPressed( Pad, PrevPad, XINPUT_GAMEPAD_A )
-    ||  XboxAnalogPressed( Pad, PrevPad, XINPUT_GAMEPAD_X ) )
+    if( XboxAnalogPressed( Pad, PrevPad, XINPUT_GAMEPAD_A ) )
         XboxMenuActivate( Viewport );
     if( XboxButtonPressed( CurDigital, PrevDigital, XINPUT_GAMEPAD_BACK )
     ||  XboxAnalogPressed( Pad, PrevPad, XINPUT_GAMEPAD_B ) )
@@ -8282,6 +10690,60 @@ static void XboxMenuTextFit( UCanvas* Canvas, UFont* Font, FLOAT X, FLOAT Y, FLO
     XboxMenuText( Canvas, Font, X, Y, R, G, B, Buffer );
 }
 
+static FLOAT XboxMenuCenteredTextY( UCanvas* Canvas, UFont* Font, FLOAT Top, FLOAT Bottom, const TCHAR* Text )
+{
+    INT XL = 0;
+    INT YL = 0;
+    XboxMenuTextSize( Canvas, Font, Text, XL, YL );
+    return (FLOAT)(INT)(Top + ((Bottom - Top) - (FLOAT)YL) * 0.5f);
+}
+
+static void XboxMenuDrawSelectionHighlight( UCanvas* Canvas, UFont* Font, FLOAT X1, FLOAT X2, FLOAT TextY, const TCHAR* Text, FLOAT Alpha )
+{
+    INT XL = 0;
+    INT YL = 0;
+    XboxMenuTextSize( Canvas, Font, Text, XL, YL );
+    FLOAT TextCenter = TextY + (FLOAT)YL * 0.5f;
+    FLOAT HighlightH = Max<FLOAT>( 28.0f, (FLOAT)YL + 12.0f );
+    FLOAT Top = (FLOAT)(INT)(TextCenter - HighlightH * 0.5f);
+    FLOAT Bottom = (FLOAT)(INT)(TextCenter + HighlightH * 0.5f);
+    XboxMenuDrawRect( Canvas, X1, Top, X2, Bottom - 3.0f, 12, 82, 166, Alpha );
+    XboxMenuDrawRect( Canvas, X1, Bottom - 3.0f, X2, Bottom, 28, 108, 205, Min<FLOAT>( 0.65f, Alpha + 0.10f ) );
+}
+
+static FLOAT XboxMenuFooterTop( UCanvas* Canvas )
+{
+    return Canvas ? Canvas->ClipY - 42.0f : 0.0f;
+}
+
+static FLOAT XboxMenuFooterBottom( UCanvas* Canvas )
+{
+    return Canvas ? Canvas->ClipY - 14.0f : 0.0f;
+}
+
+static FLOAT XboxMenuFooterContentBottom( UCanvas* Canvas )
+{
+    return XboxMenuFooterBottom(Canvas) - 6.0f;
+}
+
+static FLOAT XboxMenuContentRight( UCanvas* Canvas )
+{
+    return Canvas ? Canvas->ClipX - 18.0f : 0.0f;
+}
+
+static FLOAT XboxMenuContentBottom( UCanvas* Canvas )
+{
+    return XboxMenuFooterTop(Canvas) - 10.0f;
+}
+
+static FLOAT XboxMenuAboveFooterTextY( UCanvas* Canvas, UFont* Font, const TCHAR* Text, FLOAT Gap )
+{
+    INT XL = 0;
+    INT YL = 0;
+    XboxMenuTextSize( Canvas, Font, Text, XL, YL );
+    return (FLOAT)(INT)(XboxMenuFooterTop(Canvas) - Gap - (FLOAT)YL);
+}
+
 static void XboxMenuTextWrap( UCanvas* Canvas, UFont* Font, FLOAT X, FLOAT Y, FLOAT MaxWidth, INT MaxLines, FLOAT LineStep, BYTE R, BYTE G, BYTE B, const TCHAR* Text )
 {
     if( !Canvas || !Font || !Text || MaxLines <= 0 )
@@ -8343,16 +10805,110 @@ static void XboxMenuDrawButtonPrompt( UCanvas* Canvas, FLOAT X, FLOAT Y, const c
     if( !Canvas )
         return;
 
-    UFont* PromptFont = Canvas->MedFont;
+    UFont* PromptFont = Canvas->SmallFont ? Canvas->SmallFont : Canvas->MedFont;
     INT XL = 0;
     INT YL = 0;
     XboxMenuTextSize( Canvas, PromptFont, Label, XL, YL );
 
     FLOAT IconSize = 18.0f;
-    FLOAT IconY = (FLOAT)(INT)(Y - 1.0f);
-    FLOAT TextY = (FLOAT)(INT)(Y + (IconSize - (FLOAT)YL) * 0.5f);
+    FLOAT IconY = (FLOAT)(INT)Y;
+    FLOAT TextY = XboxMenuCenteredTextY( Canvas, PromptFont, IconY, IconY + IconSize, Label );
     XboxMenuDrawImage( Canvas, ButtonImage, X, IconY, IconSize, IconSize );
-    XboxMenuText( Canvas, PromptFont, X + 26.0f, TextY, 200, 220, 238, Label );
+    XboxMenuText( Canvas, PromptFont, X + 22.0f, TextY, 135, 255, 120, Label );
+}
+
+static FLOAT XboxMenuButtonPromptWidth( UCanvas* Canvas, const TCHAR* Label )
+{
+    UFont* PromptFont = Canvas->SmallFont ? Canvas->SmallFont : Canvas->MedFont;
+    INT XL = 0;
+    INT YL = 0;
+    XboxMenuTextSize( Canvas, PromptFont, Label, XL, YL );
+    return 22.0f + (FLOAT)XL;
+}
+
+static FLOAT XboxMenuNextButtonPromptX( UCanvas* Canvas, FLOAT X, const TCHAR* Label )
+{
+    return X + XboxMenuButtonPromptWidth(Canvas, Label) + 14.0f;
+}
+
+static FLOAT XboxMenuFooterPromptY( UCanvas* Canvas )
+{
+    return Canvas ? (FLOAT)(INT)(XboxMenuFooterTop(Canvas) + (XboxMenuFooterContentBottom(Canvas) - XboxMenuFooterTop(Canvas) - 18.0f) * 0.5f) : 0.0f;
+}
+
+static void XboxMenuDrawScrollPrompt( UCanvas* Canvas, FLOAT X, FLOAT Y )
+{
+    if( !Canvas )
+        return;
+
+    UFont* PromptFont = Canvas->SmallFont ? Canvas->SmallFont : Canvas->MedFont;
+    const TCHAR* Slash = TEXT("/");
+    const TCHAR* Label = TEXT("SCROLL");
+    INT SlashXL = 0;
+    INT SlashYL = 0;
+    INT LabelXL = 0;
+    INT LabelYL = 0;
+    XboxMenuTextSize( Canvas, PromptFont, Slash, SlashXL, SlashYL );
+    XboxMenuTextSize( Canvas, PromptFont, Label, LabelXL, LabelYL );
+
+    FLOAT IconSize = 18.0f;
+    FLOAT IconY = (FLOAT)(INT)Y;
+    FLOAT SlashY = XboxMenuCenteredTextY( Canvas, PromptFont, IconY, IconY + IconSize, Slash );
+    FLOAT LabelY = XboxMenuCenteredTextY( Canvas, PromptFont, IconY, IconY + IconSize, Label );
+    FLOAT SlashX = X + IconSize - 2.0f;
+    FLOAT StickX = SlashX + (FLOAT)SlashXL - 1.0f;
+    FLOAT LabelX = StickX + IconSize + 4.0f;
+
+    XboxMenuDrawImage( Canvas, "button_dpad.xui", X, IconY, IconSize, IconSize );
+    XboxMenuText( Canvas, PromptFont, SlashX, SlashY, 135, 255, 120, Slash );
+    XboxMenuDrawImage( Canvas, "button_lmove.xui", StickX, IconY, IconSize, IconSize );
+    XboxMenuText( Canvas, PromptFont, LabelX, LabelY, 135, 255, 120, Label );
+}
+
+static FLOAT XboxMenuScrollPromptWidth( UCanvas* Canvas )
+{
+    UFont* PromptFont = Canvas->SmallFont ? Canvas->SmallFont : Canvas->MedFont;
+    INT SlashXL = 0;
+    INT SlashYL = 0;
+    INT LabelXL = 0;
+    INT LabelYL = 0;
+    XboxMenuTextSize( Canvas, PromptFont, TEXT("/"), SlashXL, SlashYL );
+    XboxMenuTextSize( Canvas, PromptFont, TEXT("SCROLL"), LabelXL, LabelYL );
+    return 37.0f + (FLOAT)SlashXL + (FLOAT)LabelXL;
+}
+
+static void XboxMenuDrawFooterBand( UCanvas* Canvas )
+{
+    if( !Canvas )
+        return;
+
+    XboxMenuDrawRect( Canvas, 18, XboxMenuFooterTop(Canvas), Canvas->ClipX-18, XboxMenuFooterBottom(Canvas), 9, 42, 89, 0.72f );
+    XboxMenuDrawRect( Canvas, 20, XboxMenuFooterBottom(Canvas)-6.0f, Canvas->ClipX-20, XboxMenuFooterBottom(Canvas)-3.0f, 31, 112, 205, 0.85f );
+}
+
+static void XboxMenuDrawFooterCommands
+(
+    UCanvas* Canvas,
+    const char* Image1, const TCHAR* Label1,
+    const char* Image2=NULL, const TCHAR* Label2=NULL,
+    const char* Image3=NULL, const TCHAR* Label3=NULL
+)
+{
+    FLOAT X = 38.0f;
+    FLOAT Y = XboxMenuFooterPromptY( Canvas );
+
+    if( Image1 && Label1 )
+    {
+        XboxMenuDrawButtonPrompt( Canvas, X, Y, Image1, Label1 );
+        X = XboxMenuNextButtonPromptX( Canvas, X, Label1 );
+    }
+    if( Image2 && Label2 )
+    {
+        XboxMenuDrawButtonPrompt( Canvas, X, Y, Image2, Label2 );
+        X = XboxMenuNextButtonPromptX( Canvas, X, Label2 );
+    }
+    if( Image3 && Label3 )
+        XboxMenuDrawButtonPrompt( Canvas, X, Y, Image3, Label3 );
 }
 
 static void XboxMenuDrawTexture( UCanvas* Canvas, UTexture* Texture, FLOAT X, FLOAT Y, FLOAT XL, FLOAT YL )
@@ -8734,11 +11290,23 @@ static void XboxWeaponCycle( UXboxViewport* Viewport, APlayerPawn* Player, UBOOL
     }
 }
 
-static INT XboxWeaponWheelSlotFromStick( const XINPUT_GAMEPAD& Pad, INT CurrentSlot )
+static INT XboxWeaponWheelSlotFromStick( UXboxClient* Client, const XINPUT_GAMEPAD& Pad, INT CurrentSlot )
 {
     const SHORT Threshold = 9000;
-    FLOAT X = (FLOAT)Pad.sThumbRX;
-    FLOAT Y = (FLOAT)Pad.sThumbRY;
+    FLOAT MoveX = 0.0f;
+    FLOAT MoveY = 0.0f;
+    FLOAT X = 0.0f;
+    FLOAT Y = 0.0f;
+    XboxStickLayoutAxes(
+        Client ? Client->StickLayout : XSL_Default,
+        (FLOAT)Pad.sThumbLX,
+        (FLOAT)Pad.sThumbLY,
+        (FLOAT)Pad.sThumbRX,
+        (FLOAT)Pad.sThumbRY,
+        MoveX,
+        MoveY,
+        X,
+        Y );
     if( X > -Threshold && X < Threshold && Y > -Threshold && Y < Threshold )
         return CurrentSlot;
 
@@ -8754,25 +11322,37 @@ static INT XboxWeaponWheelSlotFromStick( const XINPUT_GAMEPAD& Pad, INT CurrentS
     return Clamp<INT>( Slot, 0, ARRAY_COUNT(GXboxWeaponWheelSlots)-1 );
 }
 
-static BYTE XboxDodgeDirectionFromStick( const XINPUT_GAMEPAD& Pad )
+static BYTE XboxDodgeDirectionFromStick( UXboxClient* Client, const XINPUT_GAMEPAD& Pad )
 {
     const SHORT Threshold = 14000;
-    SHORT LX = Pad.sThumbLX;
-    SHORT LY = Pad.sThumbLY;
+    FLOAT LX = 0.0f;
+    FLOAT LY = 0.0f;
+    FLOAT LookX = 0.0f;
+    FLOAT LookY = 0.0f;
+    XboxStickLayoutAxes(
+        Client ? Client->StickLayout : XSL_Default,
+        (FLOAT)Pad.sThumbLX,
+        (FLOAT)Pad.sThumbLY,
+        (FLOAT)Pad.sThumbRX,
+        (FLOAT)Pad.sThumbRY,
+        LX,
+        LY,
+        LookX,
+        LookY );
     if( LX > -Threshold && LX < Threshold && LY > -Threshold && LY < Threshold )
         return DODGE_None;
 
-    if( Abs<INT>(LX) > Abs<INT>(LY) )
+    if( Abs<INT>((INT)LX) > Abs<INT>((INT)LY) )
         return LX < 0 ? DODGE_Left : DODGE_Right;
     return LY < 0 ? DODGE_Back : DODGE_Forward;
 }
 
-static void XboxTriggerDodge( APlayerPawn* Player, const XINPUT_GAMEPAD& Pad )
+static void XboxTriggerDodge( UXboxClient* Client, APlayerPawn* Player, const XINPUT_GAMEPAD& Pad )
 {
     if( !Player || Player->Physics != PHYS_Walking )
         return;
 
-    BYTE DodgeMove = XboxDodgeDirectionFromStick( Pad );
+    BYTE DodgeMove = XboxDodgeDirectionFromStick( Client, Pad );
     if( DodgeMove == DODGE_None )
         return;
 
@@ -8990,11 +11570,23 @@ static void XboxMenuDrawPreviewCrosshair( UCanvas* Canvas, FLOAT CX, FLOAT CY, I
     }
 }
 
-static void XboxMenuDrawSettingsPreview( UCanvas* Canvas, UFont* Font, INT Crosshair )
+static FLOAT XboxMenuSettingsPreviewRight( UCanvas* Canvas )
 {
-    FLOAT X1 = 460.0f;
+    return Canvas->ClipX - 26.0f;
+}
+
+static FLOAT XboxMenuSettingsPreviewLeft( UCanvas* Canvas )
+{
+    const FLOAT OuterRight = Canvas->ClipX - 18.0f;
+    const FLOAT OuterWidth = Clamp<FLOAT>( OuterRight - 394.0f, 124.0f, 132.0f );
+    return XboxMenuSettingsPreviewRight(Canvas) - (OuterWidth - 16.0f);
+}
+
+static void XboxMenuDrawSettingsPreview( UCanvas* Canvas, UFont* Font, UXboxClient* Client, INT Crosshair )
+{
+    FLOAT X1 = XboxMenuSettingsPreviewLeft( Canvas );
+    FLOAT X2 = XboxMenuSettingsPreviewRight( Canvas );
     FLOAT Y1 = 92.0f;
-    FLOAT X2 = 600.0f;
     FLOAT Y2 = 282.0f;
     BYTE HudR = XboxMenuColorByte( GXboxSettingsHudColor, 0 );
     BYTE HudG = XboxMenuColorByte( GXboxSettingsHudColor, 1 );
@@ -9006,34 +11598,61 @@ static void XboxMenuDrawSettingsPreview( UCanvas* Canvas, UFont* Font, INT Cross
     XboxMenuDrawRect( Canvas, X1, Y1, X2, Y1+3, 28, 108, 205, 0.86f );
     XboxMenuText( Canvas, Font, X1+14, Y1+14, 135, 170, 205, TEXT("PREVIEW") );
 
-    XboxMenuDrawRect( Canvas, X1+18, Y1+42, X2-18, Y1+118, 0, 0, 0, 0.46f );
-    XboxMenuDrawPreviewCrosshair( Canvas, (X1+X2)*0.5f, Y1+80.0f, Crosshair, GXboxSettingsCrosshairColor );
+    XboxMenuDrawRect( Canvas, X1+14, Y1+42, X2-14, Y1+118, 0, 0, 0, 0.46f );
+    INT SafeX = (INT)(X1 + 14.0f);
+    INT SafeY = (INT)(Y1 + 42.0f);
+    INT SafeW = (INT)((X2 - 14.0f) - (X1 + 14.0f));
+    INT SafeH = (INT)((Y1 + 118.0f) - (Y1 + 42.0f));
+    XboxViewportApplySafeArea( Client, SafeX, SafeY, SafeW, SafeH );
+    XboxMenuDrawRect( Canvas, (FLOAT)SafeX, (FLOAT)SafeY, (FLOAT)(SafeX + SafeW), (FLOAT)(SafeY + 2), 38, 142, 220, 0.92f );
+    XboxMenuDrawRect( Canvas, (FLOAT)SafeX, (FLOAT)(SafeY + SafeH - 2), (FLOAT)(SafeX + SafeW), (FLOAT)(SafeY + SafeH), 38, 142, 220, 0.92f );
+    XboxMenuDrawRect( Canvas, (FLOAT)SafeX, (FLOAT)SafeY, (FLOAT)(SafeX + 2), (FLOAT)(SafeY + SafeH), 38, 142, 220, 0.92f );
+    XboxMenuDrawRect( Canvas, (FLOAT)(SafeX + SafeW - 2), (FLOAT)SafeY, (FLOAT)(SafeX + SafeW), (FLOAT)(SafeY + SafeH), 38, 142, 220, 0.92f );
+    XboxMenuDrawPreviewCrosshair( Canvas, SafeX + SafeW * 0.5f, SafeY + SafeH * 0.5f, Crosshair, GXboxSettingsCrosshairColor );
 
-    XboxMenuDrawRect( Canvas, X1+18, Y1+138, X1+78, Y1+174, HudR, HudG, HudB, HudA );
-    XboxMenuDrawRect( Canvas, X1+24, Y1+144, X1+70, Y1+151, 255, 255, 255, 0.22f );
-    XboxMenuDrawRect( Canvas, X1+88, Y1+138, X2-18, Y1+174, HudR, HudG, HudB, HudA );
-    XboxMenuDrawRect( Canvas, X1+96, Y1+148, X2-28, Y1+156, 255, 255, 255, 0.24f );
-    XboxMenuText( Canvas, Font, X1+20, Y1+154, 235, 245, 255, TEXT("100") );
-    XboxMenuText( Canvas, Font, X1+96, Y1+154, 235, 245, 255, TEXT("AMMO") );
+    FLOAT StatsX1 = X1 + 12.0f;
+    FLOAT StatsX2 = X2 - 12.0f;
+    FLOAT StatsGap = 8.0f;
+    FLOAT StatsW = (StatsX2 - StatsX1 - StatsGap) * 0.5f;
+    FLOAT RightStatsX = StatsX1 + StatsW + StatsGap;
+    XboxMenuDrawRect( Canvas, StatsX1, Y1+138, StatsX1+StatsW, Y1+174, HudR, HudG, HudB, HudA );
+    XboxMenuDrawRect( Canvas, StatsX1+6, Y1+144, StatsX1+StatsW-6, Y1+151, 255, 255, 255, 0.22f );
+    XboxMenuDrawRect( Canvas, RightStatsX, Y1+138, StatsX2, Y1+174, HudR, HudG, HudB, HudA );
+    XboxMenuDrawRect( Canvas, RightStatsX+6, Y1+148, StatsX2-6, Y1+156, 255, 255, 255, 0.24f );
+    XboxMenuText( Canvas, Font, StatsX1+4, Y1+154, 235, 245, 255, TEXT("100") );
+    XboxMenuText( Canvas, Font, RightStatsX+4, Y1+154, 235, 245, 255, TEXT("AMMO") );
+}
+
+static void XboxMenuDrawChromeBase( UCanvas* Canvas, const TCHAR* Section )
+{
+    FLOAT W = Canvas->ClipX;
+    FLOAT H = Canvas->ClipY;
+    (void)Section;
+
+    XboxMenuDrawRect( Canvas, 0, 0, W, H, 2, 6, 14, 0.45f );
+    XboxMenuDrawRect( Canvas, 18, 14, W-18, 42, 9, 42, 89, 0.72f );
+    XboxMenuDrawRect( Canvas, 20, 16, W-20, 19, 31, 112, 205, 0.85f );
+    XboxMenuDrawFooterBand( Canvas );
+}
+
+static void XboxMenuDrawChromeCommands
+(
+    UCanvas* Canvas, const TCHAR* Section,
+    const char* Image1, const TCHAR* Label1,
+    const char* Image2=NULL, const TCHAR* Label2=NULL,
+    const char* Image3=NULL, const TCHAR* Label3=NULL
+)
+{
+    XboxMenuDrawChromeBase( Canvas, Section );
+    XboxMenuDrawFooterCommands( Canvas, Image1, Label1, Image2, Label2, Image3, Label3 );
 }
 
 static void XboxMenuDrawChrome( UCanvas* Canvas, const TCHAR* Section, UBOOL bShowBack )
 {
-    FLOAT W = Canvas->ClipX;
-    FLOAT H = Canvas->ClipY;
-
-    XboxMenuDrawRect( Canvas, 0, 0, W, H, 2, 6, 14, 0.45f );
-    XboxMenuDrawRect( Canvas, 18, 14, W-18, 42, 9, 42, 89, 0.72f );
-    XboxMenuDrawRect( Canvas, 18, H-42, W-18, H-14, 9, 42, 89, 0.72f );
-    XboxMenuDrawRect( Canvas, 20, 16, W-20, 19, 31, 112, 205, 0.85f );
-    XboxMenuDrawRect( Canvas, 20, H-20, W-20, H-17, 31, 112, 205, 0.85f );
-
-    FLOAT ButtonY = (FLOAT)(INT)(H - 40.0f);
-    XboxMenuDrawButtonPrompt( Canvas, 38, ButtonY, "button_a.xui", TEXT("SELECT") );
     if( bShowBack )
-    {
-        XboxMenuDrawButtonPrompt( Canvas, 150, ButtonY, "button_b.xui", TEXT("BACK") );
-    }
+        XboxMenuDrawChromeCommands( Canvas, Section, "button_a.xui", TEXT("SELECT"), "button_b.xui", TEXT("BACK") );
+    else
+        XboxMenuDrawChromeCommands( Canvas, Section, "button_a.xui", TEXT("SELECT") );
 }
 
 static void XboxMenuDrawMain( UCanvas* Canvas )
@@ -9055,18 +11674,13 @@ static void XboxMenuDrawMain( UCanvas* Canvas )
         XboxRenderDrawMenuTexture( Canvas->Frame, "ut_logo_256.xui", 44, 58, 270, 135, 1.0f );
     }
 
+    FLOAT MainStep = Clamp<FLOAT>( (XboxMenuFooterTop(Canvas) - 36.0f - 188.0f) / 5.0f, 28.0f, 34.0f );
     for( INT i=0; i<ARRAY_COUNT(Items); i++ )
     {
-        FLOAT Y = 202.0f + i * 42.0f;
+        FLOAT Y = 188.0f + i * MainStep;
         if( i == GXboxMenu.MainFocus )
         {
-            INT XL = 0;
-            INT YL = 0;
-            XboxMenuTextSize( Canvas, MainFont, Items[i], XL, YL );
-            FLOAT BarX1 = 44.0f;
-            FLOAT BarX2 = 62.0f + XL * 1.05f + 16.0f;
-            XboxMenuDrawRect( Canvas, BarX1, Y-8, BarX2, Y+24, 12, 82, 166, 0.3f );
-            XboxMenuDrawRect( Canvas, BarX1, Y+24, BarX2, Y+28, 28, 108, 205, 0.3f );
+            XboxMenuDrawSelectionHighlight( Canvas, MainFont, 44.0f, 304.0f, Y, Items[i], 0.35f );
             XboxMenuText( Canvas, MainFont, 62, Y, 255, 255, 255, Items[i] );
         }
         else
@@ -9085,8 +11699,7 @@ static void XboxMenuDrawPause( UCanvas* Canvas )
         TEXT("SETTINGS")
     };
 
-    XboxMenuDrawChrome( Canvas, TEXT("PAUSED"), 0 );
-    XboxMenuDrawButtonPrompt( Canvas, 150, (FLOAT)(INT)(Canvas->ClipY - 40.0f), "button_b.xui", TEXT("RESUME") );
+    XboxMenuDrawChromeCommands( Canvas, TEXT("PAUSED"), "button_a.xui", TEXT("SELECT"), "button_b.xui", TEXT("RESUME") );
     UFont* MenuFont = Canvas->MedFont;
     XboxMenuText( Canvas, MenuFont, 58, 96, 255, 255, 255, TEXT("PAUSED") );
 
@@ -9095,13 +11708,7 @@ static void XboxMenuDrawPause( UCanvas* Canvas )
         FLOAT Y = 170.0f + i * 40.0f;
         if( i == GXboxMenu.PauseFocus )
         {
-            INT XL = 0;
-            INT YL = 0;
-            XboxMenuTextSize( Canvas, MenuFont, Items[i], XL, YL );
-            FLOAT BarX1 = 44.0f;
-            FLOAT BarX2 = 62.0f + XL * 1.05f + 16.0f;
-            XboxMenuDrawRect( Canvas, BarX1, Y-8, BarX2, Y+24, 12, 82, 166, 0.35f );
-            XboxMenuDrawRect( Canvas, BarX1, Y+24, BarX2, Y+28, 28, 108, 205, 0.35f );
+            XboxMenuDrawSelectionHighlight( Canvas, MenuFont, 44.0f, 304.0f, Y, Items[i], 0.35f );
             XboxMenuText( Canvas, MenuFont, 62, Y, 255, 255, 255, Items[i] );
         }
         else
@@ -9110,7 +11717,8 @@ static void XboxMenuDrawPause( UCanvas* Canvas )
         }
     }
 
-    XboxMenuText( Canvas, MenuFont, 58, 372, 135, 170, 205, TEXT("START OR B RESUMES") );
+    const TCHAR* ResumeHint = TEXT("START OR B RESUMES");
+    XboxMenuText( Canvas, MenuFont, 58, XboxMenuAboveFooterTextY(Canvas, MenuFont, ResumeHint, 9.0f), 135, 170, 205, ResumeHint );
 }
 
 static void XboxMenuDrawSplitPause( UViewport* Viewport, UCanvas* Canvas )
@@ -9136,7 +11744,7 @@ static void XboxMenuDrawSplitPause( UViewport* Viewport, UCanvas* Canvas )
 
     for( INT i=0; i<ARRAY_COUNT(Items); i++ )
     {
-        FLOAT Y = 118.0f + i * 30.0f;
+        FLOAT Y = 110.0f + i * 28.0f;
         if( i == GXboxMenu.PauseFocus )
         {
             INT XL = 0;
@@ -9154,9 +11762,8 @@ static void XboxMenuDrawSplitPause( UViewport* Viewport, UCanvas* Canvas )
         }
     }
 
-    FLOAT ButtonY = Canvas->ClipY - 28.0f;
-    XboxMenuDrawButtonPrompt( Canvas, 38, ButtonY, "button_a.xui", TEXT("SELECT") );
-    XboxMenuDrawButtonPrompt( Canvas, 150, ButtonY, "button_b.xui", TEXT("RESUME") );
+    XboxMenuDrawFooterBand( Canvas );
+    XboxMenuDrawFooterCommands( Canvas, "button_a.xui", TEXT("SELECT"), "button_b.xui", TEXT("RESUME") );
 }
 
 static void XboxMenuDrawInstantAction( UCanvas* Canvas )
@@ -9167,7 +11774,7 @@ static void XboxMenuDrawInstantAction( UCanvas* Canvas )
         TEXT("ARENA"),
         TEXT("BOTS"),
         TEXT("BOT SKILL"),
-        TEXT("FRAG LIMIT"),
+        TEXT("SCORE LIMIT"),
         TEXT("TIME LIMIT"),
         TEXT("MUTATORS"),
         TEXT("BEGIN MATCH")
@@ -9217,27 +11824,36 @@ static void XboxMenuDrawInstantAction( UCanvas* Canvas )
     XboxMenuDrawChrome( Canvas, TEXT("INSTANT ACTION"), 1 );
     UFont* MenuFont = Canvas->MedFont;
     XboxMenuText( Canvas, MenuFont, 46, 70, 255, 255, 255, TEXT("INSTANT ACTION") );
-    XboxMenuDrawRect( Canvas, 382, 92, 590, 300, 25, 34, 48, 0.88f );
-    XboxMenuDrawRect( Canvas, 392, 102, 580, 290, 0, 0, 0, 0.88f );
+    const FLOAT PreviewOuterY = 92.0f;
+    const FLOAT PreviewOuterRight = XboxMenuContentRight(Canvas);
+    const FLOAT PreviewSize = Clamp<FLOAT>( PreviewOuterRight - 362.0f - 20.0f, 120.0f, 188.0f );
+    const FLOAT PreviewOuterX = PreviewOuterRight - PreviewSize - 20.0f;
+    const FLOAT PreviewInnerX = PreviewOuterX + 10.0f;
+    const FLOAT PreviewInnerY = PreviewOuterY + 10.0f;
+    XboxMenuDrawRect( Canvas, PreviewOuterX, PreviewOuterY, PreviewOuterRight, PreviewOuterY+PreviewSize+20.0f, 25, 34, 48, 0.88f );
+    XboxMenuDrawRect( Canvas, PreviewInnerX, PreviewInnerY, PreviewInnerX+PreviewSize, PreviewInnerY+PreviewSize, 0, 0, 0, 0.88f );
     if( Preview )
     {
-        FLOAT PW = 188.0f;
-        FLOAT PH = 188.0f;
         FLOAT SrcW = Max<FLOAT>( 1.0f, (FLOAT)Preview->USize );
         FLOAT SrcH = Max<FLOAT>( 1.0f, (FLOAT)Preview->VSize );
-        FLOAT Scale = Min<FLOAT>( 188.0f / SrcW, 188.0f / SrcH );
-        PW = SrcW * Scale;
-        PH = SrcH * Scale;
-        XboxMenuDrawTexture( Canvas, Preview, 392.0f + (188.0f - PW) * 0.5f, 102.0f + (188.0f - PH) * 0.5f, PW, PH );
+        FLOAT Scale = Min<FLOAT>( PreviewSize / SrcW, PreviewSize / SrcH );
+        FLOAT PW = SrcW * Scale;
+        FLOAT PH = SrcH * Scale;
+        XboxMenuDrawTexture( Canvas, Preview, PreviewInnerX + (PreviewSize - PW) * 0.5f, PreviewInnerY + (PreviewSize - PH) * 0.5f, PW, PH );
     }
     else
     {
-        XboxMenuText( Canvas, MenuFont, 416, 180, 210, 230, 245, TEXT("NO PREVIEW") );
+        XboxMenuTextFit( Canvas, MenuFont, PreviewInnerX+14.0f, PreviewInnerY+PreviewSize*0.46f, PreviewSize-28.0f, 210, 230, 245, TEXT("NO PREVIEW") );
     }
 
+    const TCHAR* Hint = GXboxMenu.InstantFocus == 6
+        ? TEXT("A OPENS MUTATOR LIST")
+        : TEXT("DPAD LEFT/RIGHT CHANGES OPTIONS");
+    FLOAT HintY = XboxMenuAboveFooterTextY( Canvas, MenuFont, Hint, 8.0f );
+    FLOAT RowStep = Clamp<FLOAT>( (HintY - 24.0f - 126.0f) / 7.0f, 25.0f, 30.0f );
     for( INT i=0; i<ARRAY_COUNT(Labels); i++ )
     {
-        FLOAT Y = 150.0f + i * 30.0f;
+        FLOAT Y = 126.0f + i * RowStep;
         if( i == GXboxMenu.InstantFocus )
         {
             XboxMenuDrawRect( Canvas, 42, Y-6, 350, Y+18, 12, 82, 166, 0.55f );
@@ -9247,23 +11863,16 @@ static void XboxMenuDrawInstantAction( UCanvas* Canvas )
                 XboxMenuText( Canvas, MenuFont, 334, Y, 180, 215, 245, TEXT(">") );
             }
             XboxMenuText( Canvas, MenuFont, 58, Y, 255, 255, 255, Labels[i] );
-            XboxMenuText( Canvas, MenuFont, 210, Y, 255, 255, 255, Values[i] );
+            XboxMenuTextFit( Canvas, MenuFont, 210, Y, 120.0f, 255, 255, 255, Values[i] );
         }
         else
         {
             XboxMenuText( Canvas, MenuFont, 58, Y, 140, 178, 212, Labels[i] );
-            XboxMenuText( Canvas, MenuFont, 210, Y, 180, 205, 230, Values[i] );
+            XboxMenuTextFit( Canvas, MenuFont, 210, Y, 120.0f, 180, 205, 230, Values[i] );
         }
     }
 
-    if( GXboxMenu.InstantFocus == 6 )
-    {
-        XboxMenuText( Canvas, MenuFont, 58, 402, 135, 170, 205, TEXT("A OPENS MUTATOR LIST") );
-    }
-    else
-    {
-        XboxMenuText( Canvas, MenuFont, 58, 402, 135, 170, 205, TEXT("DPAD LEFT/RIGHT CHANGES OPTIONS") );
-    }
+    XboxMenuTextFit( Canvas, MenuFont, 58, HintY, XboxMenuContentRight(Canvas)-76.0f, 135, 170, 205, Hint );
 }
 
 static void XboxMenuDrawTournament( UXboxViewport* Viewport, UCanvas* Canvas )
@@ -9274,7 +11883,7 @@ static void XboxMenuDrawTournament( UXboxViewport* Viewport, UCanvas* Canvas )
         TEXT("MATCH"),
         TEXT("SKILL"),
         TEXT("RUNG"),
-        TEXT("FRAG LIMIT"),
+        TEXT("SCORE LIMIT"),
         TEXT("BEGIN MATCH")
     };
 
@@ -9337,12 +11946,13 @@ static void XboxMenuDrawTournament( UXboxViewport* Viewport, UCanvas* Canvas )
     UFont* SmallFont = Canvas->SmallFont ? Canvas->SmallFont : Canvas->MedFont;
     XboxMenuText( Canvas, MenuFont, 46, 70, 255, 255, 255, TEXT("TOURNAMENT") );
 
-    const FLOAT PreviewOuterX = 340.0f;
+    const FLOAT PreviewOuterRight = XboxMenuContentRight(Canvas);
+    const FLOAT PreviewSize = Clamp<FLOAT>( PreviewOuterRight - 334.0f - 20.0f, 148.0f, 216.0f );
+    const FLOAT PreviewOuterX = PreviewOuterRight - PreviewSize - 20.0f;
     const FLOAT PreviewOuterY = 60.0f;
-    const FLOAT PreviewInnerX = 350.0f;
+    const FLOAT PreviewInnerX = PreviewOuterX + 10.0f;
     const FLOAT PreviewInnerY = 70.0f;
-    const FLOAT PreviewSize = 256.0f;
-    XboxMenuDrawRect( Canvas, PreviewOuterX, PreviewOuterY, PreviewOuterX+PreviewSize+20.0f, PreviewOuterY+PreviewSize+20.0f, 25, 34, 48, 0.88f );
+    XboxMenuDrawRect( Canvas, PreviewOuterX, PreviewOuterY, PreviewOuterRight, PreviewOuterY+PreviewSize+20.0f, 25, 34, 48, 0.88f );
     XboxMenuDrawRect( Canvas, PreviewInnerX, PreviewInnerY, PreviewInnerX+PreviewSize, PreviewInnerY+PreviewSize, 0, 0, 0, 0.88f );
     if( Preview )
     {
@@ -9355,7 +11965,7 @@ static void XboxMenuDrawTournament( UXboxViewport* Viewport, UCanvas* Canvas )
     }
     else
     {
-        XboxMenuText( Canvas, MenuFont, 382, 214, 210, 230, 245, TEXT("NO PREVIEW") );
+        XboxMenuTextFit( Canvas, MenuFont, PreviewInnerX+14.0f, PreviewInnerY+PreviewSize*0.46f, PreviewSize-28.0f, 210, 230, 245, TEXT("NO PREVIEW") );
     }
 
     for( INT i=0; i<ARRAY_COUNT(Labels); i++ )
@@ -9383,17 +11993,176 @@ static void XboxMenuDrawTournament( UXboxViewport* Viewport, UCanvas* Canvas )
         }
     }
 
+    FLOAT DescriptionY = PreviewInnerY + PreviewSize + 18.0f;
     if( Description.Len() )
-        XboxMenuTextWrap( Canvas, SmallFont, 350, 346, 254.0f, 4, 20.0f, 135, 170, 205, *Description );
+        XboxMenuTextWrap( Canvas, SmallFont, PreviewInnerX, DescriptionY, PreviewSize, 3, 18.0f, 135, 170, 205, *Description );
     else
-        XboxMenuText( Canvas, SmallFont, 350, 346, 135, 170, 205, RuleText );
+        XboxMenuTextFit( Canvas, SmallFont, PreviewInnerX, DescriptionY, PreviewSize, 135, 170, 205, RuleText );
 
+    const TCHAR* TournamentHint = GXboxMenu.TournamentFocus == 3 ? TEXT("A STARTS THE TOURNAMENT MATCH") :
+        GXboxMenu.TournamentFocus == 1 ? TEXT("MATCH IS SET BY LADDER PROGRESS") :
+        TEXT("DPAD LEFT/RIGHT CHANGES OPTIONS");
+    FLOAT TournamentHintY = XboxMenuAboveFooterTextY( Canvas, MenuFont, TournamentHint, 8.0f );
     if( GXboxMenu.TournamentFocus == 3 )
-        XboxMenuText( Canvas, MenuFont, 58, 402, 135, 255, 120, TEXT("A STARTS THE TOURNAMENT MATCH") );
+        XboxMenuTextFit( Canvas, MenuFont, 58, TournamentHintY, XboxMenuContentRight(Canvas)-76.0f, 135, 255, 120, TournamentHint );
     else if( GXboxMenu.TournamentFocus == 1 )
-        XboxMenuText( Canvas, MenuFont, 58, 402, 135, 170, 205, TEXT("MATCH IS SET BY LADDER PROGRESS") );
+        XboxMenuTextFit( Canvas, MenuFont, 58, TournamentHintY, XboxMenuContentRight(Canvas)-76.0f, 135, 170, 205, TournamentHint );
     else
-        XboxMenuText( Canvas, MenuFont, 58, 402, 135, 170, 205, TEXT("DPAD LEFT/RIGHT CHANGES OPTIONS") );
+        XboxMenuTextFit( Canvas, MenuFont, 58, TournamentHintY, XboxMenuContentRight(Canvas)-76.0f, 135, 170, 205, TournamentHint );
+}
+
+static void XboxMenuDrawTournamentPostMatch( UCanvas* Canvas )
+{
+    XboxMenuDrawChromeCommands( Canvas, TEXT("TOURNAMENT RESULT"), "button_a.xui", TEXT("LADDER"), "button_b.xui", TEXT("BACK") );
+    UFont* MenuFont = Canvas->MedFont;
+    UFont* SmallFont = Canvas->SmallFont ? Canvas->SmallFont : Canvas->MedFont;
+
+    if( !GXboxTournamentPostMatch.Valid )
+    {
+        XboxMenuText( Canvas, MenuFont, 46, 70, 255, 255, 255, TEXT("TOURNAMENT RESULT") );
+        XboxMenuText( Canvas, MenuFont, 58, 170, 135, 170, 205, TEXT("NO TOURNAMENT RESULT IS AVAILABLE") );
+        return;
+    }
+
+    INT FirstMatch = GXboxTournamentLadders[GXboxTournamentPostMatch.LadderIndex].FirstRatedMatch;
+    INT MatchCount = XboxTournamentMatchCount( GXboxTournamentPostMatch.LadderIndex );
+    INT RatedCount = Max<INT>( 1, MatchCount - FirstMatch );
+    INT DisplayCompleted = Clamp<INT>( GXboxTournamentPostMatch.CompletedMatch - FirstMatch + 1, 1, RatedCount );
+    INT DisplayNext = Clamp<INT>( GXboxTournamentPostMatch.NextMatch - FirstMatch + 1, 1, RatedCount );
+    UBOOL bHasNextMatch = GXboxTournamentPostMatch.Advanced && (GXboxTournamentPostMatch.NextMatch > GXboxTournamentPostMatch.CompletedMatch);
+
+    TCHAR RungText[64];
+    TCHAR NextText[96];
+    TCHAR ResultText[96];
+    appSprintf( RungText, TEXT("%02i OF %02i"), DisplayCompleted, RatedCount );
+    if( GXboxTournamentPostMatch.Advanced )
+    {
+        if( bHasNextMatch )
+            appSprintf( NextText, TEXT("NEXT MATCH %02i"), DisplayNext );
+        else
+            appStrcpy( NextText, TEXT("LADDER COMPLETE") );
+        appStrcpy( ResultText, TEXT("LADDER ADVANCED") );
+    }
+    else
+    {
+        appStrcpy( NextText, TEXT("RETRY MATCH") );
+        appStrcpy( ResultText, TEXT("POSITION UNCHANGED") );
+    }
+
+    const TCHAR* OutcomeText = GXboxTournamentPostMatch.Advanced ? TEXT("VICTORY") : TEXT("DEFEAT");
+    const TCHAR* ConsequenceLine1 = TEXT("");
+    const TCHAR* ConsequenceLine2 = TEXT("");
+    if( GXboxTournamentPostMatch.Advanced )
+    {
+        ConsequenceLine1 = bHasNextMatch ? TEXT("LADDER MARKER MOVED FORWARD.") : TEXT("THIS LADDER IS COMPLETE.");
+        ConsequenceLine2 = bHasNextMatch ? TEXT("RETURN TO INSPECT NEXT OPPONENT.") : TEXT("RETURN FOR THE NEXT EVENT.");
+    }
+    else
+    {
+        ConsequenceLine1 = TEXT("NO ADVANCEMENT AWARDED.");
+        ConsequenceLine2 = TEXT("REPLAY THIS RUNG TO ADVANCE.");
+    }
+
+    const FLOAT ContentRight = XboxMenuContentRight(Canvas);
+    const FLOAT PanelBottom = XboxMenuContentBottom(Canvas);
+    const FLOAT LeftPanelRight = 282.0f;
+    const FLOAT RightPanelX = 294.0f;
+
+    XboxMenuText( Canvas, MenuFont, 46, 58, 255, 255, 255, TEXT("TOURNAMENT RESULT") );
+    XboxMenuDrawRect( Canvas, 42, 86, ContentRight, 128, 0, 0, 0, 0.54f );
+    XboxMenuDrawRect( Canvas, 42, 86, ContentRight, 90, GXboxTournamentPostMatch.Advanced ? 38 : 150, GXboxTournamentPostMatch.Advanced ? 142 : 46, GXboxTournamentPostMatch.Advanced ? 80 : 52, 0.92f );
+    XboxMenuText( Canvas, MenuFont, 58, 98, GXboxTournamentPostMatch.Advanced ? 135 : 255, GXboxTournamentPostMatch.Advanced ? 255 : 190, GXboxTournamentPostMatch.Advanced ? 120 : 90, OutcomeText );
+    XboxMenuTextFit( Canvas, MenuFont, 176, 98, ContentRight-190.0f, 210, 230, 245, ResultText );
+    XboxMenuTextFit( Canvas, SmallFont, 58, 116, ContentRight-76.0f, 135, 170, 205, GXboxTournamentLadders[GXboxTournamentPostMatch.LadderIndex].Label );
+
+    XboxMenuDrawRect( Canvas, 42, 140, LeftPanelRight, PanelBottom, 0, 0, 0, 0.70f );
+    XboxMenuDrawRect( Canvas, 42, 140, LeftPanelRight, 144, 31, 112, 205, 0.82f );
+    XboxMenuText( Canvas, MenuFont, 58, 154, 255, 255, 255, TEXT("LADDER PROGRESS") );
+    XboxMenuText( Canvas, SmallFont, 58, 176, 135, 170, 205, RungText );
+
+    const INT VisibleRows = 6;
+    INT MaxFirstVisible = Max<INT>( FirstMatch, MatchCount - VisibleRows );
+    INT AnchorMatch = GXboxTournamentPostMatch.Advanced ? GXboxTournamentPostMatch.NewPosition : GXboxTournamentPostMatch.CompletedMatch;
+    INT FirstVisible = Clamp<INT>( AnchorMatch - 2, FirstMatch, MaxFirstVisible );
+    for( INT Row=0; Row<VisibleRows; Row++ )
+    {
+        INT MatchIndex = FirstVisible + Row;
+        if( MatchIndex >= MatchCount )
+            break;
+
+        FString RowTitle;
+        XboxTournamentStringAt( GXboxTournamentPostMatch.LadderIndex, TEXT("MapTitle"), MatchIndex, RowTitle );
+        if( RowTitle.Len() <= 0 )
+            RowTitle = XboxTournamentFullMap( GXboxTournamentPostMatch.LadderIndex, MatchIndex );
+
+        UBOOL bRetryRow = !GXboxTournamentPostMatch.Advanced && MatchIndex == GXboxTournamentPostMatch.CompletedMatch;
+        UBOOL bClearedRow = GXboxTournamentPostMatch.Advanced && MatchIndex == GXboxTournamentPostMatch.CompletedMatch;
+        UBOOL bNextRow = bHasNextMatch && MatchIndex == GXboxTournamentPostMatch.NextMatch;
+        UBOOL bDoneRow = GXboxTournamentPostMatch.Advanced && MatchIndex < GXboxTournamentPostMatch.CompletedMatch;
+        UBOOL bFocusRow = bRetryRow || bClearedRow || bNextRow;
+
+        FLOAT Y = 200.0f + Row * 26.0f;
+        if( bFocusRow )
+            XboxMenuDrawRect( Canvas, 54, Y-4, LeftPanelRight-14.0f, Y+17, bRetryRow ? 120 : 12, bRetryRow ? 42 : 82, bRetryRow ? 45 : 166, 0.62f );
+
+        TCHAR IndexText[16];
+        appSprintf( IndexText, TEXT("%02i"), MatchIndex - FirstMatch + 1 );
+        XboxMenuText( Canvas, SmallFont, 62, Y, bFocusRow ? 255 : 140, bFocusRow ? 255 : 178, bFocusRow ? 255 : 212, IndexText );
+        XboxMenuTextFit( Canvas, SmallFont, 94, Y, 106.0f, bFocusRow ? 255 : 180, bFocusRow ? 255 : 205, bFocusRow ? 255 : 230, *RowTitle );
+
+        const TCHAR* StateText = TEXT("");
+        if( bRetryRow )
+            StateText = TEXT("RETRY");
+        else if( bClearedRow )
+            StateText = TEXT("CLEAR");
+        else if( bNextRow )
+            StateText = TEXT("NEXT");
+        else if( bDoneRow )
+            StateText = TEXT("DONE");
+        XboxMenuText( Canvas, SmallFont, 216, Y, bFocusRow ? 255 : 120, bFocusRow ? 255 : 154, bFocusRow ? 255 : 190, StateText );
+    }
+
+    XboxMenuDrawRect( Canvas, RightPanelX, 140, ContentRight, PanelBottom, 0, 0, 0, 0.70f );
+    XboxMenuDrawRect( Canvas, RightPanelX, 140, ContentRight, 144, 31, 112, 205, 0.82f );
+    XboxMenuText( Canvas, MenuFont, RightPanelX+16.0f, 154, 255, 255, 255, TEXT("MATCH SUMMARY") );
+
+    const FLOAT PreviewOuterX = RightPanelX + 16.0f;
+    const FLOAT PreviewOuterY = 180.0f;
+    const FLOAT PreviewSize = Clamp<FLOAT>( ContentRight - RightPanelX - 122.0f, 96.0f, 116.0f );
+    const FLOAT PreviewInnerX = PreviewOuterX + 8.0f;
+    const FLOAT PreviewInnerY = PreviewOuterY + 8.0f;
+    XboxMenuDrawRect( Canvas, PreviewOuterX, PreviewOuterY, PreviewOuterX+PreviewSize+16.0f, PreviewOuterY+PreviewSize+16.0f, 25, 34, 48, 0.88f );
+    XboxMenuDrawRect( Canvas, PreviewInnerX, PreviewInnerY, PreviewInnerX+PreviewSize, PreviewInnerY+PreviewSize, 0, 0, 0, 0.88f );
+    UTexture* Preview = XboxMenuGetMapPreview( GXboxTournamentPostMatch.MapName );
+    if( Preview )
+    {
+        FLOAT SrcW = Max<FLOAT>( 1.0f, (FLOAT)Preview->USize );
+        FLOAT SrcH = Max<FLOAT>( 1.0f, (FLOAT)Preview->VSize );
+        FLOAT Scale = Min<FLOAT>( PreviewSize / SrcW, PreviewSize / SrcH );
+        FLOAT PW = SrcW * Scale;
+        FLOAT PH = SrcH * Scale;
+        XboxMenuDrawTexture( Canvas, Preview, PreviewInnerX + (PreviewSize - PW) * 0.5f, PreviewInnerY + (PreviewSize - PH) * 0.5f, PW, PH );
+    }
+    else
+    {
+        XboxMenuText( Canvas, SmallFont, PreviewInnerX + 25.0f, PreviewInnerY + 58.0f, 210, 230, 245, TEXT("NO PREVIEW") );
+    }
+
+    const FLOAT MetaX = PreviewOuterX + PreviewSize + 26.0f;
+    const FLOAT MetaWidth = Max<FLOAT>( 40.0f, ContentRight - MetaX - 12.0f );
+    XboxMenuText( Canvas, SmallFont, MetaX, 188, 140, 178, 212, TEXT("MATCH") );
+    XboxMenuTextFit( Canvas, SmallFont, MetaX, 204, MetaWidth, 255, 255, 255, GXboxTournamentPostMatch.MatchTitle );
+    XboxMenuText( Canvas, SmallFont, MetaX, 228, 140, 178, 212, TEXT("MAP") );
+    XboxMenuTextFit( Canvas, SmallFont, MetaX, 244, MetaWidth, 210, 230, 245, GXboxTournamentPostMatch.MapName );
+    XboxMenuText( Canvas, SmallFont, MetaX, 268, 140, 178, 212, TEXT("NEXT") );
+    XboxMenuTextFit( Canvas, SmallFont, MetaX, 284, MetaWidth, 255, 255, 255, NextText );
+
+    const FLOAT ConsequenceBottom = PanelBottom - 10.0f;
+    const FLOAT ConsequenceTop = ConsequenceBottom - 38.0f;
+    XboxMenuDrawRect( Canvas, RightPanelX+16.0f, ConsequenceTop, ContentRight-16.0f, ConsequenceBottom, 5, 25, 58, 0.78f );
+    XboxMenuTextFit( Canvas, SmallFont, RightPanelX+28.0f, ConsequenceTop+6.0f, ContentRight-RightPanelX-56.0f, 135, 170, 205, ConsequenceLine1 );
+    XboxMenuTextFit( Canvas, SmallFont, RightPanelX+28.0f, ConsequenceTop+22.0f, ContentRight-RightPanelX-56.0f, 135, 170, 205, ConsequenceLine2 );
+
 }
 
 static void XboxMenuDrawMutators( UCanvas* Canvas )
@@ -9401,26 +12170,43 @@ static void XboxMenuDrawMutators( UCanvas* Canvas )
     XboxMenuDrawInstantAction( Canvas );
 
     UFont* MenuFont = Canvas->MedFont;
-    FLOAT X1 = 116.0f;
-    FLOAT Y1 = 72.0f;
-    FLOAT X2 = 560.0f;
-    FLOAT Y2 = 374.0f;
-    FLOAT ListTop = Y1 + 72.0f;
-    FLOAT RowStep = 34.0f;
-    FLOAT FooterY = Y2 - 44.0f;
+    const FLOAT PanelScale = 0.80f;
+    const FLOAT BodyTop = 42.0f;
+    const FLOAT BodyBottom = XboxMenuFooterTop(Canvas);
+    const FLOAT OriginalOuterLeft = 86.0f;
+    const FLOAT OriginalOuterRight = XboxMenuContentRight(Canvas);
+    const FLOAT OriginalOuterTop = 54.0f;
+    const FLOAT OriginalOuterBottom = BodyBottom;
+    const FLOAT OuterW = (OriginalOuterRight - OriginalOuterLeft) * PanelScale;
+    const FLOAT OuterH = (OriginalOuterBottom - OriginalOuterTop) * PanelScale;
+    const FLOAT OuterX1 = (Canvas->ClipX - OuterW) * 0.5f;
+    const FLOAT OuterY1 = BodyTop + (BodyBottom - BodyTop - OuterH) * 0.5f;
+    const FLOAT OuterX2 = OuterX1 + OuterW;
+    const FLOAT OuterY2 = OuterY1 + OuterH;
+    const FLOAT X1 = OuterX1 + 10.0f;
+    const FLOAT Y1 = OuterY1 + 10.0f;
+    const FLOAT X2 = OuterX2 - 10.0f;
+    const FLOAT Y2 = OuterY2 - 10.0f;
+    const FLOAT ListTop = Y1 + 58.0f;
+    const FLOAT RowStep = 34.0f;
+    const FLOAT InternalFooterTop = Y2 - 40.0f;
     const INT MutatorCount = XboxMenuMutatorCount();
-    const INT VisibleRows = 5;
+    const INT VisibleRows = Clamp<INT>(
+        (INT)((InternalFooterTop - 36.0f - ListTop) / RowStep) + 1,
+        1,
+        5 );
+    const UBOOL bCanScroll = MutatorCount > VisibleRows;
+    const FLOAT ListBottom = bCanScroll ? InternalFooterTop - 8.0f : Y2 - 18.0f;
     INT Focus = Clamp<INT>( GXboxMenu.InstantMutatorChoice, 0, MutatorCount-1 );
     INT First = Focus - VisibleRows / 2;
     First = Clamp<INT>( First, 0, Max<INT>(0, MutatorCount - VisibleRows) );
     INT Last = Min<INT>( MutatorCount, First + VisibleRows );
 
-    XboxMenuDrawRect( Canvas, X1-10, Y1-10, X2+10, Y2+10, 0, 0, 0, 0.88f );
+    XboxMenuDrawRect( Canvas, OuterX1, OuterY1, OuterX2, OuterY2, 0, 0, 0, 0.88f );
     XboxMenuDrawRect( Canvas, X1, Y1, X2, Y2, 7, 34, 76, 0.96f );
     XboxMenuDrawRect( Canvas, X1, Y1, X2, Y1+4, 28, 108, 205, 0.92f );
-    XboxMenuDrawRect( Canvas, X1+22, ListTop-10, X2-22, FooterY-20, 5, 25, 58, 0.68f );
+    XboxMenuDrawRect( Canvas, X1+22, ListTop-10, X2-22, ListBottom, 2, 10, 24, 0.90f );
     XboxMenuDrawRect( Canvas, X1+22, Y1+54, X2-22, Y1+56, 31, 90, 150, 0.42f );
-    XboxMenuDrawRect( Canvas, X1+22, FooterY-12, X2-22, FooterY-10, 31, 90, 150, 0.42f );
     XboxMenuText( Canvas, MenuFont, X1+18, Y1+18, 255, 255, 255, TEXT("MUTATORS") );
 
     if( First > 0 )
@@ -9436,14 +12222,22 @@ static void XboxMenuDrawMutators( UCanvas* Canvas )
             XboxMenuDrawRect( Canvas, X1+22, Y-6, X2-22, Y+24, 12, 82, 166, 0.62f );
 
         XboxMenuText( Canvas, MenuFont, X1+44, Y, bOn ? 255 : 140, bOn ? 255 : 178, bOn ? 255 : 212, bOn ? TEXT("[X]") : TEXT("[ ]") );
-        XboxMenuText( Canvas, MenuFont, X1+108, Y, bFocus ? 255 : 180, bFocus ? 255 : 205, bFocus ? 255 : 230, *XboxMenuMutator(i).Label );
+        XboxMenuTextFit( Canvas, MenuFont, X1+108, Y, X2-X1-142.0f, bFocus ? 255 : 180, bFocus ? 255 : 205, bFocus ? 255 : 230, *XboxMenuMutator(i).Label );
     }
 
     if( Last < MutatorCount )
-        XboxMenuText( Canvas, MenuFont, X2-84, FooterY-34, 135, 190, 225, TEXT("MORE v") );
+        XboxMenuText( Canvas, MenuFont, X2-84, InternalFooterTop-30, 135, 190, 225, TEXT("MORE v") );
 
-    XboxMenuDrawButtonPrompt( Canvas, X1+30, FooterY, "button_a.xui", TEXT("TOGGLE") );
-    XboxMenuDrawButtonPrompt( Canvas, X1+198, FooterY, "button_b.xui", TEXT("BACK") );
+    if( bCanScroll )
+    {
+        XboxMenuDrawRect( Canvas, X1+22, InternalFooterTop, X2-22, Y2-10, 3, 16, 36, 0.88f );
+        XboxMenuDrawRect( Canvas, X1+22, InternalFooterTop, X2-22, InternalFooterTop+2, 31, 90, 150, 0.52f );
+        FLOAT ScrollX = X2 - 30.0f - XboxMenuScrollPromptWidth(Canvas);
+        XboxMenuDrawScrollPrompt( Canvas, ScrollX, InternalFooterTop+6.0f );
+    }
+
+    XboxMenuDrawFooterBand( Canvas );
+    XboxMenuDrawFooterCommands( Canvas, "button_a.xui", TEXT("TOGGLE"), "button_b.xui", TEXT("BACK") );
 }
 
 static void XboxMenuDrawPlayerSetup( UXboxViewport* Viewport, UCanvas* Canvas )
@@ -9467,14 +12261,17 @@ static void XboxMenuDrawPlayerSetup( UXboxViewport* Viewport, UCanvas* Canvas )
         TeamValue
     };
 
-    XboxMenuDrawChrome( Canvas, TEXT("PLAYER SETUP"), 1 );
+    XboxMenuDrawChromeCommands( Canvas, TEXT("PLAYER SETUP"), "button_a.xui", TEXT("CHANGE"), "button_b.xui", TEXT("BACK") );
     UFont* MenuFont = Canvas->MedFont;
     XboxMenuText( Canvas, MenuFont, 46, 70, 255, 255, 255, TEXT("PLAYER SETUP") );
 
-    XboxMenuDrawRect( Canvas, 394, 82, 594, 402, 25, 34, 48, 0.72f );
-    XboxMenuDrawRect( Canvas, 404, 92, 584, 392, 0, 0, 0, 0.52f );
-    if( !XboxMenuDrawPlayerPreviewActor( Viewport, Canvas, 404.0f, 54.0f, 180.0f, 344.0f ) )
-        XboxMenuText( Canvas, MenuFont, 438, 210, 135, 170, 205, TEXT("NO PREVIEW") );
+    const FLOAT PreviewRight = XboxMenuContentRight(Canvas);
+    const FLOAT PreviewLeft = Max<FLOAT>( 354.0f, PreviewRight - 216.0f );
+    const FLOAT PreviewBottom = XboxMenuContentBottom(Canvas);
+    XboxMenuDrawRect( Canvas, PreviewLeft, 82, PreviewRight, PreviewBottom, 25, 34, 48, 0.72f );
+    XboxMenuDrawRect( Canvas, PreviewLeft+10.0f, 92, PreviewRight-10.0f, PreviewBottom-10.0f, 0, 0, 0, 0.52f );
+    if( !XboxMenuDrawPlayerPreviewActor( Viewport, Canvas, PreviewLeft+10.0f, 92.0f, PreviewRight-PreviewLeft-20.0f, PreviewBottom-102.0f ) )
+        XboxMenuTextFit( Canvas, MenuFont, PreviewLeft+24.0f, 210, PreviewRight-PreviewLeft-48.0f, 135, 170, 205, TEXT("NO PREVIEW") );
 
     for( INT i=0; i<ARRAY_COUNT(Labels); i++ )
     {
@@ -9485,16 +12282,18 @@ static void XboxMenuDrawPlayerSetup( UXboxViewport* Viewport, UCanvas* Canvas )
             XboxMenuText( Canvas, MenuFont, 186, Y, 180, 215, 245, TEXT("<") );
             XboxMenuText( Canvas, MenuFont, 326, Y, 180, 215, 245, TEXT(">") );
             XboxMenuText( Canvas, MenuFont, 58, Y, 255, 255, 255, Labels[i] );
-            XboxMenuText( Canvas, MenuFont, 212, Y, 255, 255, 255, Values[i] );
+            XboxMenuTextFit( Canvas, MenuFont, 212, Y, 110.0f, 255, 255, 255, Values[i] );
         }
         else
         {
             XboxMenuText( Canvas, MenuFont, 58, Y, 140, 178, 212, Labels[i] );
-            XboxMenuText( Canvas, MenuFont, 212, Y, 180, 205, 230, Values[i] );
+            XboxMenuTextFit( Canvas, MenuFont, 212, Y, 110.0f, 180, 205, 230, Values[i] );
         }
     }
 
-    XboxMenuText( Canvas, MenuFont, 58, 402, 135, 170, 205, TEXT("DPAD LEFT/RIGHT CHANGES SELECTION") );
+    const TCHAR* PlayerHint = TEXT("DPAD LEFT/RIGHT CHANGES SELECTION");
+    XboxMenuTextFit( Canvas, MenuFont, 58, XboxMenuAboveFooterTextY(Canvas, MenuFont, PlayerHint, 8.0f),
+        XboxMenuContentRight(Canvas)-76.0f, 135, 170, 205, PlayerHint );
 }
 
 static void XboxMenuDrawSplitReadySlot( UCanvas* Canvas, INT Port, FLOAT X, FLOAT Y, FLOAT W, FLOAT H )
@@ -9509,8 +12308,8 @@ static void XboxMenuDrawSplitReadySlot( UCanvas* Canvas, INT Port, FLOAT X, FLOA
 
     if( !Slot.Joined )
     {
-        XboxMenuText( Canvas, MenuFont, X+W*0.28f, Y+H*0.45f, 180, 215, 245, TEXT("PRESS A") );
-        XboxMenuText( Canvas, MenuFont, X+W*0.28f, Y+H*0.45f+20, 180, 215, 245, TEXT("TO JOIN") );
+        XboxMenuTextFit( Canvas, MenuFont, X+14.0f, Y+H*0.45f, W-28.0f, 180, 215, 245, TEXT("PRESS A") );
+        XboxMenuTextFit( Canvas, MenuFont, X+14.0f, Y+H*0.45f+18.0f, W-28.0f, 180, 215, 245, TEXT("TO JOIN") );
         return;
     }
 
@@ -9520,52 +12319,112 @@ static void XboxMenuDrawSplitReadySlot( UCanvas* Canvas, INT Port, FLOAT X, FLOA
         : TEXT("NONE");
 
     FLOAT PortraitX = X + 8.0f;
-    FLOAT PortraitY = Y + 20.0f;
+    FLOAT PortraitY = Y + 16.0f;
     FLOAT PortraitW = W - 16.0f;
-    FLOAT PortraitH = 206.0f;
+    FLOAT PortraitH = Max<FLOAT>( 74.0f, H - 112.0f );
     if( Player.PortraitName[0] )
         XboxRenderDrawMenuTexture( Canvas->Frame, Player.PortraitName, PortraitX, PortraitY, PortraitW, PortraitH, Slot.Locked ? 0.72f : 1.0f );
 
-    FLOAT RowY = Y + 232.0f;
+    FLOAT RowY = Y + H - 86.0f;
     if( !Slot.Locked && Slot.Focus == 0 )
         XboxMenuDrawRect( Canvas, X+8, RowY-5, X+W-8, RowY+17, 12, 82, 166, 0.55f );
-    XboxMenuText( Canvas, MenuFont, X+12, RowY, Slot.Locked ? 120 : 255, Slot.Locked ? 150 : 255, Slot.Locked ? 180 : 255, *Player.Label );
+    XboxMenuTextFit( Canvas, MenuFont, X+12, RowY, W-24.0f, Slot.Locked ? 120 : 255, Slot.Locked ? 150 : 255, Slot.Locked ? 180 : 255, *Player.Label );
 
-    RowY += 30.0f;
+    RowY += 24.0f;
     if( !Slot.Locked && Slot.Focus == 1 )
         XboxMenuDrawRect( Canvas, X+8, RowY-5, X+W-8, RowY+17, 12, 82, 166, 0.55f );
     XboxMenuText( Canvas, MenuFont, X+12, RowY, Slot.Locked ? 120 : 180, Slot.Locked ? 150 : 215, Slot.Locked ? 180 : 245, TEXT("TEAM") );
-    XboxMenuText( Canvas, MenuFont, X+74, RowY, Slot.Locked ? 120 : 255, Slot.Locked ? 150 : 255, Slot.Locked ? 180 : 255, TeamValue );
+    XboxMenuTextFit( Canvas, MenuFont, X+62, RowY, W-74.0f, Slot.Locked ? 120 : 255, Slot.Locked ? 150 : 255, Slot.Locked ? 180 : 255, TeamValue );
 
     if( Slot.Locked )
     {
-        XboxMenuDrawRect( Canvas, X+18, Y+H-44, X+W-18, Y+H-18, 18, 92, 48, 0.70f );
-        XboxMenuText( Canvas, MenuFont, X+40, Y+H-38, 135, 255, 120, TEXT("READY") );
+        XboxMenuDrawRect( Canvas, X+12, Y+H-32, X+W-12, Y+H-10, 18, 92, 48, 0.70f );
+        XboxMenuTextFit( Canvas, MenuFont, X+22, Y+H-28, W-44.0f, 135, 255, 120, TEXT("READY") );
     }
     else
     {
-        XboxMenuText( Canvas, MenuFont, X+12, Y+H-38, 135, 170, 205, TEXT("A LOCKS IN") );
+        XboxMenuTextFit( Canvas, MenuFont, X+12, Y+H-28, W-24.0f, 135, 170, 205, TEXT("A LOCKS IN") );
     }
+}
+
+static void XboxMenuDrawReadyFooter( UCanvas* Canvas, UBOOL bSystemLink )
+{
+    XboxSplitReadyEnsure();
+    FXboxSplitReadySlot& Slot = GXboxSplitReadySlots[0];
+    const char* Image1 = NULL;
+    const TCHAR* Label1 = NULL;
+    const char* Image2 = NULL;
+    const TCHAR* Label2 = NULL;
+    const char* Image3 = NULL;
+    const TCHAR* Label3 = NULL;
+
+    if( !Slot.Joined )
+    {
+        Image1 = "button_a.xui";
+        Label1 = TEXT("JOIN");
+        if( XboxSplitReadyJoinedCount() == 0 )
+        {
+            Image2 = "button_b.xui";
+            Label2 = TEXT("BACK");
+        }
+    }
+    else if( !Slot.Locked )
+    {
+        Image1 = "button_a.xui";
+        Label1 = TEXT("LOCK");
+        Image2 = "button_b.xui";
+        Label2 = TEXT("LEAVE");
+    }
+    else
+    {
+        Image1 = "button_b.xui";
+        Label1 = TEXT("UNLOCK");
+    }
+
+    UBOOL bShowStart = bSystemLink
+        ? (!GXboxSystemLink.ReadyConfirmed && XboxSystemLinkGroupMachineCount() >= 2 && XboxSystemLinkLocalReadyCanConfirm())
+        : XboxSplitReadyCanBegin();
+    if( bShowStart )
+    {
+        if( !Image2 )
+        {
+            Image2 = "button_start.xui";
+            Label2 = bSystemLink ? TEXT("CONFIRM") : TEXT("CONTINUE");
+        }
+        else
+        {
+            Image3 = "button_start.xui";
+            Label3 = bSystemLink ? TEXT("CONFIRM") : TEXT("CONTINUE");
+        }
+    }
+
+    XboxMenuDrawFooterCommands( Canvas, Image1, Label1, Image2, Label2, Image3, Label3 );
 }
 
 static void XboxMenuDrawSplitReady( UCanvas* Canvas )
 {
-    XboxMenuDrawChrome( Canvas, TEXT("SPLITSCREEN"), 1 );
+    XboxMenuDrawChromeBase( Canvas, TEXT("SPLITSCREEN") );
+    XboxMenuDrawReadyFooter( Canvas, 0 );
     UFont* MenuFont = Canvas->MedFont;
     XboxMenuText( Canvas, MenuFont, 46, 64, 255, 255, 255, TEXT("SPLITSCREEN READY") );
 
     FLOAT X = 22.0f;
-    FLOAT Y = 100.0f;
-    FLOAT W = 142.0f;
-    FLOAT H = 296.0f;
+    FLOAT Y = 92.0f;
     FLOAT Gap = 8.0f;
+    FLOAT Right = XboxMenuContentRight(Canvas) - 4.0f;
+    FLOAT W = (Right - X - Gap * 3.0f) * 0.25f;
+    FLOAT H = Clamp<FLOAT>( XboxMenuFooterTop(Canvas) - Y - 44.0f, 218.0f, 264.0f );
     for( INT i=0; i<4; i++ )
         XboxMenuDrawSplitReadySlot( Canvas, i, X + i * (W + Gap), Y, W, H );
 
+    const TCHAR* ReadyHint = XboxSplitReadyCanBegin()
+        ? TEXT("PLAYER 1 START BEGINS MAP SELECTION")
+        : TEXT("JOINED PLAYERS MUST LOCK IN");
+    FLOAT ReadyHintY = XboxMenuAboveFooterTextY( Canvas, MenuFont, ReadyHint, 7.0f );
     if( XboxSplitReadyCanBegin() )
-        XboxMenuText( Canvas, MenuFont, 58, 406, 135, 255, 120, TEXT("PLAYER 1 START BEGINS MAP SELECTION") );
+        XboxMenuTextFit( Canvas, MenuFont, 58, ReadyHintY, XboxMenuContentRight(Canvas)-76.0f, 135, 255, 120, ReadyHint );
     else
-        XboxMenuText( Canvas, MenuFont, 58, 406, 135, 170, 205, TEXT("JOINED PLAYERS MUST LOCK IN") );
+        XboxMenuTextFit( Canvas, MenuFont, 58, ReadyHintY, XboxMenuContentRight(Canvas)-76.0f, 135, 170, 205, ReadyHint );
 }
 
 static void XboxMenuDrawSplitMapSelect( UCanvas* Canvas )
@@ -9574,7 +12433,7 @@ static void XboxMenuDrawSplitMapSelect( UCanvas* Canvas )
     {
         TEXT("GAMETYPE"),
         TEXT("ARENA"),
-        TEXT("FRAG LIMIT"),
+        TEXT("SCORE LIMIT"),
         TEXT("TIME LIMIT"),
         TEXT("BEGIN MATCH")
     };
@@ -9614,29 +12473,39 @@ static void XboxMenuDrawSplitMapSelect( UCanvas* Canvas )
     };
 
     UBOOL bSystemLink = GXboxMenu.Screen == XMS_SystemLinkMapSelect;
-    XboxMenuDrawChrome( Canvas, bSystemLink ? TEXT("SYSTEM LINK") : TEXT("SPLITSCREEN"), 1 );
+    UBOOL bEditable = !bSystemLink || GXboxSystemLink.Role == XSLR_Host;
+    if( bEditable )
+        XboxMenuDrawChrome( Canvas, bSystemLink ? TEXT("SYSTEM LINK") : TEXT("SPLITSCREEN"), 1 );
+    else
+        XboxMenuDrawChromeCommands( Canvas, TEXT("SYSTEM LINK"), "button_b.xui", TEXT("BACK") );
     UFont* MenuFont = Canvas->MedFont;
     XboxMenuText( Canvas, MenuFont, 46, 70, 255, 255, 255, bSystemLink ? TEXT("SYSTEM LINK MATCH") : TEXT("SPLITSCREEN MATCH") );
-    XboxMenuDrawRect( Canvas, 382, 92, 590, 300, 25, 34, 48, 0.88f );
-    XboxMenuDrawRect( Canvas, 392, 102, 580, 290, 0, 0, 0, 0.88f );
+    const FLOAT PreviewOuterRight = XboxMenuContentRight(Canvas);
+    const FLOAT PreviewSize = Clamp<FLOAT>( PreviewOuterRight - 362.0f - 20.0f, 120.0f, 188.0f );
+    const FLOAT PreviewOuterX = PreviewOuterRight - PreviewSize - 20.0f;
+    const FLOAT PreviewOuterY = 92.0f;
+    const FLOAT PreviewInnerX = PreviewOuterX + 10.0f;
+    const FLOAT PreviewInnerY = PreviewOuterY + 10.0f;
+    XboxMenuDrawRect( Canvas, PreviewOuterX, PreviewOuterY, PreviewOuterRight, PreviewOuterY+PreviewSize+20.0f, 25, 34, 48, 0.88f );
+    XboxMenuDrawRect( Canvas, PreviewInnerX, PreviewInnerY, PreviewInnerX+PreviewSize, PreviewInnerY+PreviewSize, 0, 0, 0, 0.88f );
     if( Preview )
     {
         FLOAT SrcW = Max<FLOAT>( 1.0f, (FLOAT)Preview->USize );
         FLOAT SrcH = Max<FLOAT>( 1.0f, (FLOAT)Preview->VSize );
-        FLOAT Scale = Min<FLOAT>( 188.0f / SrcW, 188.0f / SrcH );
+        FLOAT Scale = Min<FLOAT>( PreviewSize / SrcW, PreviewSize / SrcH );
         FLOAT PW = SrcW * Scale;
         FLOAT PH = SrcH * Scale;
-        XboxMenuDrawTexture( Canvas, Preview, 392.0f + (188.0f - PW) * 0.5f, 102.0f + (188.0f - PH) * 0.5f, PW, PH );
+        XboxMenuDrawTexture( Canvas, Preview, PreviewInnerX + (PreviewSize - PW) * 0.5f, PreviewInnerY + (PreviewSize - PH) * 0.5f, PW, PH );
     }
     else
     {
-        XboxMenuText( Canvas, MenuFont, 416, 180, 210, 230, 245, TEXT("NO PREVIEW") );
+        XboxMenuTextFit( Canvas, MenuFont, PreviewInnerX+14.0f, PreviewInnerY+PreviewSize*0.46f, PreviewSize-28.0f, 210, 230, 245, TEXT("NO PREVIEW") );
     }
 
     for( INT i=0; i<ARRAY_COUNT(Labels); i++ )
     {
         FLOAT Y = 164.0f + i * 36.0f;
-        if( i == GXboxMenu.SplitFocus )
+        if( bEditable && i == GXboxMenu.SplitFocus )
         {
             XboxMenuDrawRect( Canvas, 42, Y-6, 350, Y+18, 12, 82, 166, 0.55f );
             if( i < 4 )
@@ -9645,136 +12514,264 @@ static void XboxMenuDrawSplitMapSelect( UCanvas* Canvas )
                 XboxMenuText( Canvas, MenuFont, 334, Y, 180, 215, 245, TEXT(">") );
             }
             XboxMenuText( Canvas, MenuFont, 58, Y, 255, 255, 255, Labels[i] );
-            XboxMenuText( Canvas, MenuFont, 210, Y, 255, 255, 255, Values[i] );
+            XboxMenuTextFit( Canvas, MenuFont, 210, Y, 120.0f, 255, 255, 255, Values[i] );
         }
         else
         {
             XboxMenuText( Canvas, MenuFont, 58, Y, 140, 178, 212, Labels[i] );
-            XboxMenuText( Canvas, MenuFont, 210, Y, 180, 205, 230, Values[i] );
+            XboxMenuTextFit( Canvas, MenuFont, 210, Y, 120.0f, 180, 205, 230, Values[i] );
         }
     }
 
-    XboxMenuText( Canvas, MenuFont, 58, 402, 135, 170, 205, bSystemLink ? TEXT("HOST PLAYER 1 CONTROLS MATCH SETUP") : TEXT("PLAYER 1 CONTROLS MATCH SETUP") );
+    const TCHAR* SetupHint = bSystemLink && !bEditable ? TEXT("WAITING FOR HOST MATCH SETUP") :
+        bSystemLink ? TEXT("HOST PLAYER 1 CONTROLS MATCH SETUP") : TEXT("PLAYER 1 CONTROLS MATCH SETUP");
+    XboxMenuTextFit( Canvas, MenuFont, 58, XboxMenuAboveFooterTextY(Canvas, MenuFont, SetupHint, 8.0f),
+        XboxMenuContentRight(Canvas)-76.0f, 135, 170, 205, SetupHint );
 }
 
-static void XboxMenuDrawSettings( UXboxViewport* Viewport, UCanvas* Canvas )
+static const TCHAR* XboxControlPresetLabel( UXboxClient* Client )
 {
-    static const TCHAR* Labels[] =
+    if( !Client || Client->ControlPreset < 0 )
+        return TEXT("CUSTOM");
+    INT Preset = Clamp<INT>( Client->ControlPreset, 0, ARRAY_COUNT(GXboxControlPresets)-1 );
+    return GXboxControlPresets[Preset].Label;
+}
+
+static void XboxMenuDrawControlsFacade( UXboxViewport* Viewport, UCanvas* Canvas )
+{
+    const FLOAT MaxSize = 214.0f;
+    const FLOAT LeftEdge = 356.0f;
+    const FLOAT RightEdge = Canvas->ClipX - 18.0f;
+    FLOAT Size = Clamp<FLOAT>( RightEdge - LeftEdge, 160.0f, MaxSize );
+    FLOAT X = RightEdge - Size;
+    FLOAT Y = 235.0f - Size * 0.5f;
+    XboxMenuDrawImage( Canvas, "controller_s.xui", X, Y, Size, Size, 0.96f );
+}
+
+static void XboxMenuDrawControls( UXboxViewport* Viewport, UCanvas* Canvas )
+{
+    UXboxClient* Client = XboxMenuGetClient( Viewport );
+    APlayerPawn* Player = Viewport ? Viewport->Actor : NULL;
+    UFont* MenuFont = Canvas->MedFont;
+    UFont* SmallFont = Canvas->SmallFont;
+
+    XboxMenuDrawChromeCommands( Canvas, TEXT("CONTROLS"),
+        "button_a.xui", TEXT("CHANGE"),
+        "button_b.xui", TEXT("BACK"),
+        "button_y.xui", TEXT("DEFAULT") );
+    XboxMenuText( Canvas, MenuFont, 46, 58, 255, 255, 255, TEXT("CONTROLS") );
+
+    TCHAR LookValue[32];
+    TCHAR MoveValue[32];
+    TCHAR DeadZoneValue[32];
+    appSprintf( LookValue, TEXT("%i"), Client ? (INT)Client->ScaleRUV : 100 );
+    appSprintf( MoveValue, TEXT("%i"), Client ? (INT)Client->ScaleXYZ : 100 );
+    appSprintf( DeadZoneValue, TEXT("%i%%"), Client ? (INT)(Client->DeadZone * 100.0f + 0.5f) : 20 );
+    INT Hand = XboxMenuWeaponHandIndex( Player );
+    UBOOL AutoSwitch = Player ? !Player->bNeverAutoSwitch : 1;
+
+    static const TCHAR* ControlLabels[] =
     {
         TEXT("LOOK SENSITIVITY"),
         TEXT("MOVE SENSITIVITY"),
         TEXT("INVERT Y"),
         TEXT("STICK DEADZONE"),
-        TEXT("BUTTON LAYOUT"),
-        TEXT("MUSIC VOLUME"),
-        TEXT("SOUND VOLUME"),
-        TEXT("ANNOUNCER VOLUME"),
-        TEXT("CROSSHAIR"),
-        TEXT("HUD COLOR"),
-        TEXT("CROSSHAIR COLOR"),
-        TEXT("HUD OPACITY"),
+        TEXT("PRESET"),
+        TEXT("STICK LAYOUT"),
         TEXT("WEAPON HAND"),
-        TEXT("WEAPON AUTO-SWITCH"),
-        TEXT("MATURE LANGUAGE")
+        TEXT("WEAPON AUTO-SWITCH")
     };
-
-    XboxMenuLoadSettings();
-    UXboxClient* Client = XboxMenuGetClient( Viewport );
-    APlayerPawn* Player = Viewport ? Viewport->Actor : NULL;
-    UFont* MenuFont = Canvas->MedFont;
-
-    TCHAR LookValue[32];
-    TCHAR MoveValue[32];
-    TCHAR DeadZoneValue[32];
-    TCHAR MusicValue[32];
-    TCHAR SoundValue[32];
-    TCHAR AnnouncerValue[32];
-    TCHAR CrosshairValue[32];
-    TCHAR OpacityValue[32];
-    TCHAR MatureValue[32];
-    INT Layout = Client ? XboxMenuButtonLayoutIndex( Client->ButtonLayout ) : 0;
-    INT Hand = XboxMenuWeaponHandIndex( Player );
-    INT Crosshair = (Player && Player->myHUD) ? Player->myHUD->Crosshair : 0;
-    UBOOL AutoSwitch = Player ? !Player->bNeverAutoSwitch : 1;
-    UBOOL bNoMature = XboxMenuGetUserBool( TEXT("Botpack.TournamentPlayer"), TEXT("bNoMatureLanguage"), 0 );
-
-    appSprintf( LookValue, TEXT("%i"), Client ? (INT)Client->ScaleRUV : 100 );
-    appSprintf( MoveValue, TEXT("%i"), Client ? (INT)Client->ScaleXYZ : 100 );
-    appSprintf( DeadZoneValue, TEXT("%i%%"), Client ? (INT)(Client->DeadZone * 100.0f + 0.5f) : 20 );
-    appSprintf( MusicValue, TEXT("%i"), GXboxSettingsMusicVolume );
-    appSprintf( SoundValue, TEXT("%i"), GXboxSettingsSoundVolume );
-    appSprintf( AnnouncerValue, TEXT("%i"), GXboxSettingsAnnouncerVolume );
-    appSprintf( CrosshairValue, TEXT("%i"), Crosshair );
-    appSprintf( OpacityValue, TEXT("%i"), GXboxSettingsHudOpacity );
-    appStrcpy( MatureValue, bNoMature ? TEXT("FILTERED") : TEXT("ON") );
-
-    const TCHAR* Values[] =
+    const TCHAR* ControlValues[] =
     {
         LookValue,
         MoveValue,
         Client && Client->InvertVertical ? TEXT("ON") : TEXT("OFF"),
         DeadZoneValue,
-        GXboxButtonLayouts[Layout],
-        MusicValue,
-        SoundValue,
-        AnnouncerValue,
-        CrosshairValue,
-        GXboxColorNames[GXboxSettingsHudColor],
-        GXboxColorNames[GXboxSettingsCrosshairColor],
-        OpacityValue,
+        XboxControlPresetLabel(Client),
+        XboxStickLayoutLabel( Client ? Client->StickLayout : XSL_Default ),
         GXboxWeaponHands[Hand],
-        AutoSwitch ? TEXT("ON") : TEXT("OFF"),
-        MatureValue
+        AutoSwitch ? TEXT("ON") : TEXT("OFF")
     };
 
+    const FLOAT RowStartY = 80.0f;
+    const FLOAT RowStepY = 21.0f;
+    const INT TotalRows = XboxControlsRowCount();
+    const INT VisibleRows = XboxControlsVisibleRows();
+    const INT ScrollTop = XboxControlsScrollTop();
+    const INT ScrollLast = Min<INT>( TotalRows, ScrollTop + VisibleRows );
+
+    for( INT Row=ScrollTop; Row<ScrollLast; Row++ )
+    {
+        FLOAT Y = RowStartY + (Row - ScrollTop) * RowStepY;
+        UBOOL bFocus = GXboxMenu.ControlsFocus == Row;
+
+        if( Row < XCR_FirstButton )
+        {
+            UBOOL bSlider = Row == XCR_LookSensitivity || Row == XCR_MoveSensitivity || Row == XCR_DeadZone;
+            FLOAT SliderValue = 0.0f;
+            FLOAT SliderMin = 0.0f;
+            FLOAT SliderMax = 1.0f;
+
+            if( Row == XCR_LookSensitivity )
+            {
+                SliderValue = Client ? Client->ScaleRUV : 100.0f;
+                SliderMin = 25.0f;
+                SliderMax = 200.0f;
+            }
+            else if( Row == XCR_MoveSensitivity )
+            {
+                SliderValue = Client ? Client->ScaleXYZ : 100.0f;
+                SliderMin = 25.0f;
+                SliderMax = 200.0f;
+            }
+            else if( Row == XCR_DeadZone )
+            {
+                SliderValue = Client ? Client->DeadZone : 0.20f;
+                SliderMin = 0.05f;
+                SliderMax = 0.40f;
+            }
+
+            if( bFocus )
+            {
+                XboxMenuDrawRect( Canvas, 42, Y-4, 344, Y+15, 12, 82, 166, 0.55f );
+                XboxMenuText( Canvas, SmallFont, 58, Y, 255, 255, 255, ControlLabels[Row] );
+                XboxMenuText( Canvas, SmallFont, 190, Y, 180, 215, 245, TEXT("<") );
+                XboxMenuText( Canvas, SmallFont, 332, Y, 180, 215, 245, TEXT(">") );
+                if( bSlider )
+                {
+                    XboxMenuDrawSlider( Canvas, 204, Y+2, 58, SliderValue, SliderMin, SliderMax );
+                    XboxMenuText( Canvas, SmallFont, 268, Y, 255, 255, 255, ControlValues[Row] );
+                }
+                else
+                {
+                    XboxMenuTextFit( Canvas, SmallFont, 210, Y, 116, 255, 255, 255, ControlValues[Row] );
+                }
+            }
+            else
+            {
+                XboxMenuText( Canvas, SmallFont, 58, Y, 140, 178, 212, ControlLabels[Row] );
+                if( bSlider )
+                {
+                    XboxMenuDrawSlider( Canvas, 204, Y+2, 58, SliderValue, SliderMin, SliderMax );
+                    XboxMenuText( Canvas, SmallFont, 268, Y, 180, 205, 230, ControlValues[Row] );
+                }
+                else
+                {
+                    XboxMenuTextFit( Canvas, SmallFont, 210, Y, 116, 180, 205, 230, ControlValues[Row] );
+                }
+            }
+        }
+        else
+        {
+            INT Button = Row - XCR_FirstButton;
+            INT Action = XboxControlButtonAction( Client, Button );
+            if( bFocus )
+            {
+                XboxMenuDrawRect( Canvas, 42, Y-3, 312, Y+14, 12, 82, 166, 0.55f );
+                XboxMenuDrawImage( Canvas, GXboxControlButtons[Button].Image, 58, Y-3, 16, 16 );
+                XboxMenuText( Canvas, SmallFont, 92, Y, 180, 215, 245, TEXT("<") );
+                XboxMenuTextFit( Canvas, SmallFont, 116, Y, 150, 255, 255, 255, GXboxControlActions[Action].Label );
+                XboxMenuText( Canvas, SmallFont, 278, Y, 180, 215, 245, TEXT(">") );
+            }
+            else
+            {
+                XboxMenuDrawImage( Canvas, GXboxControlButtons[Button].Image, 58, Y-3, 16, 16 );
+                XboxMenuTextFit( Canvas, SmallFont, 116, Y, 166, 180, 205, 230, GXboxControlActions[Action].Label );
+            }
+        }
+    }
+
+    if( ScrollTop > 0 )
+        XboxMenuText( Canvas, SmallFont, 306, 68, 135, 190, 225, TEXT("MORE ^") );
+    if( ScrollLast < TotalRows )
+        XboxMenuText( Canvas, SmallFont, 306, 328.0f, 135, 190, 225, TEXT("MORE v") );
+
+    XboxMenuDrawControlsFacade( Viewport, Canvas );
+    if( XboxControlsCanScroll() )
+    {
+        FLOAT ButtonY = XboxMenuFooterPromptY( Canvas );
+        FLOAT ScrollX = Canvas->ClipX - 38.0f - XboxMenuScrollPromptWidth(Canvas);
+        XboxMenuDrawScrollPrompt( Canvas, ScrollX, ButtonY );
+    }
+    {
+        const TCHAR* Hint = TEXT("LEFT/RIGHT CHANGES SELECTED ITEM");
+        XboxMenuText( Canvas, SmallFont, 58, XboxMenuAboveFooterTextY(Canvas, SmallFont, Hint, 8.0f), 135, 170, 205, Hint );
+    }
+}
+
+static void XboxMenuDrawSettings( UXboxViewport* Viewport, UCanvas* Canvas )
+{
+    static const TCHAR* Items[] =
+    {
+        TEXT("CONTROLS"),
+        TEXT("AUDIO"),
+        TEXT("VIDEO")
+    };
+
+    XboxMenuLoadSettings();
+    UFont* MenuFont = Canvas->MedFont;
     XboxMenuDrawChrome( Canvas, TEXT("SETTINGS"), 1 );
     XboxMenuText( Canvas, MenuFont, 46, 62, 255, 255, 255, TEXT("SETTINGS") );
-    XboxMenuText( Canvas, MenuFont, 58, 414, 135, 170, 205, TEXT("DPAD LEFT/RIGHT CHANGES OPTIONS") );
-    XboxMenuDrawSettingsPreview( Canvas, MenuFont, Crosshair );
+
+    for( INT i=0; i<ARRAY_COUNT(Items); i++ )
+    {
+        FLOAT Y = 146.0f + i * 42.0f;
+        if( i == GXboxMenu.SettingsFocus )
+        {
+            XboxMenuDrawSelectionHighlight( Canvas, MenuFont, 42.0f, 304.0f, Y, Items[i], 0.42f );
+            XboxMenuText( Canvas, MenuFont, 62, Y, 255, 255, 255, Items[i] );
+        }
+        else
+        {
+            XboxMenuText( Canvas, MenuFont, 62, Y, 135, 170, 205, Items[i] );
+        }
+    }
+}
+
+static void XboxMenuDrawAudioSettings( UXboxViewport* Viewport, UCanvas* Canvas )
+{
+    static const TCHAR* Labels[] =
+    {
+        TEXT("MUSIC VOLUME"),
+        TEXT("SOUND VOLUME"),
+        TEXT("ANNOUNCER VOLUME")
+    };
+
+    XboxMenuLoadSettings();
+    UFont* MenuFont = Canvas->MedFont;
+    UFont* SmallFont = Canvas->SmallFont;
+
+    TCHAR MusicValue[32];
+    TCHAR SoundValue[32];
+    TCHAR AnnouncerValue[32];
+    appSprintf( MusicValue, TEXT("%i"), GXboxSettingsMusicVolume );
+    appSprintf( SoundValue, TEXT("%i"), GXboxSettingsSoundVolume );
+    appSprintf( AnnouncerValue, TEXT("%i"), GXboxSettingsAnnouncerVolume );
+
+    const TCHAR* Values[] =
+    {
+        MusicValue,
+        SoundValue,
+        AnnouncerValue
+    };
+
+    XboxMenuDrawChromeCommands( Canvas, TEXT("AUDIO"), "button_a.xui", TEXT("CHANGE"), "button_b.xui", TEXT("BACK") );
+    XboxMenuText( Canvas, MenuFont, 46, 62, 255, 255, 255, TEXT("AUDIO") );
+    {
+        const TCHAR* Hint = TEXT("LEFT/RIGHT CHANGES SELECTED ITEM");
+        XboxMenuText( Canvas, SmallFont, 58, XboxMenuAboveFooterTextY(Canvas, SmallFont, Hint, 8.0f), 135, 170, 205, Hint );
+    }
 
     for( INT i=0; i<ARRAY_COUNT(Labels); i++ )
     {
-        FLOAT Y = 92.0f + i * 20.0f;
-        UBOOL bSlider =
-            i == XSR_LookSensitivity ||
-            i == XSR_MoveSensitivity ||
-            i == XSR_DeadZone ||
-            i == XSR_MusicVolume ||
-            i == XSR_SoundVolume ||
-            i == XSR_AnnouncerVolume;
+        FLOAT Y = 132.0f + i * 36.0f;
         FLOAT SliderValue = 0.0f;
-        FLOAT SliderMin = 0.0f;
-        FLOAT SliderMax = 1.0f;
-
-        if( i == XSR_LookSensitivity )
-        {
-            SliderValue = Client ? Client->ScaleRUV : 100.0f;
-            SliderMin = 25.0f;
-            SliderMax = 200.0f;
-        }
-        else if( i == XSR_MoveSensitivity )
-        {
-            SliderValue = Client ? Client->ScaleXYZ : 100.0f;
-            SliderMin = 25.0f;
-            SliderMax = 200.0f;
-        }
-        else if( i == XSR_DeadZone )
-        {
-            SliderValue = Client ? Client->DeadZone : 0.20f;
-            SliderMin = 0.05f;
-            SliderMax = 0.40f;
-        }
-        else if( i == XSR_MusicVolume )
-        {
+        FLOAT SliderMax = 255.0f;
+        if( i == XAR_MusicVolume )
             SliderValue = (FLOAT)GXboxSettingsMusicVolume;
-            SliderMax = 255.0f;
-        }
-        else if( i == XSR_SoundVolume )
-        {
+        else if( i == XAR_SoundVolume )
             SliderValue = (FLOAT)GXboxSettingsSoundVolume;
-            SliderMax = 255.0f;
-        }
-        else if( i == XSR_AnnouncerVolume )
+        else
         {
             SliderValue = (FLOAT)GXboxSettingsAnnouncerVolume;
             SliderMax = 4.0f;
@@ -9782,31 +12779,145 @@ static void XboxMenuDrawSettings( UXboxViewport* Viewport, UCanvas* Canvas )
 
         if( i == GXboxMenu.SettingsFocus )
         {
-            XboxMenuDrawRect( Canvas, 42, Y-5, 430, Y+17, 12, 82, 166, 0.55f );
+            XboxMenuDrawRect( Canvas, 42, Y-6, 430, Y+18, 12, 82, 166, 0.55f );
             XboxMenuText( Canvas, MenuFont, 58, Y, 255, 255, 255, Labels[i] );
+            XboxMenuText( Canvas, MenuFont, 232, Y, 180, 215, 245, TEXT("<") );
+            XboxMenuDrawSlider( Canvas, 248, Y+3, 112, SliderValue, 0.0f, SliderMax );
+            XboxMenuText( Canvas, MenuFont, 374, Y, 255, 255, 255, Values[i] );
+            XboxMenuText( Canvas, MenuFont, 408, Y, 180, 215, 245, TEXT(">") );
+        }
+        else
+        {
+            XboxMenuText( Canvas, MenuFont, 58, Y, 140, 178, 212, Labels[i] );
+            XboxMenuDrawSlider( Canvas, 248, Y+3, 112, SliderValue, 0.0f, SliderMax );
+            XboxMenuText( Canvas, MenuFont, 374, Y, 180, 205, 230, Values[i] );
+        }
+    }
+}
+
+static void XboxMenuDrawVideoSettings( UXboxViewport* Viewport, UCanvas* Canvas )
+{
+    static const TCHAR* Labels[] =
+    {
+        TEXT("SAFE AREA SIZE"),
+        TEXT("SAFE AREA X"),
+        TEXT("SAFE AREA Y"),
+        TEXT("CROSSHAIR"),
+        TEXT("HUD COLOR"),
+        TEXT("CROSSHAIR COLOR"),
+        TEXT("HUD OPACITY"),
+        TEXT("MATURE LANGUAGE")
+    };
+
+    XboxMenuLoadSettings();
+    UXboxClient* Client = XboxMenuGetClient( Viewport );
+    APlayerPawn* Player = Viewport ? Viewport->Actor : NULL;
+    UFont* MenuFont = Canvas->MedFont;
+    UFont* SmallFont = Canvas->SmallFont;
+
+    TCHAR SafeAreaSizeValue[32];
+    TCHAR SafeAreaXValue[32];
+    TCHAR SafeAreaYValue[32];
+    TCHAR CrosshairValue[32];
+    TCHAR OpacityValue[32];
+    TCHAR MatureValue[32];
+    INT Crosshair = (Player && Player->myHUD) ? Player->myHUD->Crosshair : 0;
+    UBOOL bNoMature = XboxMenuGetUserBool( TEXT("Botpack.TournamentPlayer"), TEXT("bNoMatureLanguage"), 0 );
+
+    appSprintf( SafeAreaSizeValue, TEXT("%i%%"), Client ? Client->SafeAreaSize : 100 );
+    appSprintf( SafeAreaXValue, TEXT("%i"), Client ? Client->SafeAreaX : 0 );
+    appSprintf( SafeAreaYValue, TEXT("%i"), Client ? Client->SafeAreaY : 0 );
+    appSprintf( CrosshairValue, TEXT("%i"), Crosshair );
+    appSprintf( OpacityValue, TEXT("%i"), GXboxSettingsHudOpacity );
+    appStrcpy( MatureValue, bNoMature ? TEXT("FILTERED") : TEXT("ON") );
+
+    const TCHAR* Values[] =
+    {
+        SafeAreaSizeValue,
+        SafeAreaXValue,
+        SafeAreaYValue,
+        CrosshairValue,
+        GXboxColorNames[GXboxSettingsHudColor],
+        GXboxColorNames[GXboxSettingsCrosshairColor],
+        OpacityValue,
+        MatureValue
+    };
+
+    XboxMenuDrawChromeCommands( Canvas, TEXT("VIDEO"), "button_a.xui", TEXT("CHANGE"), "button_b.xui", TEXT("BACK") );
+    XboxMenuText( Canvas, MenuFont, 46, 62, 255, 255, 255, TEXT("VIDEO") );
+    {
+        const TCHAR* Hint = TEXT("LEFT/RIGHT CHANGES SELECTED ITEM");
+        XboxMenuText( Canvas, SmallFont, 58, XboxMenuAboveFooterTextY(Canvas, SmallFont, Hint, 8.0f), 135, 170, 205, Hint );
+    }
+    XboxMenuDrawSettingsPreview( Canvas, MenuFont, Client, Crosshair );
+
+    FLOAT RowRight = XboxMenuSettingsPreviewLeft(Canvas) - 16.0f;
+    FLOAT RightColumnShift = RowRight - 420.0f;
+
+    for( INT i=0; i<ARRAY_COUNT(Labels); i++ )
+    {
+        FLOAT Y = 92.0f + i * 25.0f;
+        UBOOL bSlider =
+            i == XVR_SafeAreaSize ||
+            i == XVR_SafeAreaX ||
+            i == XVR_SafeAreaY ||
+            i == XVR_HudOpacity;
+        FLOAT SliderValue = 0.0f;
+        FLOAT SliderMin = 0.0f;
+        FLOAT SliderMax = 1.0f;
+
+        if( i == XVR_SafeAreaSize )
+        {
+            SliderValue = Client ? (FLOAT)Client->SafeAreaSize : 100.0f;
+            SliderMin = 85.0f;
+            SliderMax = 100.0f;
+        }
+        else if( i == XVR_SafeAreaX )
+        {
+            SliderValue = Client ? (FLOAT)Client->SafeAreaX : 0.0f;
+            SliderMin = -48.0f;
+            SliderMax = 48.0f;
+        }
+        else if( i == XVR_SafeAreaY )
+        {
+            SliderValue = Client ? (FLOAT)Client->SafeAreaY : 0.0f;
+            SliderMin = -36.0f;
+            SliderMax = 36.0f;
+        }
+        else if( i == XVR_HudOpacity )
+        {
+            SliderValue = (FLOAT)GXboxSettingsHudOpacity;
+            SliderMin = 1.0f;
+            SliderMax = 16.0f;
+        }
+
+        if( i == GXboxMenu.SettingsFocus )
+        {
+            XboxMenuDrawRect( Canvas, 42, Y-5, RowRight, Y+17, 12, 82, 166, 0.55f );
+            XboxMenuText( Canvas, MenuFont, 58, Y, 255, 255, 255, Labels[i] );
+            XboxMenuText( Canvas, MenuFont, 232 + RightColumnShift, Y, 180, 215, 245, TEXT("<") );
             if( bSlider )
             {
-                XboxMenuDrawSlider( Canvas, 248, Y+8, 112, SliderValue, SliderMin, SliderMax );
-                XboxMenuText( Canvas, MenuFont, 374, Y, 255, 255, 255, Values[i] );
+                XboxMenuDrawSlider( Canvas, 248 + RightColumnShift, Y+3, 112, SliderValue, SliderMin, SliderMax );
+                XboxMenuText( Canvas, MenuFont, 374 + RightColumnShift, Y, 255, 255, 255, Values[i] );
             }
             else
             {
-                XboxMenuText( Canvas, MenuFont, 270, Y, 255, 255, 255, Values[i] );
+                XboxMenuText( Canvas, MenuFont, 270 + RightColumnShift, Y, 255, 255, 255, Values[i] );
             }
-            XboxMenuText( Canvas, MenuFont, 232, Y, 180, 215, 245, TEXT("<") );
-            XboxMenuText( Canvas, MenuFont, 408, Y, 180, 215, 245, TEXT(">") );
+            XboxMenuText( Canvas, MenuFont, 408 + RightColumnShift, Y, 180, 215, 245, TEXT(">") );
         }
         else
         {
             XboxMenuText( Canvas, MenuFont, 58, Y, 140, 178, 212, Labels[i] );
             if( bSlider )
             {
-                XboxMenuDrawSlider( Canvas, 248, Y+8, 112, SliderValue, SliderMin, SliderMax );
-                XboxMenuText( Canvas, MenuFont, 374, Y, 180, 205, 230, Values[i] );
+                XboxMenuDrawSlider( Canvas, 248 + RightColumnShift, Y+3, 112, SliderValue, SliderMin, SliderMax );
+                XboxMenuText( Canvas, MenuFont, 374 + RightColumnShift, Y, 180, 205, 230, Values[i] );
             }
             else
             {
-                XboxMenuText( Canvas, MenuFont, 270, Y, 180, 205, 230, Values[i] );
+                XboxMenuText( Canvas, MenuFont, 270 + RightColumnShift, Y, 180, 205, 230, Values[i] );
             }
         }
     }
@@ -9814,41 +12925,54 @@ static void XboxMenuDrawSettings( UXboxViewport* Viewport, UCanvas* Canvas )
 
 static void XboxMenuDrawSystemLink( UCanvas* Canvas )
 {
-    XboxMenuDrawChrome( Canvas, TEXT("SYSTEM LINK"), 1 );
     UFont* MenuFont = Canvas->MedFont;
+    UFont* SmallFont = Canvas->SmallFont ? Canvas->SmallFont : Canvas->MedFont;
 
     INT MachineCount = XboxSystemLinkGroupMachineCount();
     INT ConfirmedCount = XboxSystemLinkConfirmedMachineCount();
     if( GXboxSystemLink.HostId && MachineCount >= 2 )
     {
+        XboxMenuDrawChromeBase( Canvas, TEXT("SYSTEM LINK") );
+        if( GXboxSystemLink.Phase != XSLP_Launching )
+            XboxMenuDrawReadyFooter( Canvas, 1 );
         XboxMenuText( Canvas, MenuFont, 46, 64, 255, 255, 255, TEXT("SYSTEM LINK READY") );
 
+        const TCHAR* ReadyStatusHint = GXboxSystemLink.Phase == XSLP_Launching ? TEXT("LAUNCHING MATCH") :
+            GXboxSystemLink.Role == XSLR_Client && XboxSystemLinkFindPeerById(GXboxSystemLink.HostId) && XboxSystemLinkFindPeerById(GXboxSystemLink.HostId)->Phase == XSLP_MapSelect ? TEXT("HOST IS CHOOSING THE MATCH") :
+            GXboxSystemLink.ReadyConfirmed ? TEXT("WAITING FOR ALL MACHINES TO CONFIRM") :
+            XboxSystemLinkLocalReadyCanConfirm() ? TEXT("PLAYER 1 START CONFIRMS THIS XBOX") :
+            TEXT("PLAYER 1 MUST JOIN AND LOCK IN");
+        FLOAT HintY = XboxMenuAboveFooterTextY( Canvas, SmallFont, ReadyStatusHint, 7.0f );
+        FLOAT StatusY = HintY - 18.0f;
         FLOAT X = 22.0f;
-        FLOAT Y = 100.0f;
-        FLOAT W = 142.0f;
-        FLOAT H = 296.0f;
+        FLOAT Y = 88.0f;
         FLOAT Gap = 8.0f;
+        FLOAT Right = XboxMenuContentRight(Canvas) - 4.0f;
+        FLOAT W = (Right - X - Gap * 3.0f) * 0.25f;
+        FLOAT H = Clamp<FLOAT>( StatusY - Y - 10.0f, 204.0f, 256.0f );
         for( INT i=0; i<4; i++ )
             XboxMenuDrawSplitReadySlot( Canvas, i, X + i * (W + Gap), Y, W, H );
 
         TCHAR Status[160];
         appSprintf( Status, TEXT("%s    MACHINES %i    CONFIRMED %i/%i"),
             XboxSystemLinkRoleText(GXboxSystemLink.Role), MachineCount, ConfirmedCount, MachineCount );
-        XboxMenuText( Canvas, MenuFont, 58, 404, 180, 215, 245, Status );
+        XboxMenuTextFit( Canvas, SmallFont, 58, StatusY, XboxMenuContentRight(Canvas)-76.0f, 180, 215, 245, Status );
 
         const FXboxSystemLinkPeer* HostPeer = XboxSystemLinkFindPeerById( GXboxSystemLink.HostId );
         if( GXboxSystemLink.Phase == XSLP_Launching )
-            XboxMenuText( Canvas, MenuFont, 58, 426, 135, 255, 120, TEXT("LAUNCHING MATCH") );
+            XboxMenuTextFit( Canvas, SmallFont, 58, HintY, XboxMenuContentRight(Canvas)-76.0f, 135, 255, 120, ReadyStatusHint );
         else if( GXboxSystemLink.Role == XSLR_Client && HostPeer && HostPeer->Phase == XSLP_MapSelect )
-            XboxMenuText( Canvas, MenuFont, 58, 426, 135, 255, 120, TEXT("HOST IS CHOOSING THE MATCH") );
+            XboxMenuTextFit( Canvas, SmallFont, 58, HintY, XboxMenuContentRight(Canvas)-76.0f, 135, 255, 120, ReadyStatusHint );
         else if( GXboxSystemLink.ReadyConfirmed )
-            XboxMenuText( Canvas, MenuFont, 58, 426, 135, 170, 205, TEXT("WAITING FOR ALL MACHINES TO CONFIRM") );
+            XboxMenuTextFit( Canvas, SmallFont, 58, HintY, XboxMenuContentRight(Canvas)-76.0f, 135, 170, 205, ReadyStatusHint );
         else if( XboxSystemLinkLocalReadyCanConfirm() )
-            XboxMenuText( Canvas, MenuFont, 58, 426, 135, 255, 120, TEXT("PLAYER 1 START CONFIRMS THIS XBOX") );
+            XboxMenuTextFit( Canvas, SmallFont, 58, HintY, XboxMenuContentRight(Canvas)-76.0f, 135, 255, 120, ReadyStatusHint );
         else
-            XboxMenuText( Canvas, MenuFont, 58, 426, 135, 170, 205, TEXT("PLAYER 1 MUST JOIN AND LOCK IN") );
+            XboxMenuTextFit( Canvas, SmallFont, 58, HintY, XboxMenuContentRight(Canvas)-76.0f, 135, 170, 205, ReadyStatusHint );
         return;
     }
+
+    XboxMenuDrawChromeCommands( Canvas, TEXT("SYSTEM LINK"), "button_b.xui", TEXT("BACK") );
 
     XboxMenuText( Canvas, MenuFont, 58, 74, 255, 255, 255, TEXT("SYSTEM LINK") );
 
@@ -9892,16 +13016,26 @@ static void XboxMenuDrawSystemLink( UCanvas* Canvas )
     appSprintf( Status, TEXT("GROUP MEMBERS  %i"), MachineCount );
     XboxMenuText( Canvas, MenuFont, 58, 186, 135, 170, 205, Status );
 
-    FLOAT Y = 222.0f;
+    const TCHAR* DiscoveryHint = GXboxSystemLink.Role == XSLR_Host ? TEXT("HOSTING GROUP - WAITING FOR CLIENTS") :
+        GXboxSystemLink.Role == XSLR_Client ? TEXT("JOINED GROUP - WAITING FOR HOST") : TEXT("SEARCHING");
+    FLOAT DiscoveryHintY = XboxMenuAboveFooterTextY( Canvas, MenuFont, DiscoveryHint, 8.0f );
+    const FLOAT RowStep = 24.0f;
+    FLOAT Y = 218.0f;
+    INT AvailableRows = Max<INT>( 1, (INT)((DiscoveryHintY - 10.0f - Y) / RowStep) + 1 );
     if( GXboxSystemLink.Started )
     {
         appSprintf( Status, TEXT("%s    THIS XBOX    %08X"), XboxSystemLinkRoleText(GXboxSystemLink.Role), GXboxSystemLink.LocalId );
-        XboxMenuDrawRect( Canvas, 48, Y-5, 578, Y+20, 12, 82, 166, GXboxSystemLink.Role == XSLR_Host ? 0.45f : 0.28f );
-        XboxMenuText( Canvas, MenuFont, 62, Y, 255, 255, 255, Status );
-        Y += 32.0f;
+        XboxMenuDrawRect( Canvas, 48, Y-4, XboxMenuContentRight(Canvas)-10.0f, Y+17, 12, 82, 166, GXboxSystemLink.Role == XSLR_Host ? 0.45f : 0.28f );
+        XboxMenuTextFit( Canvas, SmallFont, 62, Y, XboxMenuContentRight(Canvas)-86.0f, 255, 255, 255, Status );
+        Y += RowStep;
+        AvailableRows--;
     }
 
-    for( INT i=0; i<GXboxSystemLink.Peers.Num() && i<GXboxSystemLinkMaxPeers; i++ )
+    INT PeerCount = Min<INT>( GXboxSystemLink.Peers.Num(), GXboxSystemLinkMaxPeers );
+    INT VisiblePeers = Min<INT>( PeerCount, Max<INT>(0, AvailableRows) );
+    if( PeerCount > VisiblePeers && VisiblePeers > 0 )
+        VisiblePeers--;
+    for( INT i=0; i<VisiblePeers; i++ )
     {
         const FXboxSystemLinkPeer& Peer = GXboxSystemLink.Peers(i);
         TCHAR AddrText[32];
@@ -9912,25 +13046,32 @@ static void XboxMenuDrawSystemLink( UCanvas* Canvas )
             AddrText,
             Peer.Port,
             Peer.Packets );
-        XboxMenuDrawRect( Canvas, 48, Y-5, 578, Y+20, 12, 82, 166, Peer.Role == XSLR_Host ? 0.40f : 0.22f );
-        XboxMenuText( Canvas, MenuFont, 62, Y, 180, 215, 245, Status );
-        Y += 32.0f;
+        XboxMenuDrawRect( Canvas, 48, Y-4, XboxMenuContentRight(Canvas)-10.0f, Y+17, 12, 82, 166, Peer.Role == XSLR_Host ? 0.40f : 0.22f );
+        XboxMenuTextFit( Canvas, SmallFont, 62, Y, XboxMenuContentRight(Canvas)-86.0f, 180, 215, 245, Status );
+        Y += RowStep;
+    }
+
+    if( PeerCount > VisiblePeers )
+    {
+        TCHAR MoreText[48];
+        appSprintf( MoreText, TEXT("%i MORE XBOXES"), PeerCount - VisiblePeers );
+        XboxMenuText( Canvas, SmallFont, 62, Y, 135, 170, 205, MoreText );
     }
 
     if( GXboxSystemLink.Peers.Num() == 0 )
-        XboxMenuText( Canvas, MenuFont, 62, Y, 135, 170, 205, TEXT("WAITING FOR OTHER XBOXES") );
+        XboxMenuText( Canvas, SmallFont, 62, Y, 135, 170, 205, TEXT("WAITING FOR OTHER XBOXES") );
 
     if( GXboxSystemLink.Role == XSLR_Host )
-        XboxMenuText( Canvas, MenuFont, 58, 402, 135, 255, 120, TEXT("HOSTING GROUP - WAITING FOR CLIENTS") );
+        XboxMenuTextFit( Canvas, MenuFont, 58, DiscoveryHintY, XboxMenuContentRight(Canvas)-76.0f, 135, 255, 120, DiscoveryHint );
     else if( GXboxSystemLink.Role == XSLR_Client )
-        XboxMenuText( Canvas, MenuFont, 58, 402, 135, 255, 120, TEXT("JOINED GROUP - WAITING FOR HOST") );
+        XboxMenuTextFit( Canvas, MenuFont, 58, DiscoveryHintY, XboxMenuContentRight(Canvas)-76.0f, 135, 255, 120, DiscoveryHint );
     else
-        XboxMenuText( Canvas, MenuFont, 58, 402, 135, 170, 205, TEXT("SEARCHING") );
+        XboxMenuTextFit( Canvas, MenuFont, 58, DiscoveryHintY, XboxMenuContentRight(Canvas)-76.0f, 135, 170, 205, DiscoveryHint );
 }
 
 static void XboxMenuDrawComingSoon( UCanvas* Canvas )
 {
-    XboxMenuDrawChrome( Canvas, GXboxMenu.ComingSoonTitle, 1 );
+    XboxMenuDrawChromeCommands( Canvas, GXboxMenu.ComingSoonTitle, "button_b.xui", TEXT("BACK") );
     XboxMenuCenteredText( Canvas, Canvas->MedFont, 150, 255, 255, 255, GXboxMenu.ComingSoonTitle );
     XboxMenuCenteredText( Canvas, Canvas->MedFont, 230, 160, 205, 240, TEXT("COMING SOON") );
 }
@@ -9944,7 +13085,11 @@ void XboxMenuPostRender( UViewport* Viewport, UCanvas* Canvas )
         return;
     if( XboxViewport )
     {
+        XboxMenuApplyPendingMatchRules( XboxViewport );
         XboxSoakSmokeTick( XboxViewport );
+        XboxIssueMapSmokeTick( XboxViewport );
+        XboxSafeAreaProofSmokeTick( XboxViewport );
+        XboxInstantRulesProofSmokeTick( XboxViewport );
         XboxSystemLinkSmokeTick( XboxViewport );
     }
     if( !GXboxMenu.Active )
@@ -9974,6 +13119,8 @@ void XboxMenuPostRender( UViewport* Viewport, UCanvas* Canvas )
         XboxMenuDrawMutators( Canvas );
     else if( GXboxMenu.Screen == XMS_Tournament )
         XboxMenuDrawTournament( XboxViewport, Canvas );
+    else if( GXboxMenu.Screen == XMS_TournamentPostMatch )
+        XboxMenuDrawTournamentPostMatch( Canvas );
     else if( GXboxMenu.Screen == XMS_SplitReady )
         XboxMenuDrawSplitReady( Canvas );
     else if( GXboxMenu.Screen == XMS_SplitMapSelect )
@@ -9982,8 +13129,14 @@ void XboxMenuPostRender( UViewport* Viewport, UCanvas* Canvas )
         XboxMenuDrawSplitMapSelect( Canvas );
     else if( GXboxMenu.Screen == XMS_PlayerSetup )
         XboxMenuDrawPlayerSetup( XboxViewport, Canvas );
+    else if( GXboxMenu.Screen == XMS_Controls )
+        XboxMenuDrawControls( XboxViewport, Canvas );
     else if( GXboxMenu.Screen == XMS_Settings )
         XboxMenuDrawSettings( XboxViewport, Canvas );
+    else if( GXboxMenu.Screen == XMS_SettingsAudio )
+        XboxMenuDrawAudioSettings( XboxViewport, Canvas );
+    else if( GXboxMenu.Screen == XMS_SettingsVideo )
+        XboxMenuDrawVideoSettings( XboxViewport, Canvas );
     else if( GXboxMenu.Screen == XMS_SystemLink )
         XboxMenuDrawSystemLink( Canvas );
     else
@@ -10275,13 +13428,21 @@ void UXboxViewport::ProcessControllerInput( const XINPUT_GAMEPAD& Pad )
         return;
 
     XboxMenuTickPendingFrontendOpen( this );
+    XboxTournamentTransitionTick( this );
     INT WheelViewportIndex = Clamp<INT>( XboxViewportIndex(this), 0, 3 );
     const BYTE AnalogThreshold = XINPUT_GAMEPAD_MAX_CROSSTALK; // 30
-    UBOOL WhiteNow = Pad.bAnalogButtons[XINPUT_GAMEPAD_WHITE] > AnalogThreshold;
-    UBOOL WhitePrev = PrevControllerState.Gamepad.bAnalogButtons[XINPUT_GAMEPAD_WHITE] > AnalogThreshold;
-    UBOOL BlackNow = Pad.bAnalogButtons[XINPUT_GAMEPAD_BLACK] > AnalogThreshold;
-    UBOOL BlackPrev = PrevControllerState.Gamepad.bAnalogButtons[XINPUT_GAMEPAD_BLACK] > AnalogThreshold;
-    UBOOL bWheelInputActive = Player && !GXboxMenu.Active && (GXboxWeaponWheelActive[WheelViewportIndex] || WhiteNow || WhitePrev || BlackNow || BlackPrev);
+    UBOOL WheelButtonNow = 0;
+    UBOOL WheelButtonPrev = 0;
+    for( INT WheelButton=0; WheelButton<XCB_Count; WheelButton++ )
+    {
+        INT WheelAction = XboxControlButtonAction( Client, WheelButton );
+        if( GXboxControlActions[WheelAction].bWheelHold )
+        {
+            WheelButtonNow  = WheelButtonNow  || XboxControlButtonDown( Pad, WheelButton, AnalogThreshold );
+            WheelButtonPrev = WheelButtonPrev || XboxControlButtonDown( PrevControllerState.Gamepad, WheelButton, AnalogThreshold );
+        }
+    }
+    UBOOL bWheelInputActive = Player && !GXboxMenu.Active && (GXboxWeaponWheelActive[WheelViewportIndex] || WheelButtonNow || WheelButtonPrev);
 
     if( GXboxSplitActive && GXboxMenu.Active )
     {
@@ -10309,23 +13470,31 @@ void UXboxViewport::ProcessControllerInput( const XINPUT_GAMEPAD& Pad )
     {
         const DOUBLE NowSeconds = appSeconds();
         const DOUBLE HoldSeconds = 0.24;
+        UBOOL AnyWheelNow = 0;
 
-        if( WhiteNow && !WhitePrev )
-            GXboxWeaponWheelPressTime[WheelViewportIndex][0] = NowSeconds;
-        if( BlackNow && !BlackPrev )
-            GXboxWeaponWheelPressTime[WheelViewportIndex][1] = NowSeconds;
+        for( INT Button=0; Button<XCB_Count; Button++ )
+        {
+            INT Action = XboxControlButtonAction( Client, Button );
+            const FXboxControlActionInfo& ActionInfo = GXboxControlActions[Action];
+            if( !ActionInfo.bWheelHold )
+                continue;
 
-        if( WhiteNow && (NowSeconds - GXboxWeaponWheelPressTime[WheelViewportIndex][0]) >= HoldSeconds )
-            GXboxWeaponWheelActive[WheelViewportIndex] = 1;
-        if( BlackNow && (NowSeconds - GXboxWeaponWheelPressTime[WheelViewportIndex][1]) >= HoldSeconds )
-            GXboxWeaponWheelActive[WheelViewportIndex] = 1;
+            UBOOL Now = XboxControlButtonDown( Pad, Button, AnalogThreshold );
+            UBOOL Prev = XboxControlButtonDown( PrevControllerState.Gamepad, Button, AnalogThreshold );
+            if( Now )
+                AnyWheelNow = 1;
+            if( Now && !Prev )
+                GXboxWeaponWheelPressTime[WheelViewportIndex][Button] = NowSeconds;
+            if( Now && (NowSeconds - GXboxWeaponWheelPressTime[WheelViewportIndex][Button]) >= HoldSeconds )
+                GXboxWeaponWheelActive[WheelViewportIndex] = 1;
+        }
 
         if( GXboxWeaponWheelActive[WheelViewportIndex] )
         {
-            GXboxWeaponWheelFocus[WheelViewportIndex] = XboxWeaponWheelSlotFromStick( Pad, GXboxWeaponWheelFocus[WheelViewportIndex] );
+            GXboxWeaponWheelFocus[WheelViewportIndex] = XboxWeaponWheelSlotFromStick( Client, Pad, GXboxWeaponWheelFocus[WheelViewportIndex] );
         }
 
-        if( GXboxWeaponWheelActive[WheelViewportIndex] && !WhiteNow && !BlackNow )
+        if( GXboxWeaponWheelActive[WheelViewportIndex] && !AnyWheelNow )
         {
             INT ChosenSlot = Clamp<INT>( GXboxWeaponWheelFocus[WheelViewportIndex], 0, ARRAY_COUNT(GXboxWeaponWheelSlots)-1 );
             GXboxWeaponWheelActive[WheelViewportIndex] = 0;
@@ -10333,10 +13502,18 @@ void UXboxViewport::ProcessControllerInput( const XINPUT_GAMEPAD& Pad )
         }
         else if( !GXboxWeaponWheelActive[WheelViewportIndex] )
         {
-            if( WhitePrev && !WhiteNow && (NowSeconds - GXboxWeaponWheelPressTime[WheelViewportIndex][0]) < HoldSeconds )
-                XboxWeaponCycle( this, Player, 0 );
-            if( BlackPrev && !BlackNow && (NowSeconds - GXboxWeaponWheelPressTime[WheelViewportIndex][1]) < HoldSeconds )
-                XboxWeaponCycle( this, Player, 1 );
+            for( INT Button=0; Button<XCB_Count; Button++ )
+            {
+                INT Action = XboxControlButtonAction( Client, Button );
+                const FXboxControlActionInfo& ActionInfo = GXboxControlActions[Action];
+                if( !ActionInfo.bWheelHold || ActionInfo.CycleDir == 0 )
+                    continue;
+
+                UBOOL Now = XboxControlButtonDown( Pad, Button, AnalogThreshold );
+                UBOOL Prev = XboxControlButtonDown( PrevControllerState.Gamepad, Button, AnalogThreshold );
+                if( Prev && !Now && (NowSeconds - GXboxWeaponWheelPressTime[WheelViewportIndex][Button]) < HoldSeconds )
+                    XboxWeaponCycle( this, Player, ActionInfo.CycleDir > 0 );
+            }
         }
     }
 
@@ -10361,8 +13538,6 @@ void UXboxViewport::ProcessControllerInput( const XINPUT_GAMEPAD& Pad )
         { XINPUT_GAMEPAD_DPAD_DOWN,   IK_JoyPovDown },
         { XINPUT_GAMEPAD_DPAD_LEFT,   IK_JoyPovLeft },
         { XINPUT_GAMEPAD_DPAD_RIGHT,  IK_JoyPovRight },
-        { XINPUT_GAMEPAD_BACK,        IK_Tab },        // Scoreboard
-        { XINPUT_GAMEPAD_RIGHT_THUMB, IK_Joy6 },       // Center view
     };
 
     WORD CurDigital  = Pad.wButtons;
@@ -10388,32 +13563,6 @@ void UXboxViewport::ProcessControllerInput( const XINPUT_GAMEPAD& Pad )
         }
     }
 
-    // ---- Analog buttons (bAnalogButtons[0..7], 0-255 value, index not bitmask) ----
-    // X remains use/activate. White/Black tap-cycle weapons and hold the
-    // weapon wheel; Y is dodge.
-    struct FAnalogBtnMap { INT Index; EInputKey Key; };
-    static const FAnalogBtnMap AnalogMap[] =
-    {
-        { XINPUT_GAMEPAD_X,              IK_Enter },      // Use / accept
-    };
-
-    for( INT i = 0; i < ARRAY_COUNT(AnalogMap); i++ )
-    {
-        UBOOL Now  = Pad.bAnalogButtons[AnalogMap[i].Index] > AnalogThreshold;
-        UBOOL Prev = PrevControllerState.Gamepad.bAnalogButtons[AnalogMap[i].Index] > AnalogThreshold;
-        if( Now != Prev )
-        {
-            if( InputLogCount < 32 )
-            {
-                InputLogCount++;
-                GXboxLog.Write( "XINPUT analog #%d index=%d value=%d key=%d action=%d",
-                    InputLogCount, AnalogMap[i].Index, Pad.bAnalogButtons[AnalogMap[i].Index],
-                    AnalogMap[i].Key, Now ? IST_Press : IST_Release );
-            }
-            Client->Engine->InputEvent( this, AnalogMap[i].Key, Now ? IST_Press : IST_Release, 0.0f );
-        }
-    }
-
     // ---- Analog sticks ----
     // WinDrv feeds Unreal a normalized joystick delta multiplied by the
     // configured joystick scale (Default.ini: ScaleXYZ=1000, ScaleRUV=2000).
@@ -10425,13 +13574,20 @@ void UXboxViewport::ProcessControllerInput( const XINPUT_GAMEPAD& Pad )
         DeadZone = 0.95f;
     FLOAT Sensitivity = Client->ControllerSensitivity;
 
-    // Left stick: movement (IK_JoyX = strafe, IK_JoyY = forward/back).
-    FLOAT LX = XboxStickAxis( Pad.sThumbLX, DeadZone ) * Client->ScaleXYZ * Sensitivity;
-    FLOAT LY = XboxStickAxis( Pad.sThumbLY, DeadZone ) * Client->ScaleXYZ * Sensitivity;
+    FLOAT LeftX = XboxStickAxis( Pad.sThumbLX, DeadZone );
+    FLOAT LeftY = XboxStickAxis( Pad.sThumbLY, DeadZone );
+    FLOAT RightX = XboxStickAxis( Pad.sThumbRX, DeadZone );
+    FLOAT RightY = XboxStickAxis( Pad.sThumbRY, DeadZone );
+    FLOAT MoveX = 0.0f;
+    FLOAT MoveY = 0.0f;
+    FLOAT LookX = 0.0f;
+    FLOAT LookY = 0.0f;
+    XboxStickLayoutAxes( Client->StickLayout, LeftX, LeftY, RightX, RightY, MoveX, MoveY, LookX, LookY );
 
-    // Right stick: look (IK_JoyU = yaw, IK_JoyV = pitch).
-    FLOAT RX = XboxStickAxis( Pad.sThumbRX, DeadZone ) * Client->ScaleRUV * Sensitivity;
-    FLOAT RY = XboxStickAxis( Pad.sThumbRY, DeadZone ) * Client->ScaleRUV * Sensitivity;
+    FLOAT LX = MoveX * Client->ScaleXYZ * Sensitivity;
+    FLOAT LY = MoveY * Client->ScaleXYZ * Sensitivity;
+    FLOAT RX = LookX * Client->ScaleRUV * Sensitivity;
+    FLOAT RY = LookY * Client->ScaleRUV * Sensitivity;
     if( GXboxWeaponWheelActive[WheelViewportIndex] )
     {
         RX = 0.0f;
@@ -10448,37 +13604,45 @@ void UXboxViewport::ProcessControllerInput( const XINPUT_GAMEPAD& Pad )
         FLOAT OldTurn    = Player->aTurn;
         FLOAT OldLookUp  = Player->aLookUp;
 
-        UBOOL FaceFireLayout = Client->ButtonLayout == 2;
-        UBOOL FireNow =
-            Pad.bAnalogButtons[XINPUT_GAMEPAD_RIGHT_TRIGGER] > AnalogThreshold
-        ||  (FaceFireLayout && Pad.bAnalogButtons[XINPUT_GAMEPAD_A] > AnalogThreshold);
-        UBOOL FirePrev =
-            PrevControllerState.Gamepad.bAnalogButtons[XINPUT_GAMEPAD_RIGHT_TRIGGER] > AnalogThreshold
-        ||  (FaceFireLayout && PrevControllerState.Gamepad.bAnalogButtons[XINPUT_GAMEPAD_A] > AnalogThreshold);
-        UBOOL AltFireNow =
-            Pad.bAnalogButtons[XINPUT_GAMEPAD_LEFT_TRIGGER] > AnalogThreshold;
-        UBOOL AltFirePrev =
-            PrevControllerState.Gamepad.bAnalogButtons[XINPUT_GAMEPAD_LEFT_TRIGGER] > AnalogThreshold;
-        UBOOL DuckNow = Pad.bAnalogButtons[XINPUT_GAMEPAD_B] > AnalogThreshold;
-        UBOOL DuckPrev = PrevControllerState.Gamepad.bAnalogButtons[XINPUT_GAMEPAD_B] > AnalogThreshold;
-        UBOOL JumpNow = FaceFireLayout
-            ? Pad.bAnalogButtons[XINPUT_GAMEPAD_RIGHT_TRIGGER] > AnalogThreshold
-            : Pad.bAnalogButtons[XINPUT_GAMEPAD_A] > AnalogThreshold;
-        UBOOL JumpPrev = FaceFireLayout
-            ? PrevControllerState.Gamepad.bAnalogButtons[XINPUT_GAMEPAD_RIGHT_TRIGGER] > AnalogThreshold
-            : PrevControllerState.Gamepad.bAnalogButtons[XINPUT_GAMEPAD_A] > AnalogThreshold;
-        UBOOL DodgeNow = Pad.bAnalogButtons[XINPUT_GAMEPAD_Y] > AnalogThreshold;
-        UBOOL DodgePrev = PrevControllerState.Gamepad.bAnalogButtons[XINPUT_GAMEPAD_Y] > AnalogThreshold;
+        UBOOL FireNow = 0;
+        UBOOL FirePrev = 0;
+        UBOOL AltFireNow = 0;
+        UBOOL AltFirePrev = 0;
+        UBOOL DuckNow = 0;
+        UBOOL JumpNow = 0;
+
+        for( INT Button=0; Button<XCB_Count; Button++ )
+        {
+            INT Action = XboxControlButtonAction( Client, Button );
+            const FXboxControlActionInfo& ActionInfo = GXboxControlActions[Action];
+            UBOOL Now = XboxControlButtonDown( Pad, Button, AnalogThreshold );
+            UBOOL Prev = XboxControlButtonDown( PrevControllerState.Gamepad, Button, AnalogThreshold );
+
+            if( ActionInfo.bReadyFire )
+            {
+                FireNow = FireNow || Now;
+                FirePrev = FirePrev || Prev;
+            }
+            if( ActionInfo.bReadyAltFire )
+            {
+                AltFireNow = AltFireNow || Now;
+                AltFirePrev = AltFirePrev || Prev;
+            }
+            if( Action == XCA_Duck )
+                DuckNow = DuckNow || Now;
+            if( Action == XCA_Jump )
+                JumpNow = JumpNow || Now;
+
+            if( ActionInfo.Key != IK_None && !(GXboxWeaponWheelActive[WheelViewportIndex] && ActionInfo.Key == IK_Tab) )
+                XboxSendGameplayButton( this, ActionInfo.Key, Now, Prev );
+            if( ActionInfo.bDodge && Now && !Prev )
+                XboxTriggerDodge( Client, Player, Pad );
+        }
+
         UBOOL FireEdge = FireNow && !FirePrev;
         UBOOL AltFireEdge = AltFireNow && !AltFirePrev;
 
-        XboxSendGameplayButton( this, IK_Joy1, FireNow, FirePrev );
-        XboxSendGameplayButton( this, IK_Joy2, JumpNow, JumpPrev );
-        XboxSendGameplayButton( this, IK_Joy3, AltFireNow, AltFirePrev );
-        XboxSendGameplayButton( this, IK_Joy4, DuckNow, DuckPrev );
         XboxTournamentHandleReadyInput( this, FireEdge, AltFireEdge );
-        if( DodgeNow && !DodgePrev )
-            XboxTriggerDodge( Player, Pad );
         if( FireNow || AltFireNow )
             Player->bReadyToPlay = 1;
 
@@ -10536,9 +13700,17 @@ UBOOL UXboxViewport::Lock( FPlane FlashScale, FPlane FlashFog, FPlane ScreenClea
                             DWORD RenderLockFlags, BYTE* HitData, INT* HitSize )
 {
     guard(UXboxViewport::Lock);
+    INT LockX = ViewX;
+    INT LockY = ViewY;
     INT LockW = ViewWidth  > 0 ? ViewWidth  : SizeX;
     INT LockH = ViewHeight > 0 ? ViewHeight : SizeY;
-    XboxRenderSetPendingViewRegion( ViewX, ViewY, Max<INT>( LockW, 1 ), Max<INT>( LockH, 1 ) );
+    if( !GXboxSplitActive && !bXboxSplitDummy )
+    {
+        UXboxClient* Client = Cast<UXboxClient>( GetOuter() );
+        if( Client )
+            XboxViewportApplySafeArea( Client, LockX, LockY, LockW, LockH );
+    }
+    XboxRenderSetPendingViewRegion( LockX, LockY, Max<INT>( LockW, 1 ), Max<INT>( LockH, 1 ) );
     return Super::Lock( FlashScale, FlashFog, ScreenClear, RenderLockFlags, HitData, HitSize );
     unguard;
 }
@@ -10574,9 +13746,14 @@ void UXboxViewport::UpdateInput( UBOOL Reset )
         return;
     XboxSplitSmokeFeedInput( this );
     PollController();
+    XboxMenuApplyPendingMatchRules( this );
     XboxTournamentSmokeTick( this );
+    XboxMenuProofSmokeTick( this );
     XboxMenuSmokeTick( this );
     XboxSoakSmokeTick( this );
+    XboxIssueMapSmokeTick( this );
+    XboxSafeAreaProofSmokeTick( this );
+    XboxInstantRulesProofSmokeTick( this );
     XboxSystemLinkSmokeTick( this );
     unguard;
 }

@@ -17,7 +17,7 @@ CTF-Titania
 
 DM-HangEmHigh
 - Map author: jkcrmptn
-- This map is a Unreal Tournament remake of Hang 'Em High from Halo: Combat
+- This map is an Unreal Tournament remake of Hang 'Em High from Halo: Combat
   Evolved multiplayer.
 - The original Hang 'Em High map, Halo, and related Halo content are credited
   to Bungie and Microsoft.

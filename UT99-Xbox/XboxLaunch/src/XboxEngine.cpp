@@ -316,6 +316,7 @@ void MainLoop( UEngine* Engine )
 	UBOOL bXboxSoakEnabled = XboxSmokeLoadMapList( XboxSoakURLs );
 	UBOOL bXboxSoakTravelScheduled = 0;
 	UBOOL bXboxStartSmokeEnabled = bXboxSoakEnabled || (GetFileAttributesA( "D:\\XboxStartURL.ini" ) != 0xFFFFFFFF);
+	UBOOL bXboxCharacterSoakEnabled = GetFileAttributesA( "D:\\XboxCharacterSoak.ini" ) != 0xFFFFFFFF;
 	UBOOL bXboxSmokeMatchEndLogged = 0;
 
 	GXboxLog.Write( "MainLoop: entering game loop (Engine=0x%08X)", (DWORD)Engine );
@@ -424,7 +425,7 @@ void MainLoop( UEngine* Engine )
 					PawnCount++;
 					if( Cast<APlayerPawn>(Pawn) )
 						PlayerPawnCount++;
-					if( Pawn->GetClass() && appStricmp( Pawn->GetClass()->GetName(), TEXT("Bot") ) == 0 )
+					if( Pawn->PlayerReplicationInfo && Pawn->PlayerReplicationInfo->bIsABot )
 						BotPawnCount++;
 				}
 
@@ -510,6 +511,30 @@ void MainLoop( UEngine* Engine )
 						TCHAR_TO_ANSI(*EndedComment) );
 					if( MatchStats.ScoreSummary[0] )
 						GXboxLog.Write( "SMOKE scores tick=%d %s", TickCount, MatchStats.ScoreSummary );
+					if( bXboxCharacterSoakEnabled )
+					{
+						for( APawn* Pawn = Level->GetLevelInfo()->PawnList; Pawn; Pawn = Pawn->nextPawn )
+						{
+							APlayerReplicationInfo* PRI = Pawn->PlayerReplicationInfo;
+							if( !PRI || !PRI->bIsABot )
+								continue;
+
+							GXboxLog.Write( "XCHAR tick=%d name=%s class=%s mesh=%s skin=%s multi0=%s multi1=%s multi2=%s multi3=%s team=%d score=%.0f deaths=%.0f availKB=%d",
+								TickCount,
+								TCHAR_TO_ANSI(*PRI->PlayerName),
+								Pawn->GetClass() ? TCHAR_TO_ANSI(Pawn->GetClass()->GetFullName()) : "(none)",
+								Pawn->Mesh ? TCHAR_TO_ANSI(Pawn->Mesh->GetFullName()) : "(none)",
+								Pawn->Skin ? TCHAR_TO_ANSI(Pawn->Skin->GetFullName()) : "(none)",
+								Pawn->MultiSkins[0] ? TCHAR_TO_ANSI(Pawn->MultiSkins[0]->GetFullName()) : "(none)",
+								Pawn->MultiSkins[1] ? TCHAR_TO_ANSI(Pawn->MultiSkins[1]->GetFullName()) : "(none)",
+								Pawn->MultiSkins[2] ? TCHAR_TO_ANSI(Pawn->MultiSkins[2]->GetFullName()) : "(none)",
+								Pawn->MultiSkins[3] ? TCHAR_TO_ANSI(Pawn->MultiSkins[3]->GetFullName()) : "(none)",
+								(INT)PRI->Team,
+								PRI->Score,
+								PRI->Deaths,
+								MemStatus.dwAvailPhys / 1024 );
+						}
+					}
 					if( bForceMatchEndLog )
 					{
 						GXboxLog.Write( "SMOKE match-ended tick=%d url=%s rem=%d elapsed=%d pri=%d priBots=%d teams=%d/%d/%d/%d teamScore=%.0f/%.0f/%.0f/%.0f comment=%s",

@@ -30,6 +30,16 @@ XboxNewLegends/
 /UT99-Xbox/MusicXbox/
 /UT99-Xbox/SmokeProofs/
 /UT99-Xbox/MenuAssets/character_portrait_src/*.png
+!/UT99-Xbox/MenuAssets/character_portrait_src/char_baetal.png
+!/UT99-Xbox/MenuAssets/character_portrait_src/char_berserker.png
+!/UT99-Xbox/MenuAssets/character_portrait_src/char_disconnect.png
+!/UT99-Xbox/MenuAssets/character_portrait_src/char_dominator.png
+!/UT99-Xbox/MenuAssets/character_portrait_src/char_firewall.png
+!/UT99-Xbox/MenuAssets/character_portrait_src/char_guardian.png
+!/UT99-Xbox/MenuAssets/character_portrait_src/char_masterchief.png
+!/UT99-Xbox/MenuAssets/character_portrait_src/char_pharoh.png
+!/UT99-Xbox/MenuAssets/character_portrait_src/char_skaarj_boss.png
+!/UT99-Xbox/MenuAssets/character_portrait_src/char_skrilax.png
 /UT99-Xbox/MenuAssets/ut_logo.png
 /UT99-Xbox/CTF-Face_Screenshot.png
 /Unreal Tournament Xbox UI mockup.zip

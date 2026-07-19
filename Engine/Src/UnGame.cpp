@@ -205,7 +205,17 @@ static void SanitizeXboxDefaultPlayerURLConfig()
 		||	appStricmp( Class, TEXT("MultiMesh.TSkaarj") ) == 0
 		||	appStricmp( Class, TEXT("MultiMesh.TNali") ) == 0
 		||	appStricmp( Class, TEXT("MultiMesh.TCow") ) == 0
-		||	appStricmp( Class, TEXT("HaloMasterChief.HaloMasterChief") ) == 0 );
+		||	appStricmp( Class, TEXT("HaloMasterChief.HaloMasterChief") ) == 0
+		||	appStricmp( Class, TEXT("UTPS2Characters.DamienPS2") ) == 0
+		||	appStricmp( Class, TEXT("UTPS2Characters.SkaarjBossPS2") ) == 0
+		||	appStricmp( Class, TEXT("UTPS2Characters.WarbossPS2") ) == 0
+		||	appStricmp( Class, TEXT("UTPS2Characters.XanPS2") ) == 0 );
+	UBOOL bXboxFaceOptional =
+		bKnownXboxClass
+	&&	( appStricmp( Class, TEXT("Botpack.TBoss") ) == 0
+		|| appStricmp( Class, TEXT("UTPS2Characters.DamienPS2") ) == 0
+		|| appStricmp( Class, TEXT("UTPS2Characters.WarbossPS2") ) == 0
+		|| appStricmp( Class, TEXT("UTPS2Characters.XanPS2") ) == 0 );
 
 	if( !Class || !Class[0] || !bKnownXboxClass )
 	{
@@ -216,25 +226,28 @@ static void SanitizeXboxDefaultPlayerURLConfig()
 		GConfig->SetString( TEXT("DefaultPlayer"), TEXT("Team"), TEXT("255"), TEXT("User.ini") );
 		bChanged = 1;
 	}
-	if( !Skin || !Skin[0] )
+	else
 	{
-		GConfig->SetString( TEXT("DefaultPlayer"), TEXT("Skin"), TEXT("SoldierSkins.blkt"), TEXT("User.ini") );
-		bChanged = 1;
-	}
-	if( !Face || !Face[0] )
-	{
-		GConfig->SetString( TEXT("DefaultPlayer"), TEXT("Face"), TEXT("SoldierSkins.Othello"), TEXT("User.ini") );
-		bChanged = 1;
-	}
-	if( !Voice || !Voice[0] )
-	{
-		GConfig->SetString( TEXT("DefaultPlayer"), TEXT("Voice"), TEXT("BotPack.VoiceMaleTwo"), TEXT("User.ini") );
-		bChanged = 1;
-	}
-	if( !Team || !Team[0] )
-	{
-		GConfig->SetString( TEXT("DefaultPlayer"), TEXT("Team"), TEXT("255"), TEXT("User.ini") );
-		bChanged = 1;
+		if( !Skin || !Skin[0] )
+		{
+			GConfig->SetString( TEXT("DefaultPlayer"), TEXT("Skin"), TEXT("SoldierSkins.blkt"), TEXT("User.ini") );
+			bChanged = 1;
+		}
+		if( (!Face || !Face[0]) && !bXboxFaceOptional )
+		{
+			GConfig->SetString( TEXT("DefaultPlayer"), TEXT("Face"), TEXT("SoldierSkins.Othello"), TEXT("User.ini") );
+			bChanged = 1;
+		}
+		if( !Voice || !Voice[0] )
+		{
+			GConfig->SetString( TEXT("DefaultPlayer"), TEXT("Voice"), TEXT("BotPack.VoiceMaleTwo"), TEXT("User.ini") );
+			bChanged = 1;
+		}
+		if( !Team || !Team[0] )
+		{
+			GConfig->SetString( TEXT("DefaultPlayer"), TEXT("Team"), TEXT("255"), TEXT("User.ini") );
+			bChanged = 1;
+		}
 	}
 
 	if( bChanged )

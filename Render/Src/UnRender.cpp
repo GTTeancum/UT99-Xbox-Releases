@@ -2898,6 +2898,17 @@ void URender::DrawFrame( FSceneNode* Frame )
 	guard(URender::DrawFrame);
 	UViewport* Viewport = Frame->Viewport;
 	UModel*	   Model    = Frame->Level->Model;
+	if( Frame->Parent && Model->Nodes.Num()==0 )
+	{
+#if TARGET_XBOX
+		static INT EmptyChildLogCount = 0;
+		if( EmptyChildLogCount++ < 8 )
+			debugf( NAME_Log, TEXT("XRENDER skip empty child frame level=%s recursion=%d zone=%d"),
+				Frame->Level && Frame->Level->GetOuter() ? Frame->Level->GetOuter()->GetName() : TEXT("None"),
+				Frame->Recursion, Frame->ZoneNumber );
+#endif
+		return;
+	}
 	check(Model->Nodes.Num()>0);
 	//FLOAT LodBias = appTan( Frame->Viewport->Actor->FovAngle*(PI/360.f) );
 

@@ -23,6 +23,10 @@ void UAnimation::Serialize( FArchive& Ar )
 
 #if TARGET_XBOX
 	if( Ar.IsLoading() )
+	{
+		const INT LoadedBoneCount = RefBones.Num();
+		const INT LoadedMoveCount = Moves.Num();
+
 		debugf
 		(
 			NAME_Log,
@@ -32,6 +36,21 @@ void UAnimation::Serialize( FArchive& Ar )
 			Moves.Num(),
 			AnimSeqs.Num()
 		);
+
+		// Xbox skeletal meshes render their bind pose and retain only sequence metadata.
+		RefBones.Empty();
+		Moves.Empty();
+
+		debugf
+		(
+			NAME_Log,
+			TEXT("XAnimation discard %s bones=%i moves=%i retainedSeqs=%i"),
+			GetFullName(),
+			LoadedBoneCount,
+			LoadedMoveCount,
+			AnimSeqs.Num()
+		);
+	}
 #endif
 
 	unguardobj;

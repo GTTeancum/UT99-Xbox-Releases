@@ -2395,7 +2395,16 @@ void UObject::EndLoad()
 			INT OriginalNum = GObjLoaded.Num();
 			for( INT i=0; i<GObjLoaded.Num(); i++ )
 				GObjLoaded(i)->ConditionalPostLoad();
+			#if TARGET_XBOX
+			if( GObjLoaded.Num() != OriginalNum )
+			{
+				debugf( NAME_Warning, TEXT("Xbox PostLoad queue expanded original=%i final=%i"), OriginalNum, GObjLoaded.Num() );
+				for( INT i=OriginalNum; i<GObjLoaded.Num(); i++ )
+					debugf( NAME_Warning, TEXT("Xbox PostLoad appended %s flags=0x%08x"), *GObjLoaded(i)->GetFullName(), GObjLoaded(i)->GetFlags() );
+			}
+			#else
 			check(GObjLoaded.Num()==OriginalNum);
+			#endif
 			GObjLoaded.Empty();
 			unguard;
 

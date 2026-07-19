@@ -1,0 +1,12 @@
+xps.1.1
+
+tex t0
+
+mul r0.rgb, t0, t0
+sub r1.rgb, t0, r0
+mad r0.rgb, r1, c0, r0
+mad r0.rgb, r1, c1, r0
+mul_x2 r0.rgb, r0, c2
+add r0.rgb, r0, c3
+
+xfc zero, zero, zero, r0_sat, zero, zero, t0.a

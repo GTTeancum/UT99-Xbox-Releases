@@ -7,6 +7,8 @@ extern "C" void XboxSplitTryActivate( UClient* Client );
 extern "C" void XboxSplitTickDummies( UClient* Client );
 extern "C" UBOOL XboxSplitShouldRenderViewport( UViewport* Viewport, INT ViewportIndex );
 extern "C" void XboxSplitClearUnusedRenderRegions( UClient* Client );
+extern "C" void XboxProfileApplyClientConfig( UXboxClient* Client );
+extern "C" void XboxRenderSetDisplayCalibration( FLOAT Brightness, FLOAT Contrast, FLOAT Gamma );
 
 static INT XboxClientClampAction( INT Action, INT DefaultAction )
 {
@@ -27,6 +29,8 @@ void UXboxClient::StaticConstructor()
     new(GetClass(),TEXT("SafeAreaSize"),           RF_Public) UIntProperty  (CPP_PROPERTY(SafeAreaSize),          TEXT("Display"), CPF_Config);
     new(GetClass(),TEXT("SafeAreaX"),              RF_Public) UIntProperty  (CPP_PROPERTY(SafeAreaX),             TEXT("Display"), CPF_Config);
     new(GetClass(),TEXT("SafeAreaY"),              RF_Public) UIntProperty  (CPP_PROPERTY(SafeAreaY),             TEXT("Display"), CPF_Config);
+    new(GetClass(),TEXT("Contrast"),               RF_Public) UFloatProperty(CPP_PROPERTY(DisplayContrast),       TEXT("Display"), CPF_Config);
+    new(GetClass(),TEXT("Gamma"),                  RF_Public) UFloatProperty(CPP_PROPERTY(DisplayGamma),          TEXT("Display"), CPF_Config);
     new(GetClass(),TEXT("ButtonActionA"),          RF_Public) UIntProperty  (CPP_PROPERTY(ButtonActionA),         TEXT("Display"), CPF_Config);
     new(GetClass(),TEXT("ButtonActionB"),          RF_Public) UIntProperty  (CPP_PROPERTY(ButtonActionB),         TEXT("Display"), CPF_Config);
     new(GetClass(),TEXT("ButtonActionX"),          RF_Public) UIntProperty  (CPP_PROPERTY(ButtonActionX),         TEXT("Display"), CPF_Config);
@@ -58,6 +62,9 @@ void UXboxClient::Init( UEngine* InEngine )
     SafeAreaSize          = 92;
     SafeAreaX             = 0;
     SafeAreaY             = 0;
+    Brightness            = 0.5f;
+    DisplayContrast       = 1.0f;
+    DisplayGamma          = 1.0f;
     ButtonActionA         = XCA_Jump;
     ButtonActionB         = XCA_Duck;
     ButtonActionX         = XCA_Use;
@@ -99,6 +106,9 @@ void UXboxClient::Init( UEngine* InEngine )
     SafeAreaSize = Clamp<INT>( SafeAreaSize, 85, 100 );
     SafeAreaX = Clamp<INT>( SafeAreaX, -48, 48 );
     SafeAreaY = Clamp<INT>( SafeAreaY, -36, 36 );
+    Brightness = Clamp<FLOAT>( Brightness, 0.0f, 1.0f );
+    DisplayContrast = Clamp<FLOAT>( DisplayContrast, 0.5f, 1.5f );
+    DisplayGamma = Clamp<FLOAT>( DisplayGamma, 0.5f, 2.0f );
     ButtonActionA = XboxClientClampAction( ButtonActionA, XCA_Jump );
     ButtonActionB = XboxClientClampAction( ButtonActionB, XCA_Duck );
     ButtonActionX = XboxClientClampAction( ButtonActionX, XCA_Use );
@@ -109,6 +119,8 @@ void UXboxClient::Init( UEngine* InEngine )
     ButtonActionBlack = XboxClientClampAction( ButtonActionBlack, XCA_NextWeaponWheel );
     ButtonActionBack = XboxClientClampAction( ButtonActionBack, XCA_Scoreboard );
     ButtonActionRightThumb = XboxClientClampAction( ButtonActionRightThumb, XCA_CenterView );
+    XboxProfileApplyClientConfig( this );
+    XboxRenderSetDisplayCalibration( Brightness, DisplayContrast, DisplayGamma );
 
     NumLocalPlayers       = 1;
     HasFocus              = 1;
@@ -124,8 +136,9 @@ void UXboxClient::Init( UEngine* InEngine )
     TextureLODSet[LODSET_World] = 0;
     TextureLODSet[LODSET_Skin]  = 0;
 
-    GXboxLog.Write( "XboxClient::Init: settings flashes=%d decals=%d dynLights=%d minFPS=%.1f scaleXYZ=%.1f scaleRUV=%.1f preset=%d stick=%d safeSize=%d safePos=%d,%d",
-        ScreenFlashes, Decals, NoDynamicLights, MinDesiredFrameRate, ScaleXYZ, ScaleRUV, ControlPreset, StickLayout, SafeAreaSize, SafeAreaX, SafeAreaY );
+    GXboxLog.Write( "XboxClient::Init: settings flashes=%d decals=%d dynLights=%d minFPS=%.1f scaleXYZ=%.1f scaleRUV=%.1f preset=%d stick=%d safeSize=%d safePos=%d,%d brightness=%.2f contrast=%.2f gamma=%.2f",
+        ScreenFlashes, Decals, NoDynamicLights, MinDesiredFrameRate, ScaleXYZ, ScaleRUV, ControlPreset, StickLayout, SafeAreaSize, SafeAreaX, SafeAreaY,
+        Brightness, DisplayContrast, DisplayGamma );
 
     PostEditChange();
     unguard;

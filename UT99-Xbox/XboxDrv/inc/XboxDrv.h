@@ -55,6 +55,8 @@ public:
     INT             SafeAreaSize;
     INT             SafeAreaX;
     INT             SafeAreaY;
+    FLOAT           DisplayContrast;
+    FLOAT           DisplayGamma;
     INT             ButtonActionA;
     INT             ButtonActionB;
     INT             ButtonActionX;

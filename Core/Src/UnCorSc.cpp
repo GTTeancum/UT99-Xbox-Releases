@@ -95,20 +95,37 @@ static UBOOL XboxDynamicLoadMayReturnNull( FFrame& Stack, UClass* Class, UBOOL b
 		return 1;
 
 	UFunction* Function = Cast<UFunction>( Stack.Node );
-	return Stack.Object
-	&&	Function
-	&&	XboxIsEngineTextureClass( Class )
-	&&	appStricmp( Function->GetName(), TEXT("SetSkinElement") )==0
-	&&	XboxClassIsOrChildNamed( Stack.Object->GetClass(), TEXT("Pawn") );
+	if( !Stack.Object || !Function || !XboxIsEngineTextureClass(Class) )
+		return 0;
+
+	if( ( appStricmp( Function->GetName(), TEXT("SetSkinElement") )==0
+		|| appStricmp( Function->GetName(), TEXT("SetMultiSkin") )==0 )
+	&&	XboxClassIsOrChildNamed( Stack.Object->GetClass(), TEXT("Pawn") ) )
+		return 1;
+
+	return ( appStricmp( Function->GetName(), TEXT("SetSkin") )==0
+		|| appStricmp( Function->GetName(), TEXT("LoadSkin") )==0 )
+	&&	( XboxClassIsOrChildNamed( Stack.Object->GetClass(), TEXT("GenericSkinInfo") )
+		|| XboxClassIsOrChildNamed( Stack.Object->GetClass(), TEXT("GenericPS2SkinInfo") ) );
 }
 
 static UBOOL XboxOptionalDynamicLoadExportIsMissing( const TCHAR* FullName, UClass* Class, UBOOL bTrace, FFrame& Stack )
 {
-	if( !FullName || !Class || appStrlen(FullName) >= 256 || !appStrchr(FullName,'.') )
+	if( !FullName || !Class || appStrlen(FullName) >= 256 )
 		return 0;
 
+	const TCHAR* FirstSeparator = appStrchr( FullName, '.' );
+	if( !FirstSeparator || FirstSeparator == FullName || !FirstSeparator[1] )
+	{
+		if( bTrace )
+			debugf( NAME_Log, TEXT("XDYNLOAD malformed optional miss obj=%s func=%s name=%s"),
+				Stack.Object ? Stack.Object->GetFullName() : TEXT("None"),
+				Stack.Node ? Stack.Node->GetFullName() : TEXT("None"),
+				FullName );
+		return 1;
+	}
 	TCHAR NameCopy[256];
-	appStrncpy( NameCopy, FullName, ARRAY_COUNT(NameCopy) );
+	appStrncpy( NameCopy, FirstSeparator + 1, ARRAY_COUNT(NameCopy) );
 
 	if( UObject::StaticFindObject( Class, NULL, FullName ) )
 		return 0;
@@ -119,12 +136,6 @@ static UBOOL XboxOptionalDynamicLoadExportIsMissing( const TCHAR* FullName, UCla
 	if( !FirstDot )
 		return 0;
 	*FirstDot = 0;
-
-	const TCHAR* LeafName = FullName;
-	while( appStrchr( LeafName, '.' ) )
-		LeafName = appStrchr( LeafName, '.' ) + 1;
-	if( !LeafName[0] )
-		return 0;
 
 	UPackage* TopPackage = UObject::CreatePackage( NULL, PackageName );
 	ULinkerLoad* Linker = NULL;
@@ -143,12 +154,36 @@ static UBOOL XboxOptionalDynamicLoadExportIsMissing( const TCHAR* FullName, UCla
 		return 1;
 	}
 
+	TCHAR* LeafName = NameCopy;
+	INT ExportPackageIndex = 0;
+	UBOOL bMissing = 0;
+	for( TCHAR* Separator=appStrchr(LeafName,'.'); Separator; Separator=appStrchr(LeafName,'.') )
+	{
+		*Separator = 0;
+		FName GroupName( LeafName, FNAME_Find );
+		UClass* PackageClass = UPackage::StaticClass();
+		INT GroupExportIndex = GroupName == NAME_None ? INDEX_NONE : Linker->FindExportIndex
+		(
+			PackageClass->GetFName(),
+			PackageClass->GetOuter()->GetFName(),
+			GroupName,
+			ExportPackageIndex
+		);
+		if( GroupExportIndex == INDEX_NONE )
+		{
+			bMissing = 1;
+			break;
+		}
+		ExportPackageIndex = GroupExportIndex + 1;
+		LeafName = Separator + 1;
+	}
+
 	FName ExportName( LeafName, FNAME_Find );
-	UBOOL bMissing = ExportName == NAME_None;
+	bMissing = bMissing || ExportName == NAME_None;
 	if( !bMissing )
 	{
 		const FName ClassPackageName = Class->GetOuter() ? Class->GetOuter()->GetFName() : NAME_None;
-		bMissing = Linker->FindExportIndex( Class->GetFName(), ClassPackageName, ExportName, INDEX_NONE ) == INDEX_NONE;
+		bMissing = Linker->FindExportIndex( Class->GetFName(), ClassPackageName, ExportName, ExportPackageIndex ) == INDEX_NONE;
 	}
 	if( bMissing && bTrace )
 		debugf( NAME_Log, TEXT("XDYNLOAD unloaded-package optional miss obj=%s func=%s name=%s package=%s object=%s"),

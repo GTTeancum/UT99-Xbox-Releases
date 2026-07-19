@@ -93,6 +93,16 @@ static FLOAT  GRD_DisplayFPS = 0.0f;
 static FLOAT  GRD_LastFrameMS = 0.0f;
 static FLOAT  GRD_LastRenderMS = 0.0f;
 static FLOAT  GRD_LastPresentMS = 0.0f;
+static FLOAT  GRD_DisplayBrightness = 0.5f;
+static FLOAT  GRD_DisplayContrast = 1.0f;
+static FLOAT  GRD_DisplayGamma = 1.0f;
+static UBOOL  GRD_DisplayCalibrationDirty = 1;
+static UBOOL  GRD_DisplayPostFailed = 0;
+static UBOOL  GRD_DisplayPostLogged = 0;
+static IDirect3DTexture8* GRD_DisplaySourceTexture = NULL;
+static DWORD  GRD_DisplayPixelShader = 0;
+static UINT   GRD_DisplaySourceW = 0;
+static UINT   GRD_DisplaySourceH = 0;
 static UBOOL  GRD_HasPendingLockViewport = 0;
 static INT    GRD_PendingLockX = 0;
 static INT    GRD_PendingLockY = 0;
@@ -130,6 +140,244 @@ enum { XBOX_UPLOAD_CHUNK_BYTES = 32 * 1024 };
 static BYTE GRD_UploadChunk[XBOX_UPLOAD_CHUNK_BYTES];
 
 static void XboxRenderFlushMenuRectBatch( UXboxRenderDevice* Ren, const char* Reason );
+
+// XDK 5558 pixel shader generated from DisplayCalibration.xps. It applies a
+// smooth gamma curve followed by exact contrast and brightness adjustment.
+static DWORD GRD_DisplayPixelShaderCode[] =
+{
+    0x00000000,
+    0x00000000, 0x00000000, 0x00000000, 0x00000000,
+    0x00000000, 0x00000000, 0x00000000, 0x0000000c,
+    0x00001880, 0x00000000, 0x00000000, 0x00000000,
+    0x00000000, 0x00000000, 0x00000000, 0x00000000,
+    0x00000000, 0x00000000, 0x00000000, 0x00000000,
+    0x00000000, 0x00000000, 0x00000000, 0x00000000,
+    0x00000000, 0x00000000, 0x00000000, 0x00000000,
+    0x00000000, 0x00000000, 0x00000000, 0x00000000,
+    0x00000000, 0xc8c80000, 0xc820cc40, 0xcdc120cc,
+    0xcdc120cc, 0xccc10000, 0xcc20c120, 0x00000000,
+    0x00000000, 0x00000000, 0x00000000, 0x00000000,
+    0x000000c0, 0x00000d00, 0x00000c00, 0x00000c00,
+    0x000100c0, 0x00000c00, 0x00000000, 0x00000000,
+    0x00011106, 0x00000001, 0x00000000, 0x00000000,
+    0xff3210ff, 0xffffffff, 0x000001ff
+};
+
+extern "C" void XboxRenderSetDisplayCalibration( FLOAT Brightness, FLOAT Contrast, FLOAT Gamma )
+{
+    Brightness = Clamp<FLOAT>( Brightness, 0.0f, 1.0f );
+    Contrast = Clamp<FLOAT>( Contrast, 0.5f, 1.5f );
+    Gamma = Clamp<FLOAT>( Gamma, 0.5f, 2.0f );
+
+    if( Abs(GRD_DisplayBrightness - Brightness) > 0.0001f ||
+        Abs(GRD_DisplayContrast - Contrast) > 0.0001f ||
+        Abs(GRD_DisplayGamma - Gamma) > 0.0001f )
+    {
+        GRD_DisplayBrightness = Brightness;
+        GRD_DisplayContrast = Contrast;
+        GRD_DisplayGamma = Gamma;
+        GRD_DisplayCalibrationDirty = 1;
+        GRD_DisplayPostLogged = 0;
+    }
+}
+
+static void XboxRenderApplyDisplayCalibration( UXboxRenderDevice* Ren )
+{
+    if( !Ren || !Ren->Device || !GRD_DisplayCalibrationDirty )
+        return;
+
+    D3DGAMMARAMP LinearRamp;
+    for( INT i=0; i<256; i++ )
+        LinearRamp.red[i] = LinearRamp.green[i] = LinearRamp.blue[i] = (BYTE)i;
+
+    GXboxLog.Write( "RCOLOR applying brightness=%.2f contrast=%.2f gamma=%.2f",
+        GRD_DisplayBrightness, GRD_DisplayContrast, GRD_DisplayGamma );
+    D3DDevice::SetGammaRamp( D3DSGR_IMMEDIATE, &LinearRamp );
+    GRD_DisplayCalibrationDirty = 0;
+    GXboxLog.Write( "RCOLOR applied brightness=%.2f contrast=%.2f gamma=%.2f",
+        GRD_DisplayBrightness, GRD_DisplayContrast, GRD_DisplayGamma );
+}
+
+static void XboxRenderReleaseDisplayCalibrationResources()
+{
+    if( GRD_DisplayPixelShader )
+    {
+        D3DDevice::DeletePixelShader( GRD_DisplayPixelShader );
+        GRD_DisplayPixelShader = 0;
+    }
+    if( GRD_DisplaySourceTexture )
+    {
+        GRD_DisplaySourceTexture->Release();
+        GRD_DisplaySourceTexture = NULL;
+    }
+    GRD_DisplaySourceW = 0;
+    GRD_DisplaySourceH = 0;
+}
+
+static UBOOL XboxRenderEnsureDisplayCalibrationResources( UXboxRenderDevice* Ren )
+{
+    if( !Ren || !Ren->Device || GRD_DisplayPostFailed )
+        return 0;
+    if( GRD_DisplaySourceTexture && GRD_DisplayPixelShader )
+        return 1;
+
+    GRD_DisplaySourceW = Ren->ActualBackBufferW;
+    GRD_DisplaySourceH = Ren->ActualBackBufferH;
+    HRESULT SourceResult = Ren->Device->CreateTexture(
+        GRD_DisplaySourceW, GRD_DisplaySourceH, 1, 0,
+        D3DFMT_LIN_X8R8G8B8, D3DPOOL_DEFAULT, &GRD_DisplaySourceTexture );
+    HRESULT ShaderResult = D3DDevice::CreatePixelShader(
+        (D3DPIXELSHADERDEF*)GRD_DisplayPixelShaderCode, &GRD_DisplayPixelShader );
+
+    if( FAILED(SourceResult) || FAILED(ShaderResult) ||
+        !GRD_DisplaySourceTexture || !GRD_DisplayPixelShader )
+    {
+        GXboxLog.Write( "RCOLOR post resource failure source=0x%08X shader=0x%08X",
+            (DWORD)SourceResult, (DWORD)ShaderResult );
+        XboxRenderReleaseDisplayCalibrationResources();
+        GRD_DisplayPostFailed = 1;
+        return 0;
+    }
+
+    GXboxLog.Write( "RCOLOR post resources ready frame=%ux%u source=%ux%u",
+        (unsigned)Ren->ActualBackBufferW, (unsigned)Ren->ActualBackBufferH,
+        (unsigned)GRD_DisplaySourceW, (unsigned)GRD_DisplaySourceH );
+    return 1;
+}
+
+static void XboxRenderApplyDisplayPostProcess( UXboxRenderDevice* Ren )
+{
+    if( !Ren || !Ren->Device || GRD_DisplayPostFailed )
+        return;
+
+    UBOOL Neutral = Abs(GRD_DisplayBrightness - 0.5f) < 0.0001f
+        && Abs(GRD_DisplayContrast - 1.0f) < 0.0001f
+        && Abs(GRD_DisplayGamma - 1.0f) < 0.0001f;
+    if( Neutral || !XboxRenderEnsureDisplayCalibrationResources(Ren) )
+        return;
+
+    IDirect3DSurface8* BackSurface = NULL;
+    IDirect3DSurface8* SourceSurface = NULL;
+    HRESULT BackResult = Ren->Device->GetBackBuffer( 0, D3DBACKBUFFER_TYPE_MONO, &BackSurface );
+    HRESULT SurfaceResult = GRD_DisplaySourceTexture->GetSurfaceLevel( 0, &SourceSurface );
+    HRESULT CopyResult = E_FAIL;
+    if( SUCCEEDED(BackResult) && BackSurface && SUCCEEDED(SurfaceResult) && SourceSurface )
+    {
+        RECT SourceRect;
+        SourceRect.left = 0;
+        SourceRect.top = 0;
+        SourceRect.right = (LONG)Ren->ActualBackBufferW;
+        SourceRect.bottom = (LONG)Ren->ActualBackBufferH;
+        POINT DestPoint;
+        DestPoint.x = 0;
+        DestPoint.y = 0;
+        CopyResult = Ren->Device->CopyRects( BackSurface, &SourceRect, 1, SourceSurface, &DestPoint );
+    }
+    if( SourceSurface ) SourceSurface->Release();
+    if( BackSurface ) BackSurface->Release();
+    if( FAILED(CopyResult) )
+    {
+        GXboxLog.Write( "RCOLOR post copy failure back=0x%08X surface=0x%08X copy=0x%08X",
+            (DWORD)BackResult, (DWORD)SurfaceResult, (DWORD)CopyResult );
+        GRD_DisplayPostFailed = 1;
+        return;
+    }
+
+    struct FDisplayVertex
+    {
+        FLOAT X, Y, Z, RHW;
+        FLOAT U, V;
+    };
+    FLOAT W = (FLOAT)Ren->ActualBackBufferW;
+    FLOAT H = (FLOAT)Ren->ActualBackBufferH;
+    FLOAT UMax = W;
+    FLOAT VMax = H;
+    FDisplayVertex Verts[4] =
+    {
+        { -0.5f,   -0.5f,   1.0f, 1.0f, 0.0f, 0.0f },
+        { W-0.5f,  -0.5f,   1.0f, 1.0f, UMax, 0.0f },
+        { W-0.5f,  H-0.5f,  1.0f, 1.0f, UMax, VMax },
+        { -0.5f,   H-0.5f,  1.0f, 1.0f, 0.0f, VMax }
+    };
+
+    Ren->Device->SetPixelShader( GRD_DisplayPixelShader );
+    Ren->Device->SetTexture( 0, GRD_DisplaySourceTexture );
+    Ren->Device->SetTexture( 1, NULL );
+    Ren->Device->SetTexture( 2, NULL );
+    D3DVIEWPORT8 FullViewport;
+    FullViewport.X = 0;
+    FullViewport.Y = 0;
+    FullViewport.Width = Ren->ActualBackBufferW;
+    FullViewport.Height = Ren->ActualBackBufferH;
+    FullViewport.MinZ = 0.0f;
+    FullViewport.MaxZ = 1.0f;
+    Ren->Device->SetViewport( &FullViewport );
+    FLOAT CurveBase = GRD_DisplayGamma <= 1.0f
+        ? Clamp<FLOAT>((GRD_DisplayGamma - 0.5f) * 2.0f, 0.0f, 1.0f)
+        : 1.0f;
+    FLOAT CurveExtra = GRD_DisplayGamma > 1.0f
+        ? Clamp<FLOAT>(GRD_DisplayGamma - 1.0f, 0.0f, 1.0f)
+        : 0.0f;
+    FLOAT ContrastHalf = GRD_DisplayContrast * 0.5f;
+    FLOAT Bias = (GRD_DisplayBrightness - 0.5f) + 0.5f * (1.0f - GRD_DisplayContrast);
+    FLOAT Constants[4][4] =
+    {
+        { CurveBase, CurveBase, CurveBase, CurveBase },
+        { CurveExtra, CurveExtra, CurveExtra, CurveExtra },
+        { ContrastHalf, ContrastHalf, ContrastHalf, ContrastHalf },
+        { Bias, Bias, Bias, Bias }
+    };
+    Ren->Device->SetPixelShaderConstant( 0, Constants, 4 );
+    Ren->Device->SetTextureStageState( 0, D3DTSS_MINFILTER, D3DTEXF_LINEAR );
+    Ren->Device->SetTextureStageState( 0, D3DTSS_MAGFILTER, D3DTEXF_LINEAR );
+    Ren->Device->SetTextureStageState( 0, D3DTSS_ADDRESSU, D3DTADDRESS_CLAMP );
+    Ren->Device->SetTextureStageState( 0, D3DTSS_ADDRESSV, D3DTADDRESS_CLAMP );
+    for( INT Stage=1; Stage<=2; Stage++ )
+    {
+        Ren->Device->SetTextureStageState( Stage, D3DTSS_MINFILTER, D3DTEXF_LINEAR );
+        Ren->Device->SetTextureStageState( Stage, D3DTSS_MAGFILTER, D3DTEXF_LINEAR );
+        Ren->Device->SetTextureStageState( Stage, D3DTSS_MIPFILTER, D3DTEXF_NONE );
+        Ren->Device->SetTextureStageState( Stage, D3DTSS_ADDRESSU, D3DTADDRESS_CLAMP );
+        Ren->Device->SetTextureStageState( Stage, D3DTSS_ADDRESSV, D3DTADDRESS_CLAMP );
+    }
+    Ren->Device->SetRenderState( D3DRS_ZENABLE, FALSE );
+    Ren->Device->SetRenderState( D3DRS_ZWRITEENABLE, FALSE );
+    Ren->Device->SetRenderState( D3DRS_ALPHATESTENABLE, FALSE );
+    Ren->Device->SetRenderState( D3DRS_ALPHABLENDENABLE, FALSE );
+    Ren->Device->SetRenderState( D3DRS_CULLMODE, D3DCULL_NONE );
+    Ren->Device->SetRenderState( D3DRS_FILLMODE, D3DFILL_SOLID );
+    Ren->Device->SetVertexShader( D3DFVF_XYZRHW | D3DFVF_TEX1 );
+
+    HRESULT BeginResult = Ren->Device->BeginScene();
+    HRESULT DrawResult = FAILED(BeginResult) ? BeginResult :
+        Ren->Device->DrawPrimitiveUP( D3DPT_QUADLIST, 1, Verts, sizeof(FDisplayVertex) );
+    HRESULT EndResult = SUCCEEDED(BeginResult) ? Ren->Device->EndScene() : BeginResult;
+
+    Ren->Device->SetPixelShader( NULL );
+    Ren->Device->SetTexture( 0, NULL );
+    Ren->Device->SetTexture( 1, NULL );
+    Ren->Device->SetTexture( 2, NULL );
+    Ren->Device->SetRenderState( D3DRS_ZENABLE, D3DZB_TRUE );
+    Ren->Device->SetRenderState( D3DRS_ZWRITEENABLE, TRUE );
+
+    appMemzero( Ren->CachedRenderStateValid, sizeof(Ren->CachedRenderStateValid) );
+    appMemzero( Ren->CachedTextureStageStateValid, sizeof(Ren->CachedTextureStageStateValid) );
+    Ren->CachedVertexShaderValid = 0;
+    Ren->BoundCacheID[0] = Ren->BoundCacheID[1] = 0;
+
+    if( FAILED(BeginResult) || FAILED(DrawResult) || FAILED(EndResult) )
+    {
+        GXboxLog.Write( "RCOLOR post draw failure begin=0x%08X draw=0x%08X end=0x%08X",
+            (DWORD)BeginResult, (DWORD)DrawResult, (DWORD)EndResult );
+        GRD_DisplayPostFailed = 1;
+    }
+    else if( !GRD_DisplayPostLogged )
+    {
+        GXboxLog.Write( "RCOLOR post active brightness=%.2f contrast=%.2f gamma=%.2f",
+            GRD_DisplayBrightness, GRD_DisplayContrast, GRD_DisplayGamma );
+        GRD_DisplayPostLogged = 1;
+    }
+}
 
 static HRESULT XboxRenderApplyViewport( IDirect3DDevice8* InDevice, INT X, INT Y, INT W, INT H, UINT BackBufferW, UINT BackBufferH )
 {
@@ -620,6 +868,9 @@ UBOOL UXboxRenderDevice::Init( UViewport* InViewport, INT NewX, INT NewY, INT Ne
     GXboxLog.Write( "XboxRender::Init: FlickerFilter(5) set" );
 
     DeviceCreated = 1;
+    GRD_DisplayCalibrationDirty = 1;
+    GRD_DisplayPostFailed = 0;
+    GRD_DisplayPostLogged = 0;
 
     // Back-buffer warm-up (TFE renderBackend_xbox.cpp:215-231): query the
     // back buffer's desc and release. This forces the device to fully realize
@@ -690,6 +941,7 @@ void UXboxRenderDevice::Exit()
     FlushTexCache();
 
     ReleaseDrawVertexBuffer();
+    XboxRenderReleaseDisplayCalibrationResources();
     if( DepthBuffer )  { DepthBuffer->Release();  DepthBuffer  = NULL; }
     if( BackBuffer )   { BackBuffer->Release();    BackBuffer   = NULL; }
     if( Device )       { Device->Release();        Device       = NULL; }
@@ -1334,6 +1586,8 @@ void UXboxRenderDevice::Unlock( UBOOL Blit )
     if( !Device )
         return;
 
+    XboxRenderApplyDisplayCalibration( this );
+
     XboxRenderFlushMenuRectBatch( this, "Unlock" );
     FlushDGPBatch( "Unlock" );
     FlushDTBatch( "Unlock" );
@@ -1367,6 +1621,8 @@ void UXboxRenderDevice::Unlock( UBOOL Blit )
     GRD_LastOp = "Unlock";
     DOUBLE BeforePresentSeconds = appSeconds();
     GRD_LastRenderMS = (FLOAT)((BeforePresentSeconds - GRD_FrameStartSeconds) * 1000.0);
+
+    XboxRenderApplyDisplayPostProcess( this );
 
     // Present(NULL,NULL,NULL,NULL) ??? exact call used by xQuake gl_fakegl.cpp:2567
     // and MS XDK samples. The retail Xbox D3D8 lib equates this to swap-chain

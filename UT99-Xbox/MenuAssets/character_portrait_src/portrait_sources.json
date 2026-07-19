@@ -1,0 +1,740 @@
+{
+  "downloaded": [
+    {
+      "portrait": "char_annaka.png",
+      "source_sha1": "8fce640a1d2790b233c9e4ab560fc6735225089a",
+      "source_url": "https://static.wikia.nocookie.net/unreal/images/6/66/Ut99-thundercrash-annaka-red.png/revision/latest?cb=20251213175130&path-prefix=en",
+      "visible_bbox": [
+        58,
+        19,
+        294,
+        668
+      ],
+      "wiki_title": "File:Ut99-thundercrash-annaka-red.png"
+    },
+    {
+      "portrait": "char_arkon.png",
+      "source_sha1": "143a43d879611856959fb35d10b9c2abfd792858",
+      "source_url": "https://static.wikia.nocookie.net/unreal/images/e/ef/Ut99-rawsteel-arkon-default.png/revision/latest?cb=20251213184646&path-prefix=en",
+      "visible_bbox": [
+        40,
+        26,
+        321,
+        655
+      ],
+      "wiki_title": "File:Ut99-rawsteel-arkon-default.png"
+    },
+    {
+      "portrait": "char_aryss.png",
+      "source_sha1": "84041635236355f54bbed369a6bb3a84f12514b6",
+      "source_url": "https://static.wikia.nocookie.net/unreal/images/8/8e/Ut99-thundercrash-aryss-red.png/revision/latest?cb=20251213175130&path-prefix=en",
+      "visible_bbox": [
+        58,
+        19,
+        294,
+        668
+      ],
+      "wiki_title": "File:Ut99-thundercrash-aryss-red.png"
+    },
+    {
+      "portrait": "char_atomiccow.png",
+      "source_sha1": "2d66a25fbfeb710b143f9315c2ce1a6e90b237f5",
+      "source_url": "https://static.wikia.nocookie.net/unreal/images/d/de/Ut99-naliwarcow-atomiccow-default.png/revision/latest?cb=20251213142846&path-prefix=en",
+      "visible_bbox": [
+        10,
+        96,
+        349,
+        599
+      ],
+      "wiki_title": "File:Ut99-naliwarcow-atomiccow-default.png"
+    },
+    {
+      "portrait": "char_blake.png",
+      "source_sha1": "26191524bf5600c7046fba69eab9db1d6d86cb4d",
+      "source_url": "https://static.wikia.nocookie.net/unreal/images/d/d0/Ut99-darkphalanx-blake-default.png/revision/latest?cb=20251213133415&path-prefix=en",
+      "visible_bbox": [
+        37,
+        19,
+        321,
+        667
+      ],
+      "wiki_title": "File:Ut99-darkphalanx-blake-default.png"
+    },
+    {
+      "portrait": "char_boris.png",
+      "source_sha1": "8865413f67c9255df59628226ada4397f8848847",
+      "source_url": "https://static.wikia.nocookie.net/unreal/images/e/e0/Ut99-bloodreavers-boris-blue.png/revision/latest?cb=20251213135850&path-prefix=en",
+      "visible_bbox": [
+        37,
+        19,
+        321,
+        667
+      ],
+      "wiki_title": "File:Ut99-bloodreavers-boris-blue.png"
+    },
+    {
+      "portrait": "char_cathode.png",
+      "source_sha1": "2e90516d4fc5c410dda720e386a230a511cdbb37",
+      "source_url": "https://static.wikia.nocookie.net/unreal/images/f/f5/Ut99-thecorrupt-cathode-default.png/revision/latest?cb=20251213173322&path-prefix=en",
+      "visible_bbox": [
+        58,
+        19,
+        294,
+        668
+      ],
+      "wiki_title": "File:Ut99-thecorrupt-cathode-default.png"
+    },
+    {
+      "portrait": "char_cilia.png",
+      "source_sha1": "049c296c9d302e4d808f80ab754c2b76b9517c4e",
+      "source_url": "https://static.wikia.nocookie.net/unreal/images/2/23/Ut99-venom-cilia-gold.png/revision/latest?cb=20251213175132&path-prefix=en",
+      "visible_bbox": [
+        58,
+        19,
+        294,
+        668
+      ],
+      "wiki_title": "File:Ut99-venom-cilia-gold.png"
+    },
+    {
+      "portrait": "char_cryss.png",
+      "source_sha1": "b623e4c2324b2064f00124509a6be4ae7f065494",
+      "source_url": "https://static.wikia.nocookie.net/unreal/images/0/0f/Ut99-blacklegion-cryss-default.png/revision/latest?cb=20251213162015&path-prefix=en",
+      "visible_bbox": [
+        58,
+        8,
+        307,
+        680
+      ],
+      "wiki_title": "File:Ut99-blacklegion-cryss-default.png"
+    },
+    {
+      "portrait": "char_damien.png",
+      "source_sha1": "87407d97941568959f367dd0b44fd5a80d28b5fa",
+      "source_url": "https://static.wikia.nocookie.net/unreal/images/8/88/Ut99-ps2-damien.png/revision/latest?cb=20251213143023&path-prefix=en",
+      "visible_bbox": [
+        31,
+        41,
+        343,
+        669
+      ],
+      "wiki_title": "File:Ut99-ps2-damien.png"
+    },
+    {
+      "portrait": "char_dominator_ps2.png",
+      "source_sha1": "ac8cf108e32946d82f9cd88262f1c87f660c2cd4",
+      "source_url": "https://static.wikia.nocookie.net/unreal/images/6/62/Ut99-ps2-dominator.png/revision/latest?cb=20251213143021&path-prefix=en",
+      "visible_bbox": [
+        6,
+        73,
+        354,
+        619
+      ],
+      "wiki_title": "File:Ut99-ps2-dominator.png"
+    },
+    {
+      "portrait": "char_freylis.png",
+      "source_sha1": "8ab5ddbe88dddc0f8b1186f868a7db9299bf3bef",
+      "source_url": "https://static.wikia.nocookie.net/unreal/images/a/a8/Ut99-blacklegion-freylis-green.png/revision/latest?cb=20251212214606&path-prefix=en",
+      "visible_bbox": [
+        88,
+        60,
+        274,
+        626
+      ],
+      "wiki_title": "File:Ut99-blacklegion-freylis-green.png"
+    },
+    {
+      "portrait": "char_fury.png",
+      "source_sha1": "2dfe3af28cb48dfdf5b37655fd30f432f18cfb6d",
+      "source_url": "https://static.wikia.nocookie.net/unreal/images/7/79/Ut99-thecorrupt-fury-default.png/revision/latest?cb=20251213173322&path-prefix=en",
+      "visible_bbox": [
+        58,
+        19,
+        294,
+        668
+      ],
+      "wiki_title": "File:Ut99-thecorrupt-fury-default.png"
+    },
+    {
+      "portrait": "char_gorn.png",
+      "source_sha1": "18eaa733905abaa72530fd47c3f2e7b1803a9927",
+      "source_url": "https://static.wikia.nocookie.net/unreal/images/0/08/Ut99-darkphalanx-gorn-default.png/revision/latest?cb=20251213133504&path-prefix=en",
+      "visible_bbox": [
+        37,
+        19,
+        321,
+        667
+      ],
+      "wiki_title": "File:Ut99-darkphalanx-gorn-default.png"
+    },
+    {
+      "portrait": "char_grail.png",
+      "source_sha1": "d7c82b651087bfbd7914476a071bfca399902a2b",
+      "source_url": "https://static.wikia.nocookie.net/unreal/images/c/c2/Ut99-blacklegion-grail-default.png/revision/latest?cb=20251213140159&path-prefix=en",
+      "visible_bbox": [
+        37,
+        19,
+        321,
+        667
+      ],
+      "wiki_title": "File:Ut99-blacklegion-grail-default.png"
+    },
+    {
+      "portrait": "char_graves.png",
+      "source_sha1": "0c96b557cfab4662c02388ccd05bbfe0284a43af",
+      "source_url": "https://static.wikia.nocookie.net/unreal/images/8/85/Ut99-bloodreavers-graves-default.png/revision/latest?cb=20251213135934&path-prefix=en",
+      "visible_bbox": [
+        37,
+        19,
+        321,
+        667
+      ],
+      "wiki_title": "File:Ut99-bloodreavers-graves-default.png"
+    },
+    {
+      "portrait": "char_isis.png",
+      "source_sha1": "7f8f73c811bbe1d8630fb1181bdce1182daed378",
+      "source_url": "https://static.wikia.nocookie.net/unreal/images/7/77/Ut99-metalguard-isis-blue.png/revision/latest?cb=20251213175132&path-prefix=en",
+      "visible_bbox": [
+        58,
+        19,
+        294,
+        668
+      ],
+      "wiki_title": "File:Ut99-metalguard-isis-blue.png"
+    },
+    {
+      "portrait": "char_jayce.png",
+      "source_sha1": "28dc3ca86ce334fcb8616c09d9808c763fe284c8",
+      "source_url": "https://static.wikia.nocookie.net/unreal/images/9/99/Ut99-bloodreavers-jayce-gold.png/revision/latest?cb=20251212215231&path-prefix=en",
+      "visible_bbox": [
+        88,
+        60,
+        274,
+        626
+      ],
+      "wiki_title": "File:Ut99-bloodreavers-jayce-gold.png"
+    },
+    {
+      "portrait": "char_johnson.png",
+      "source_sha1": "6e2ed8eda68501012ab1e929d4ae906959828067",
+      "source_url": "https://static.wikia.nocookie.net/unreal/images/2/28/Ut99-ironguard-johnson-default.png/revision/latest?cb=20251213184647&path-prefix=en",
+      "visible_bbox": [
+        40,
+        26,
+        321,
+        655
+      ],
+      "wiki_title": "File:Ut99-ironguard-johnson-default.png"
+    },
+    {
+      "portrait": "char_kragoth.png",
+      "source_sha1": "9d218ef2136560b6c7478b4c94cad368bb92593c",
+      "source_url": "https://static.wikia.nocookie.net/unreal/images/7/77/Ut99-blacklegion-kragoth-default.png/revision/latest?cb=20251213140222&path-prefix=en",
+      "visible_bbox": [
+        37,
+        19,
+        321,
+        667
+      ],
+      "wiki_title": "File:Ut99-blacklegion-kragoth-default.png"
+    },
+    {
+      "portrait": "char_kregore.png",
+      "source_sha1": "cac364b61bed54ed427fe0824721b0871a0417e5",
+      "source_url": "https://static.wikia.nocookie.net/unreal/images/0/04/Ut99-rawsteel-kregore-default.png/revision/latest?cb=20251213184647&path-prefix=en",
+      "visible_bbox": [
+        40,
+        26,
+        321,
+        655
+      ],
+      "wiki_title": "File:Ut99-rawsteel-kregore-default.png"
+    },
+    {
+      "portrait": "char_kyla.png",
+      "source_sha1": "6215be1ef1f022c1095930e6cc72e618320cadca",
+      "source_url": "https://static.wikia.nocookie.net/unreal/images/d/d1/Ut99-bloodreavers-kyla-gold.png/revision/latest?cb=20251213161551&path-prefix=en",
+      "visible_bbox": [
+        58,
+        8,
+        307,
+        680
+      ],
+      "wiki_title": "File:Ut99-bloodreavers-kyla-gold.png"
+    },
+    {
+      "portrait": "char_lauren.png",
+      "source_sha1": "c65ba7db1c900778ed2a43725c0b4c6736242617",
+      "source_url": "https://static.wikia.nocookie.net/unreal/images/5/5d/Ut99-ironguard-lauren-green.png/revision/latest?cb=20251213175126&path-prefix=en",
+      "visible_bbox": [
+        58,
+        19,
+        294,
+        668
+      ],
+      "wiki_title": "File:Ut99-ironguard-lauren-green.png"
+    },
+    {
+      "portrait": "char_lilith.png",
+      "source_sha1": "8e54f6e15458151d1b5978baa00e73e7901ecc2d",
+      "source_url": "https://static.wikia.nocookie.net/unreal/images/7/71/Ut99-thecorrupt-lilith-default.png/revision/latest?cb=20251213173322&path-prefix=en",
+      "visible_bbox": [
+        58,
+        19,
+        294,
+        668
+      ],
+      "wiki_title": "File:Ut99-thecorrupt-lilith-default.png"
+    },
+    {
+      "portrait": "char_luthor.png",
+      "source_sha1": "eefc64c10806bf41768d8a035a59abc9013a9fee",
+      "source_url": "https://static.wikia.nocookie.net/unreal/images/f/f3/Ut99-bloodreavers-luthor-blue.png/revision/latest?cb=20251212212752&path-prefix=en",
+      "visible_bbox": [
+        40,
+        14,
+        327,
+        669
+      ],
+      "wiki_title": "File:Ut99-bloodreavers-luthor-blue.png"
+    },
+    {
+      "portrait": "char_malcom.png",
+      "source_sha1": "492800b508332636a1d3902ddf238f7bcc08b9b5",
+      "source_url": "https://static.wikia.nocookie.net/unreal/images/e/e2/Ut99-thundercrash-malcom-default.png/revision/latest?cb=20251213184647&path-prefix=en",
+      "visible_bbox": [
+        40,
+        26,
+        321,
+        655
+      ],
+      "wiki_title": "File:Ut99-thundercrash-malcom-default.png"
+    },
+    {
+      "portrait": "char_malise.png",
+      "source_sha1": "138d1c50c897e5bab11ced2feea589f47085f9bd",
+      "source_url": "https://static.wikia.nocookie.net/unreal/images/5/58/Ut99-blacklegion-malise-blue.png/revision/latest?cb=20251213162132&path-prefix=en",
+      "visible_bbox": [
+        58,
+        8,
+        307,
+        680
+      ],
+      "wiki_title": "File:Ut99-blacklegion-malise-blue.png"
+    },
+    {
+      "portrait": "char_mariana.png",
+      "source_sha1": "f1ec402b24729afba9e7bcd2c02eea0bfc5cc65f",
+      "source_url": "https://static.wikia.nocookie.net/unreal/images/c/c9/Ut99-bloodreavers-mariana-red.png/revision/latest?cb=20251213161645&path-prefix=en",
+      "visible_bbox": [
+        58,
+        8,
+        307,
+        680
+      ],
+      "wiki_title": "File:Ut99-bloodreavers-mariana-red.png"
+    },
+    {
+      "portrait": "char_matrix.png",
+      "source_sha1": "c4010a23f761351ec162f71d085cf03db2b51cdf",
+      "source_url": "https://static.wikia.nocookie.net/unreal/images/4/4c/Ut99-thecorrupt-matrix-blue.png/revision/latest?cb=20251213185951&path-prefix=en",
+      "visible_bbox": [
+        40,
+        26,
+        321,
+        655
+      ],
+      "wiki_title": "File:Ut99-thecorrupt-matrix-blue.png"
+    },
+    {
+      "portrait": "char_othello.png",
+      "source_sha1": "de50014fe8e1e8baa95503e92da3c98c7d6c0365",
+      "source_url": "https://static.wikia.nocookie.net/unreal/images/9/96/Ut99-thundercrash-othello-default.png/revision/latest?cb=20251213184647&path-prefix=en",
+      "visible_bbox": [
+        40,
+        26,
+        321,
+        655
+      ],
+      "wiki_title": "File:Ut99-thundercrash-othello-default.png"
+    },
+    {
+      "portrait": "char_ouboudah.png",
+      "source_sha1": "b3f08f324c316a5e0308af9963d4e7699073109a",
+      "source_url": "https://static.wikia.nocookie.net/unreal/images/8/8e/Ut99-nali-ouboudah.png/revision/latest?cb=20251213143601&path-prefix=en",
+      "visible_bbox": [
+        44,
+        21,
+        328,
+        668
+      ],
+      "wiki_title": "File:Ut99-nali-ouboudah.png"
+    },
+    {
+      "portrait": "char_priest.png",
+      "source_sha1": "c24c4b68b8783113d59e079e20571e3597997701",
+      "source_url": "https://static.wikia.nocookie.net/unreal/images/6/6f/Ut99-nali-priest.png/revision/latest?cb=20251213143622&path-prefix=en",
+      "visible_bbox": [
+        44,
+        21,
+        328,
+        668
+      ],
+      "wiki_title": "File:Ut99-nali-priest.png"
+    },
+    {
+      "portrait": "char_ramirez.png",
+      "source_sha1": "fc7211794faf827c54211cc25aa2fac34f513822",
+      "source_url": "https://static.wikia.nocookie.net/unreal/images/6/63/Ut99-bloodreavers-ramirez-default.png/revision/latest?cb=20251213140125&path-prefix=en",
+      "visible_bbox": [
+        37,
+        19,
+        321,
+        667
+      ],
+      "wiki_title": "File:Ut99-bloodreavers-ramirez-default.png"
+    },
+    {
+      "portrait": "char_rampage.png",
+      "source_sha1": "afbfe8d1d8468a8299762c090a5a39879c25964d",
+      "source_url": "https://static.wikia.nocookie.net/unreal/images/9/92/Ut99-ps2-rampage.png/revision/latest?cb=20251213143023&path-prefix=en",
+      "visible_bbox": [
+        19,
+        41,
+        345,
+        655
+      ],
+      "wiki_title": "File:Ut99-ps2-rampage.png"
+    },
+    {
+      "portrait": "char_rankin.png",
+      "source_sha1": "347223877f5c94801db9081df437ea2f1145cc88",
+      "source_url": "https://static.wikia.nocookie.net/unreal/images/3/35/Ut99-ironguard-rankin-default.png/revision/latest?cb=20251213184647&path-prefix=en",
+      "visible_bbox": [
+        40,
+        26,
+        321,
+        655
+      ],
+      "wiki_title": "File:Ut99-ironguard-rankin-default.png"
+    },
+    {
+      "portrait": "char_riker.png",
+      "source_sha1": "b1f40739bb68fc3d844122ec61d316394e9898fa",
+      "source_url": "https://static.wikia.nocookie.net/unreal/images/0/0a/Ut99-thundercrash-riker-default.png/revision/latest?cb=20251213184644&path-prefix=en",
+      "visible_bbox": [
+        40,
+        26,
+        321,
+        655
+      ],
+      "wiki_title": "File:Ut99-thundercrash-riker-default.png"
+    },
+    {
+      "portrait": "char_sara.png",
+      "source_sha1": "aef17ba35345cf3533165e7fbb2cbc356c2fb996",
+      "source_url": "https://static.wikia.nocookie.net/unreal/images/f/f9/Ut99-ironguard-sara-green.png/revision/latest?cb=20251213175130&path-prefix=en",
+      "visible_bbox": [
+        58,
+        19,
+        294,
+        668
+      ],
+      "wiki_title": "File:Ut99-ironguard-sara-green.png"
+    },
+    {
+      "portrait": "char_sarena.png",
+      "source_sha1": "ff0d58d37b41a6befaa1194a4228a6fd9bf082a4",
+      "source_url": "https://static.wikia.nocookie.net/unreal/images/9/92/Ut99-venom-sarena-gold.png/revision/latest?cb=20251213175132&path-prefix=en",
+      "visible_bbox": [
+        58,
+        19,
+        294,
+        668
+      ],
+      "wiki_title": "File:Ut99-venom-sarena-gold.png"
+    },
+    {
+      "portrait": "char_tanya.png",
+      "source_sha1": "c7c86cd173f13efbeaff6617332022e1701a438e",
+      "source_url": "https://static.wikia.nocookie.net/unreal/images/6/6c/Ut99-bloodreavers-tanya-red.png/revision/latest?cb=20251213161948&path-prefix=en",
+      "visible_bbox": [
+        58,
+        8,
+        307,
+        680
+      ],
+      "wiki_title": "File:Ut99-bloodreavers-tanya-red.png"
+    },
+    {
+      "portrait": "char_tensor.png",
+      "source_sha1": "1159058f3f8390d7d3ccf289f783d290d4f0fe71",
+      "source_url": "https://static.wikia.nocookie.net/unreal/images/e/e9/Ut99-thecorrupt-tensor-blue.png/revision/latest?cb=20251213185949&path-prefix=en",
+      "visible_bbox": [
+        40,
+        26,
+        321,
+        655
+      ],
+      "wiki_title": "File:Ut99-thecorrupt-tensor-blue.png"
+    },
+    {
+      "portrait": "char_vector.png",
+      "source_sha1": "1138da247d26a2c68b8e9b2536f030a4292d162f",
+      "source_url": "https://static.wikia.nocookie.net/unreal/images/0/03/Ut99-thecorrupt-vector-default.png/revision/latest?cb=20251213184646&path-prefix=en",
+      "visible_bbox": [
+        40,
+        26,
+        321,
+        655
+      ],
+      "wiki_title": "File:Ut99-thecorrupt-vector-default.png"
+    },
+    {
+      "portrait": "char_visse.png",
+      "source_sha1": "d8b739e2d3c2a935fa9310b79f72bb29a50c1ab6",
+      "source_url": "https://static.wikia.nocookie.net/unreal/images/8/89/Ut99-blacklegion-visse-green.png/revision/latest?cb=20251213162249&path-prefix=en",
+      "visible_bbox": [
+        58,
+        8,
+        307,
+        680
+      ],
+      "wiki_title": "File:Ut99-blacklegion-visse-green.png"
+    },
+    {
+      "portrait": "char_vixen.png",
+      "source_sha1": "a9368b8062a8c75f79c141d4cd215a5e9e1b467b",
+      "source_url": "https://static.wikia.nocookie.net/unreal/images/3/32/Ut99-metalguard-vixen-default.png/revision/latest?cb=20251213173319&path-prefix=en",
+      "visible_bbox": [
+        58,
+        19,
+        294,
+        668
+      ],
+      "wiki_title": "File:Ut99-metalguard-vixen-default.png"
+    },
+    {
+      "portrait": "char_warcow.png",
+      "source_sha1": "54eb3321b62d7de44712c7958774e2fe1990a472",
+      "source_url": "https://static.wikia.nocookie.net/unreal/images/6/66/Ut99-naliwarcow-warcow-default.png/revision/latest?cb=20251213142916&path-prefix=en",
+      "visible_bbox": [
+        10,
+        96,
+        349,
+        599
+      ],
+      "wiki_title": "File:Ut99-naliwarcow-warcow-default.png"
+    },
+    {
+      "portrait": "char_xan.png",
+      "source_sha1": "c3288bfc9c07808f15195e3f3625280ef97ec979",
+      "source_url": "https://static.wikia.nocookie.net/unreal/images/a/a3/Ut99-boss-xan-default.png/revision/latest?cb=20251213163230&path-prefix=en",
+      "visible_bbox": [
+        39,
+        23,
+        322,
+        668
+      ],
+      "wiki_title": "File:Ut99-boss-xan-default.png"
+    },
+    {
+      "portrait": "char_xan_ps2.png",
+      "source_sha1": "ab9d76898e1e23304308b1dce79368d73eb34354",
+      "source_url": "https://static.wikia.nocookie.net/unreal/images/5/53/Ut99-ps2-xan.png/revision/latest?cb=20251213143023&path-prefix=en",
+      "visible_bbox": [
+        18,
+        51,
+        350,
+        653
+      ],
+      "wiki_title": "File:Ut99-ps2-xan.png"
+    }
+  ],
+  "local_render_required": [
+    "char_baetal.png",
+    "char_berserker.png",
+    "char_disconnect.png",
+    "char_dominator.png",
+    "char_firewall.png",
+    "char_guardian.png",
+    "char_masterchief.png",
+    "char_pharoh.png",
+    "char_skaarj_boss.png",
+    "char_skrilax.png"
+  ],
+  "local_renders": [
+    {
+      "capture_visible_size": [
+        276,
+        563
+      ],
+      "class": "MultiMesh.TSkaarj",
+      "face": "TSkMSkins.Baetal",
+      "method": "paired-black-white-cxbx-hires-neutral-render",
+      "portrait": "char_baetal.png",
+      "skin": "TSkMSkins.PitF",
+      "source_sha256": "99ba40db7dec70fb8664f436208b5e5a3cbf0a6bb8ef81aadabc025560034324",
+      "visible_bbox": [
+        2,
+        2,
+        278,
+        565
+      ]
+    },
+    {
+      "capture_visible_size": [
+        276,
+        563
+      ],
+      "class": "MultiMesh.TSkaarj",
+      "face": "TSkMSkins.Berserker",
+      "method": "paired-black-white-cxbx-hires-neutral-render",
+      "portrait": "char_berserker.png",
+      "skin": "TSkMSkins.Warr",
+      "source_sha256": "52ce42d63f2376071e5db467fa7ca59ad6306d3e064f2c73a27e03522a961d13",
+      "visible_bbox": [
+        2,
+        2,
+        278,
+        565
+      ]
+    },
+    {
+      "capture_visible_size": [
+        276,
+        563
+      ],
+      "class": "MultiMesh.TSkaarj",
+      "face": "TSkMSkins.Disconnect",
+      "method": "paired-black-white-cxbx-hires-neutral-render",
+      "portrait": "char_disconnect.png",
+      "skin": "TSkMSkins.MekS",
+      "source_sha256": "c264eb226432d3ea9bbd91cd86cb60a0d29de0dea44bd84d015724c9c28215bd",
+      "visible_bbox": [
+        2,
+        2,
+        278,
+        565
+      ]
+    },
+    {
+      "capture_visible_size": [
+        276,
+        563
+      ],
+      "class": "MultiMesh.TSkaarj",
+      "face": "TSkMSkins.Dominator",
+      "method": "paired-black-white-cxbx-hires-neutral-render",
+      "portrait": "char_dominator.png",
+      "skin": "TSkMSkins.Warr",
+      "source_sha256": "0b30665da06fdb53c654ce84a5dca3f7e29ba578b99dfdb1ae2f4aaf998f0e7a",
+      "visible_bbox": [
+        2,
+        2,
+        278,
+        565
+      ]
+    },
+    {
+      "capture_visible_size": [
+        276,
+        563
+      ],
+      "class": "MultiMesh.TSkaarj",
+      "face": "TSkMSkins.Firewall",
+      "method": "paired-black-white-cxbx-hires-neutral-render",
+      "portrait": "char_firewall.png",
+      "skin": "TSkMSkins.MekS",
+      "source_sha256": "90bf3b269022bc1b609003cd0d1eb6986eca7c23ed64b92e4877439223fdc518",
+      "visible_bbox": [
+        2,
+        2,
+        278,
+        565
+      ]
+    },
+    {
+      "capture_visible_size": [
+        276,
+        563
+      ],
+      "class": "MultiMesh.TSkaarj",
+      "face": "TSkMSkins.Guardian",
+      "method": "paired-black-white-cxbx-hires-neutral-render",
+      "portrait": "char_guardian.png",
+      "skin": "TSkMSkins.Warr",
+      "source_sha256": "6656756dd6a9f82b3864bedc98ab74b6e725776b4339f091f461d6b41f6c0aa9",
+      "visible_bbox": [
+        2,
+        2,
+        278,
+        565
+      ]
+    },
+    {
+      "class": "HaloMasterChief.HaloMasterChief",
+      "face": "HaloMasterChiefSkins.chef2Face",
+      "mesh": "HaloMasterChief.HaloMasterChief",
+      "method": "exact-local-package-mesh-render",
+      "portrait": "char_masterchief.png",
+      "skin": "HaloMasterChiefSkins.chef",
+      "source_sha256": "094e70a8da25469473cb2abeae0728bd0e162bc062a77b61d2cc7da2392dc79a",
+      "texture": "HaloMasterChiefSkins.chef1T_2"
+    },
+    {
+      "capture_visible_size": [
+        276,
+        563
+      ],
+      "class": "MultiMesh.TSkaarj",
+      "face": "TSkMSkins.Pharoh",
+      "method": "paired-black-white-cxbx-hires-neutral-render",
+      "portrait": "char_pharoh.png",
+      "skin": "TSkMSkins.PitF",
+      "source_sha256": "0d37fc4a01bd5f011f654d141c3b6ad868476fb7ae752bbbb199b0fc1e1e86ff",
+      "visible_bbox": [
+        2,
+        2,
+        278,
+        565
+      ]
+    },
+    {
+      "class": "UTPS2Characters.SkaarjBossPS2",
+      "face": "SkaarjBPS2Skins.Superfly",
+      "mesh": "UTPS2Characters.SkaarjBPS2",
+      "method": "exact-local-package-mesh-render",
+      "portrait": "char_skaarj_boss.png",
+      "resolved_textures": [
+        "UTPS2CharactersSkins.skbpSkins.bWarr1Superfly",
+        "UTPS2CharactersSkins.skbpSkins.Warr2Superfly",
+        "TSkMSkins.Warr3",
+        "TSkMSkins.Warr4"
+      ],
+      "skin": "SkaarjBPS2Skins.Warr",
+      "source_sha256": "de6d30feb8347d594185eb374424922786626d970232a6438909e7f7a6e34269"
+    },
+    {
+      "capture_visible_size": [
+        276,
+        563
+      ],
+      "class": "MultiMesh.TSkaarj",
+      "face": "TSkMSkins.Skrilax",
+      "method": "paired-black-white-cxbx-hires-neutral-render",
+      "portrait": "char_skrilax.png",
+      "skin": "TSkMSkins.PitF",
+      "source_sha256": "58f145c88467d11f9cdebb0b4e1ee40e02fd0fdba7f9359e8a3cee6b75dc527e",
+      "visible_bbox": [
+        2,
+        2,
+        278,
+        565
+      ]
+    }
+  ],
+  "source_page": "https://unreal.fandom.com/wiki/Unreal_Tournament/Character_Cards"
+}

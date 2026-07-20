@@ -52,6 +52,72 @@ PROJECTS = [
 ]
 
 XMP_DIR = os.path.join(XBOX_DIR, "ThirdParty", "libxmp")
+KNOWN_GOOD_SYSTEM_DIR = r"C:\Games\Emulators\CXBX\UT99x\System"
+KNOWN_GOOD_SYSTEM_FILES = (
+    "AdvancedModelSupport.int",
+    "AdvancedModelSupport.u",
+    "BossSkins.int",
+    "Botpack.int",
+    "Botpack.u",
+    "CommandoSkins.int",
+    "Core.int",
+    "Core.u",
+    "DamienPS2.int",
+    "de.int",
+    "de.u",
+    "Editor.int",
+    "Editor.u",
+    "Engine.int",
+    "Engine.u",
+    "FCommandoSkins.int",
+    "Fire.u",
+    "HaloMasterChief.int",
+    "HaloMasterChief.u",
+    "HaloMasterChiefSkins.int",
+    "HaloMasterChiefSkins.utx",
+    "IpDrv.int",
+    "IpDrv.u",
+    "IpServer.int",
+    "IpServer.u",
+    "multimesh.int",
+    "multimesh.u",
+    "PS2WarMachineM.int",
+    "QUAKE3c.utx",
+    "relics.int",
+    "relics.u",
+    "relicsbindings.int",
+    "relicsbindings.u",
+    "SGirlSkins.int",
+    "SkeletalChars.u",
+    "SoldierSkins.int",
+    "Startup.int",
+    "tcowmeshskins.int",
+    "tnalimeshskins.int",
+    "tskmskins.int",
+    "UBrowser.int",
+    "UBrowser.u",
+    "UMenu.int",
+    "UMenu.u",
+    "UnrealI.int",
+    "UnrealI.u",
+    "UnrealShare.int",
+    "UnrealShare.u",
+    "UnrealTournament.int",
+    "UTBrowser.u",
+    "UTDMT.u",
+    "UTDMT.utx",
+    "UTMenu.int",
+    "UTMenu.u",
+    "UTPS2Characters.int",
+    "UTPS2Characters.u",
+    "UTPS2CharactersSkins.int",
+    "UTPS2CharactersSkins.utx",
+    "UTServerAdmin.int",
+    "UTServerAdmin.u",
+    "UWeb.int",
+    "UWeb.u",
+    "UWindow.u",
+)
 
 
 def fail(message):
@@ -540,9 +606,34 @@ def remove_stale_runtime_asset_files(build_root, runtime_src, subdirs):
                 os.rmdir(dirpath)
 
 
+def copy_known_good_system_files(system_dst):
+    if not os.path.isdir(KNOWN_GOOD_SYSTEM_DIR):
+        print("WARNING: known-good System source not found: " + KNOWN_GOOD_SYSTEM_DIR)
+        return
+
+    if not os.path.isdir(system_dst):
+        os.makedirs(system_dst)
+
+    copied = 0
+    missing = []
+    for name in KNOWN_GOOD_SYSTEM_FILES:
+        src = os.path.join(KNOWN_GOOD_SYSTEM_DIR, name)
+        if os.path.isfile(src):
+            shutil.copy2(src, os.path.join(system_dst, name))
+            copied += 1
+        else:
+            missing.append(name)
+
+    print("Copied {} known-good v436/GOTY System files to {}".format(copied, system_dst))
+    if missing:
+        print("WARNING: missing known-good System files: " + ", ".join(missing))
+
+
 def copy_runtime_assets(build_root):
     system_src = os.path.join(ROOT_DIR, "System")
     system_dst = os.path.join(build_root, "System")
+    copy_known_good_system_files(system_dst)
+
     default_ini = os.path.join(system_src, "Default.ini")
     if os.path.isfile(default_ini):
         if not os.path.isdir(system_dst):

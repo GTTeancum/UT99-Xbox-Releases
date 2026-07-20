@@ -12651,6 +12651,20 @@ static UBOOL XboxWeaponCycleProofSmokeEnabled()
     return GetFileAttributesA( "D:\\XboxWeaponCycleProofSmoke.ini" ) != 0xFFFFFFFF;
 }
 
+static UBOOL XboxWeaponCycleProofSetupOnly()
+{
+    HANDLE File = CreateFileA( "D:\\XboxWeaponCycleProofSmoke.ini", GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL );
+    if( File == INVALID_HANDLE_VALUE )
+        return 0;
+
+    char Buffer[128];
+    DWORD Read = 0;
+    appMemzero( Buffer, sizeof(Buffer) );
+    ReadFile( File, Buffer, sizeof(Buffer)-1, &Read, NULL );
+    CloseHandle( File );
+    return appStrstr( Buffer, "SetupOnly=1" ) != NULL;
+}
+
 static void XboxWeaponCycleProofSetStage( INT Stage, DOUBLE Now, APlayerPawn* Player )
 {
     GXboxWeaponCycleProofStage = Stage;
@@ -12701,6 +12715,11 @@ static void XboxWeaponCycleProofSmokeApply( UXboxViewport* Viewport, XINPUT_GAME
         GXboxWeaponCycleProofStageLogged = 0;
     }
 
+    // Setup-only mode must never suppress or synthesize controller input once
+    // the arsenal has been granted.
+    if( GXboxWeaponCycleProofStage == 13 )
+        return;
+
     // This marker-gated proof feeds the same physical-button state machine used by a controller.
     appMemzero( &Pad, sizeof(Pad) );
 
@@ -12718,6 +12737,12 @@ static void XboxWeaponCycleProofSmokeApply( UXboxViewport* Viewport, XINPUT_GAME
             EnforcerHandled ? 1 : 0,
             Player->Weapon ? TCHAR_TO_ANSI(Player->Weapon->GetFullName()) : "(none)",
             Player->PendingWeapon ? TCHAR_TO_ANSI(Player->PendingWeapon->GetFullName()) : "(none)" );
+        if( XboxWeaponCycleProofSetupOnly() )
+        {
+            GXboxLog.Write( "XWHEELPROOF SETUP-ONLY COMPLETE" );
+            XboxWeaponCycleProofSetStage( 13, Now, Player );
+            return;
+        }
         XboxWeaponCycleProofSetStage( 1, Now, Player );
         return;
     }

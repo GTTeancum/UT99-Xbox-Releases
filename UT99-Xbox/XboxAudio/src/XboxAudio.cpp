@@ -75,9 +75,10 @@ static LONG XboxVolumeToDS( FLOAT Volume )
     if( Volume >= 1.0f )
         return DSBVOLUME_MAX;
 
-    // First pass: conservative linear-to-dB-ish falloff. Good enough for
-    // effects playback, avoids dragging CRT math/log dependencies into XDK.
-    return (LONG)(DSBVOLUME_MIN * (1.0f - Volume));
+    // DirectSound volume is attenuation in hundredths of a decibel. Convert
+    // Unreal's linear amplitude instead of treating the dB range as linear.
+    const DOUBLE HundredthsDb = 868.5889638065036 * appLoge( Volume );
+    return Clamp<LONG>( (LONG)HundredthsDb, DSBVOLUME_MIN, DSBVOLUME_MAX );
 }
 
 static const DSMIXBINS* XboxDefaultMixBinsForChannels( WORD Channels )
@@ -517,6 +518,8 @@ class UXboxAudioDevice : public UAudioSubsystem
     INT             FailedSounds;
     INT             MusicVolume;
     INT             SoundVolume;
+    FLOAT           AmbientFactor;
+    BITFIELD        LowSoundQuality;
     xmp_context     MusicContext;
     IDirectSoundStream* MusicStream;
     XFileMediaObject* MusicSource;
@@ -557,6 +560,8 @@ public:
     {
         new(GetClass(),TEXT("MusicVolume"), RF_Public) UIntProperty( CPP_PROPERTY(MusicVolume), TEXT("Audio"), CPF_Config );
         new(GetClass(),TEXT("SoundVolume"), RF_Public) UIntProperty( CPP_PROPERTY(SoundVolume), TEXT("Audio"), CPF_Config );
+        new(GetClass(),TEXT("AmbientFactor"), RF_Public) UFloatProperty( CPP_PROPERTY(AmbientFactor), TEXT("Audio"), CPF_Config );
+        new(GetClass(),TEXT("LowSoundQuality"), RF_Public) UBoolProperty( CPP_PROPERTY(LowSoundQuality), TEXT("Audio"), CPF_Config );
 
         Viewport         = NULL;
         DirectSound      = NULL;
@@ -565,6 +570,8 @@ public:
         FailedSounds     = 0;
         MusicVolume      = 255;
         SoundVolume      = 255;
+        AmbientFactor    = 0.7f;
+        LowSoundQuality  = 0;
         MusicContext     = NULL;
         MusicStream      = NULL;
         MusicSource      = NULL;
@@ -633,15 +640,18 @@ public:
 
         MusicVolume = 255;
         SoundVolume = 255;
+        AmbientFactor = 0.7f;
+        LowSoundQuality = 0;
         LoadConfig();
         MusicVolume = Clamp<INT>( MusicVolume, 0, 255 );
         SoundVolume = Clamp<INT>( SoundVolume, 0, 255 );
+        AmbientFactor = Clamp( AmbientFactor, 0.0f, 10.0f );
 
         MusicContext = NULL;
         GXboxAudioToneSmokeState = 30;
 
-        GXboxLog.Write( "XboxAudio: DirectSound initialized musicCtx=native-only musicVol=%d soundVol=%d",
-            MusicVolume, SoundVolume );
+        GXboxLog.Write( "XboxAudio: DirectSound initialized musicCtx=native-only musicVol=%d soundVol=%d ambient=%.2f lowQuality=%d",
+            MusicVolume, SoundVolume, AmbientFactor, LowSoundQuality ? 1 : 0 );
 #if XBOX_ENABLE_AUDIO_TONE_SMOKE
         StartToneSmokeIfRequested();
 #endif
@@ -795,7 +805,10 @@ public:
         if( Slot < 0 || Slot >= ARRAY_COUNT(LoopingSounds) )
             return;
         if( LoopingSounds[Slot].Buffer )
-            LoopingSounds[Slot].Buffer->Stop();
+        {
+            LoopingSounds[Slot].Buffer->StopEx( 0, DSBSTOPEX_IMMEDIATE );
+            LoopingSounds[Slot].Buffer->Release();
+        }
         appMemzero( &LoopingSounds[Slot], sizeof(LoopingSounds[Slot]) );
     }
 
@@ -827,13 +840,14 @@ public:
         }
     }
 
-    UBOOL PlayLoopingSound( AActor* Actor, INT Id, USound* Sound, IDirectSoundBuffer* Buffer, FLOAT Volume, FLOAT Pitch, DWORD BaseRate )
+    UBOOL PlayLoopingSound( AActor* Actor, INT Id, USound* Sound, FLOAT Volume, FLOAT Pitch, DWORD BaseRate )
     {
-        if( !Actor || !Sound || !Buffer )
+        if( !Actor || !Sound )
             return 0;
 
         INT Slot = -1;
         INT EmptySlot = -1;
+        INT ReplaceSlot = -1;
         for( INT i=0; i<ARRAY_COUNT(LoopingSounds); i++ )
         {
             if( LoopingSounds[i].Actor == Actor && LoopingSounds[i].Id == Id && LoopingSounds[i].Sound == Sound )
@@ -841,22 +855,37 @@ public:
                 Slot = i;
                 break;
             }
+            if( ReplaceSlot < 0 && LoopingSounds[i].Actor == Actor && LoopingSounds[i].Id == Id )
+                ReplaceSlot = i;
             if( EmptySlot < 0 && !LoopingSounds[i].Buffer )
                 EmptySlot = i;
         }
         if( Slot < 0 )
-            Slot = EmptySlot >= 0 ? EmptySlot : 0;
+            Slot = ReplaceSlot >= 0 ? ReplaceSlot : (EmptySlot >= 0 ? EmptySlot : 0);
 
         FXboxLoopingSound& Loop = LoopingSounds[Slot];
         if( Loop.Buffer && (Loop.Actor != Actor || Loop.Id != Id || Loop.Sound != Sound) )
             StopLoopingSoundSlot( Slot );
 
+        if( !Loop.Buffer )
+        {
+            DWORD VoiceRate = 0;
+            DWORD VoiceBytes = 0;
+            WORD VoiceChannels = 0;
+            WORD VoiceBits = 0;
+            Loop.Buffer = CreateSoundBufferForSound( Sound, VoiceRate, VoiceBytes, VoiceChannels, VoiceBits, "loop voice" );
+            if( !Loop.Buffer )
+                return 0;
+            if( VoiceRate )
+                BaseRate = VoiceRate;
+        }
+
         Loop.Actor = Actor;
         Loop.Id = Id;
         Loop.Sound = Sound;
-        Loop.Buffer = Buffer;
         Loop.LastSeen = appSeconds();
 
+        IDirectSoundBuffer* Buffer = Loop.Buffer;
         FLOAT ClampedPitch = Clamp( Pitch, 0.25f, 4.0f );
         Buffer->SetVolume( XboxVolumeToDS( Clamp( Volume * ((FLOAT)SoundVolume / 255.0f), 0.0f, 1.0f ) ) );
         Buffer->SetFrequency( Max<DWORD>( 100, (DWORD)(BaseRate * ClampedPitch) ) );
@@ -865,8 +894,7 @@ public:
         Buffer->GetStatus( &Status );
         if( !(Status & DSBSTATUS_PLAYING) )
         {
-            Buffer->SetCurrentPosition( 0 );
-            HRESULT hr = Buffer->Play( 0, 0, DSBPLAY_LOOPING );
+            HRESULT hr = Buffer->Play( 0, 0, DSBPLAY_FROMSTART | DSBPLAY_LOOPING );
             if( FAILED(hr) )
             {
                 if( FailedSounds < 64 )
@@ -883,6 +911,58 @@ public:
             }
         }
         return 1;
+    }
+
+    void ServiceAmbientSounds()
+    {
+        if( !Viewport || !Viewport->Actor || !Viewport->Actor->GetLevel() )
+            return;
+
+        ULevel* Level = Viewport->Actor->GetLevel();
+        UBOOL Realtime = Viewport->IsRealtime() && Viewport->Actor->Level->Pauser==TEXT("");
+        if( !Realtime )
+        {
+            for( INT i=0; i<ARRAY_COUNT(LoopingSounds); i++ )
+                StopLoopingSoundSlot( i );
+            return;
+        }
+
+        AActor* ViewActor = Viewport->Actor->ViewTarget ? Viewport->Actor->ViewTarget : Viewport->Actor;
+        DOUBLE ScanStart = appSeconds();
+        for( INT i=0; i<Level->Actors.Num(); i++ )
+        {
+            AActor* Actor = Level->Actors(i);
+            if( !Actor || !Actor->AmbientSound )
+                continue;
+
+            FLOAT Radius = Actor->WorldSoundRadius();
+            FLOAT DistanceSquared = FDistSquared(ViewActor->Location, Actor->Location);
+            if( Radius <= 0.0f || DistanceSquared > Square(Radius) )
+                continue;
+
+            // Galaxy doubles ambient brightness while updating the channel,
+            // then applies linear distance attenuation before mixing it.
+            FLOAT Brightness = 2.0f * AmbientFactor * Actor->SoundVolume / 255.0f;
+            if( Actor->LightType != LT_None )
+                Brightness *= Actor->LightBrightness / 255.0f;
+            FLOAT Attenuation = Clamp<FLOAT>( 1.0f - (FLOAT)appSqrt(DistanceSquared) / Radius, 0.0f, 1.0f );
+
+            INT Id = Actor->GetIndex()*16 + SLOT_Ambient*2;
+            PlaySound(
+                Actor,
+                Id,
+                Actor->AmbientSound,
+                Actor->Location,
+                Brightness * Attenuation,
+                Radius,
+                Actor->SoundPitch / 64.0f );
+        }
+
+        // AmbientSound=None and primary/secondary transitions must silence the
+        // previous loop on this update, not after an arbitrary timeout.
+        for( INT i=0; i<ARRAY_COUNT(LoopingSounds); i++ )
+            if( LoopingSounds[i].Buffer && LoopingSounds[i].LastSeen < ScanStart )
+                StopLoopingSoundSlot( i );
     }
 
     void Update( FPointRegion Region, FCoords& Listener )
@@ -915,6 +995,7 @@ public:
 
         ServiceMusicStream();
         ServiceToneSmokeStream();
+        ServiceAmbientSounds();
         CullLoopingSounds();
         if( DirectSound )
             DirectSoundDoWork();
@@ -928,27 +1009,36 @@ public:
             Music->Handle = (void*)-1;
     }
 
-    void RegisterSound( USound* Sound )
+    IDirectSoundBuffer* CreateSoundBufferForSound(
+        USound* Sound,
+        DWORD& OutRate,
+        DWORD& OutBytes,
+        WORD& OutChannels,
+        WORD& OutBits,
+        const char* Context )
     {
-        guard(UXboxAudioDevice::RegisterSound);
-
-        if( !DirectSound || !Sound || Sound->Handle )
-            return;
+        OutRate = 0;
+        OutBytes = 0;
+        OutChannels = 0;
+        OutBits = 0;
+        if( !DirectSound || !Sound )
+            return NULL;
 
         Sound->Data.Load();
-        if( Sound->Handle )
-            return;
         if( Sound->Data.Num() <= 0 )
-            return;
+        {
+            Sound->Data.Unload();
+            return NULL;
+        }
 
         FWaveModInfo WaveInfo;
         if( !WaveInfo.ReadWaveInfo( Sound->Data ) )
         {
             if( FailedSounds < 32 )
-                GXboxLog.Write( "XboxAudio: RegisterSound rejected non-wave %s", TCHAR_TO_ANSI(Sound->GetName()) );
+                GXboxLog.Write( "XboxAudio: %s rejected non-wave %s", Context, TCHAR_TO_ANSI(Sound->GetName()) );
             FailedSounds++;
             Sound->Data.Unload();
-            return;
+            return NULL;
         }
 
         WAVEFORMATEX wfx;
@@ -963,11 +1053,11 @@ public:
         if( wfx.nChannels < 1 || wfx.nChannels > 2 || (wfx.wBitsPerSample != 8 && wfx.wBitsPerSample != 16) || WaveInfo.SampleDataSize <= 0 )
         {
             if( FailedSounds < 32 )
-                GXboxLog.Write( "XboxAudio: unsupported wave %s ch=%d bits=%d bytes=%d",
-                    TCHAR_TO_ANSI(Sound->GetName()), wfx.nChannels, wfx.wBitsPerSample, WaveInfo.SampleDataSize );
+                GXboxLog.Write( "XboxAudio: %s unsupported wave %s ch=%d bits=%d bytes=%d",
+                    Context, TCHAR_TO_ANSI(Sound->GetName()), wfx.nChannels, wfx.wBitsPerSample, WaveInfo.SampleDataSize );
             FailedSounds++;
             Sound->Data.Unload();
-            return;
+            return NULL;
         }
 
         DSBUFFERDESC Desc;
@@ -982,11 +1072,11 @@ public:
         if( FAILED(hr) || !Buffer )
         {
             if( FailedSounds < 32 )
-                GXboxLog.Write( "XboxAudio: CreateSoundBuffer failed %s hr=0x%08X bytes=%d rate=%d",
-                    TCHAR_TO_ANSI(Sound->GetName()), (DWORD)hr, WaveInfo.SampleDataSize, wfx.nSamplesPerSec );
+                GXboxLog.Write( "XboxAudio: %s CreateSoundBuffer failed %s hr=0x%08X bytes=%d rate=%d",
+                    Context, TCHAR_TO_ANSI(Sound->GetName()), (DWORD)hr, WaveInfo.SampleDataSize, wfx.nSamplesPerSec );
             FailedSounds++;
             Sound->Data.Unload();
-            return;
+            return NULL;
         }
 
         VOID* Lock1 = NULL;
@@ -998,10 +1088,10 @@ public:
         {
             Buffer->Release();
             if( FailedSounds < 32 )
-                GXboxLog.Write( "XboxAudio: Buffer Lock failed %s hr=0x%08X", TCHAR_TO_ANSI(Sound->GetName()), (DWORD)hr );
+                GXboxLog.Write( "XboxAudio: %s Buffer Lock failed %s hr=0x%08X", Context, TCHAR_TO_ANSI(Sound->GetName()), (DWORD)hr );
             FailedSounds++;
             Sound->Data.Unload();
-            return;
+            return NULL;
         }
 
         appMemcpy( Lock1, WaveInfo.SampleDataStart, Size1 );
@@ -1009,14 +1099,35 @@ public:
             appMemcpy( Lock2, WaveInfo.SampleDataStart + Size1, Size2 );
         Buffer->Unlock( Lock1, Size1, Lock2, Size2 );
 
-        Sound->Handle = Buffer;
-        XboxSoundMetaSet( Sound, wfx.nSamplesPerSec, WaveInfo.SampleDataSize );
+        OutRate = wfx.nSamplesPerSec;
+        OutBytes = (DWORD)WaveInfo.SampleDataSize;
+        OutChannels = wfx.nChannels;
+        OutBits = wfx.wBitsPerSample;
         Sound->Data.Unload();
+        return Buffer;
+    }
+
+    void RegisterSound( USound* Sound )
+    {
+        guard(UXboxAudioDevice::RegisterSound);
+
+        if( !DirectSound || !Sound || Sound->Handle )
+            return;
+
+        DWORD BaseRate = 0;
+        DWORD SampleBytes = 0;
+        WORD Channels = 0;
+        WORD Bits = 0;
+        IDirectSoundBuffer* Buffer = CreateSoundBufferForSound( Sound, BaseRate, SampleBytes, Channels, Bits, "asset" );
+        if( !Buffer )
+            return;
+
+        Sound->Handle = Buffer;
+        XboxSoundMetaSet( Sound, BaseRate, SampleBytes );
         RegisteredSounds++;
         if( RegisteredSounds <= 24 )
             GXboxLog.Write( "XboxAudio: registered #%d %s ch=%d bits=%d rate=%d bytes=%d",
-                RegisteredSounds, TCHAR_TO_ANSI(Sound->GetName()), wfx.nChannels, wfx.wBitsPerSample,
-                wfx.nSamplesPerSec, WaveInfo.SampleDataSize );
+                RegisteredSounds, TCHAR_TO_ANSI(Sound->GetName()), Channels, Bits, BaseRate, SampleBytes );
 
         unguard;
     }
@@ -1029,7 +1140,7 @@ public:
         {
             IDirectSoundBuffer* Buffer = (IDirectSoundBuffer*)Sound->Handle;
             StopLoopingSoundsForSound( Sound );
-            Buffer->Stop();
+            Buffer->StopEx( 0, DSBSTOPEX_IMMEDIATE );
             Buffer->Release();
             Sound->Handle = NULL;
             XboxSoundMetaClear( Sound );
@@ -1075,15 +1186,15 @@ public:
 
         DWORD BaseRate = XboxSoundMetaGetBaseRate( Sound );
         if( Actor && Actor->AmbientSound == Sound )
-            return PlayLoopingSound( Actor, Id, Sound, Buffer, Volume, Pitch, BaseRate );
+            return PlayLoopingSound( Actor, Id, Sound, Volume, Pitch, BaseRate );
 
         FLOAT ClampedPitch = Clamp( Pitch, 0.25f, 4.0f );
-        Buffer->Stop();
-        Buffer->SetCurrentPosition( 0 );
         Buffer->SetVolume( XboxVolumeToDS( Clamp( Volume * ((FLOAT)SoundVolume / 255.0f), 0.0f, 1.0f ) ) );
         Buffer->SetFrequency( Max<DWORD>( 100, (DWORD)(BaseRate * ClampedPitch) ) );
 
-        HRESULT hr = Buffer->Play( 0, 0, 0 );
+        // Stop() is asynchronous on Xbox and cannot be reliably paired with an
+        // immediate seek/restart. FROMSTART performs the retrigger atomically.
+        HRESULT hr = Buffer->Play( 0, 0, DSBPLAY_FROMSTART );
         if( FAILED(hr) )
         {
             if( FailedSounds < 64 )
@@ -1108,7 +1219,7 @@ public:
 
     UBOOL GetLowQualitySetting()
     {
-        return 1;
+        return LowSoundQuality;
     }
 
     UViewport* GetViewport()
@@ -2058,7 +2169,7 @@ private:
         for( TObjectIterator<USound> It; It; ++It )
         {
             if( It->Handle )
-                ((IDirectSoundBuffer*)It->Handle)->Stop();
+                ((IDirectSoundBuffer*)It->Handle)->StopEx( 0, DSBSTOPEX_IMMEDIATE );
         }
         unguard;
     }

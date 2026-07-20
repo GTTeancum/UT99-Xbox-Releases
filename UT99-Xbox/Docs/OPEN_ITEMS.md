@@ -10,10 +10,6 @@ does not depend on scattered chat context.
 
 ### Current Queue
 
-3. Audio item
-   - Paused by Steve.
-   - Needs Steve's ears before proceeding.
-
 8. Tournament progress saving
    - Added by Steve after post-match work.
    - Verify tournament progress is saved/restored correctly.
@@ -23,6 +19,12 @@ does not depend on scattered chat context.
       splitscreen menus.
     - Verify alignment, navigation, prompts, player-slot states, and consistency
       with the approved single-player menu theme.
+
+17. Working XBE game icon
+    - Replace the current XBE title image with a game icon that loads correctly
+      on Xbox dashboards and emulators.
+    - Use the proven Dark Forces repo implementation and asset pipeline as the
+      technical reference, then verify the result from the built XBE.
 
 ### Active Legacy Backlog
 
@@ -67,6 +69,23 @@ does not depend on scattered chat context.
 
 2. Tournament post-match screen
    - Signed off by Steve.
+
+3. Weapon audio playback
+   - Complete and signed off by Steve on 2026-07-19.
+   - Restored Galaxy-style ambient actor servicing for sustained Pulse Gun and
+     Minigun fire sounds.
+   - Corrected linear-amplitude to DirectSound-decibel conversion, honored
+     `LowSoundQuality=False`, and restored ambient brightness/distance updates.
+   - Sustained sounds now use dedicated DirectSound voices, preventing Pulse
+     projectiles and other users of the same sound asset from interrupting the
+     held weapon loop.
+   - One-shots restart atomically with `DSBPLAY_FROMSTART`.
+   - Final XBE SHA-256:
+     `FA3B8882D80D99DC5345239A2C24F4E4A9B1B6133BA0029765B49B6D912019D7`
+   - Passing runtime log:
+     `C:\Games\Emulators\CXBX-CodexCapture\captures\ut99-item3-audio-pulse-voice-retest-20260719\runtime-ut99-item3-audio-pass.log`
+   - In-game proof:
+     `C:\Games\Emulators\CXBX-CodexCapture\captures\ut99-item3-audio-pulse-voice-retest-20260719\proofs\20260719-210222-deck16-pulse-secondary-dedicated-voice-retest.png`
 
 4. Completed current item
    - Marked complete by Steve before moving to item 5.

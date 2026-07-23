@@ -77,6 +77,14 @@
 // All GPackage_Xxx arrays are defined in XboxLaunch.cpp (always linked).
 // IMPLEMENT_PACKAGE is overridden to only declare (not define) the symbol.
 #if TARGET_XBOX
+  // Enabled only while the diagnostic build is completing its first frontend
+  // load. Core package/GC code uses this to emit focused hardware breadcrumbs.
+  extern "C" int GXboxHardwareBootTraceActive;
+
+  // Gives the Xbox game engine a safe opportunity to redraw its loading
+  // indicator between fully serialized objects during a blocking package load.
+  extern "C" void XboxPulseLoadingActivity();
+
   #if defined(CORE_EXPORTS)
     #define GPackage GPackage_Core
   #elif defined(ENGINE_EXPORTS)

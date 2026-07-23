@@ -630,6 +630,19 @@ def copy_known_good_system_files(system_dst):
 
 
 def copy_runtime_assets(build_root):
+    dashboard_asset_dir = os.path.join(XBOX_DIR, "XboxAssets")
+    dashboard_assets = (
+        ("titleimage.xbx", "TitleImage.xbx"),
+        ("saveimage.xbx", "SaveImage.xbx"),
+        ("TitleMeta.xbx", "TitleMeta.xbx"),
+    )
+    for source_name, target_name in dashboard_assets:
+        source_path = os.path.join(dashboard_asset_dir, source_name)
+        if not os.path.isfile(source_path):
+            fail("Missing dashboard asset: " + source_path)
+        shutil.copy2(source_path, os.path.join(build_root, target_name))
+    print("Copied Xbox dashboard metadata beside default.xbe")
+
     system_src = os.path.join(ROOT_DIR, "System")
     system_dst = os.path.join(build_root, "System")
     copy_known_good_system_files(system_dst)
@@ -735,7 +748,7 @@ def main():
     parser.add_argument(
         "--out-dir",
         default=None,
-        help="Override the build output directory. Defaults to UT99-Xbox\\build_cli\\<config>.",
+        help="Override the build output directory. Defaults to <repo>\\build.",
     )
     parser.add_argument(
         "--with-jailbreak",
@@ -760,7 +773,7 @@ def main():
     if build_root:
         build_root = normalize_path(build_root, ROOT_DIR)
     else:
-        build_root = os.path.join(XBOX_DIR, "build_cli", args.config.lower())
+        build_root = os.path.join(ROOT_DIR, "build")
     if args.clean:
         if os.path.isdir(build_root):
             shutil.rmtree(build_root)

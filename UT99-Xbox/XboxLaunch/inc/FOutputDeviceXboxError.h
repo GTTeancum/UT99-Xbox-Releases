@@ -69,9 +69,14 @@ public:
             GXboxLog.Write( "FATAL: %s", TCHAR_TO_ANSI(GErrorHist) );
             OutputDebugStringA( "UT99: Fatal error - halting\n" );
             GXboxLog.Flush();
-            if( GetFileAttributesA( "D:\\XboxSystemLinkSmoke.ini" ) != 0xFFFFFFFF )
+            if
+            (
+                GetFileAttributesA( "D:\\XboxSystemLinkSmoke.ini" ) != 0xFFFFFFFF
+                || GetFileAttributesA( "D:\\XboxCharacterSoak.ini" ) != 0xFFFFFFFF
+                || GetFileAttributesA( "D:\\XboxStartURL.ini" ) != 0xFFFFFFFF
+            )
             {
-                GXboxLog.Write( "FATAL: smoke marker present; holding 120s for RAM-log harvest" );
+                GXboxLog.Write( "FATAL: diagnostic marker present; holding 120s for RAM-log harvest" );
                 GXboxLog.Flush();
                 Sleep( 120000 );
             }

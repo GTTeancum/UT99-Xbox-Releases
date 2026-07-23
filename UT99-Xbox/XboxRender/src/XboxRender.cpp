@@ -73,6 +73,8 @@ static INT   GRD_ClampPadLogCount = 0;
 static INT   GRD_Rgba7MaxLogCount = 0;
 static INT   GRD_DxtUnexpectedLogCount = 0;
 static INT   GRD_SourceUnloadLogCount = 0;
+static INT   GRD_LowMemoryScaleLogCount = 0;
+static UBOOL GRD_LowMemoryTextureMode = 0;
 static INT   GRD_MaxPolyVerts    = 0;
 static DWORD GRD_LastPolyFlags   = 0;
 static DWORD GRD_LastTextureIDLo = 0;
@@ -108,6 +110,7 @@ static INT    GRD_PendingLockX = 0;
 static INT    GRD_PendingLockY = 0;
 static INT    GRD_PendingLockW = 640;
 static INT    GRD_PendingLockH = 480;
+static UBOOL  GRD_PendingLockClearFullTarget = 0;
 
 enum { XBOX_SAFE_TRI_BATCH_VERTS = (XBOX_MAX_DRAW_VERTS / 3) * 3 };
 enum { XBOX_DGP_BATCH_VERTS = XBOX_SAFE_TRI_BATCH_VERTS };
@@ -414,12 +417,13 @@ static HRESULT XboxRenderApplyViewport( IDirect3DDevice8* InDevice, INT X, INT Y
     return InDevice->SetViewport( &vp );
 }
 
-extern "C" void XboxRenderSetPendingViewRegion( INT X, INT Y, INT W, INT H )
+extern "C" void XboxRenderSetPendingViewRegion( INT X, INT Y, INT W, INT H, UBOOL ClearFullTarget )
 {
     GRD_PendingLockX = X;
     GRD_PendingLockY = Y;
     GRD_PendingLockW = W;
     GRD_PendingLockH = H;
+    GRD_PendingLockClearFullTarget = ClearFullTarget;
     GRD_HasPendingLockViewport = 1;
 }
 
@@ -713,7 +717,7 @@ void UXboxRenderDevice::StaticConstructor()
     SupportsTC           = 1;
     PrecacheOnFlip       = 0;
     SupportsLazyTextures = 0;
-    PrefersDeferredLoad  = 0;
+    PrefersDeferredLoad  = 1;
     DetailTextures       = 0;
 
     unguard;
@@ -783,6 +787,8 @@ UBOOL UXboxRenderDevice::Init( UViewport* InViewport, INT NewX, INT NewY, INT Ne
     GRD_Rgba7MaxLogCount = 0;
     GRD_DxtUnexpectedLogCount = 0;
     GRD_SourceUnloadLogCount = 0;
+    GRD_LowMemoryScaleLogCount = 0;
+    GRD_LowMemoryTextureMode = 0;
     GRD_LastOp          = "Init";
 
     // Z-buffer formula: SZ = ProjZRatio + ProjZOffset * RHW
@@ -1039,6 +1045,8 @@ void UXboxRenderDevice::EvictTexCacheForUpload( INT NeededBytes )
             if( Candidate->CacheID == BoundCacheID[0] || Candidate->CacheID == BoundCacheID[1] )
                 continue;
             INT Age = FrameCounter - Candidate->FrameCounter;
+            if( Age <= 0 )
+                continue;
             if( Age > BestAge )
             {
                 BestAge = Age;
@@ -1443,16 +1451,9 @@ void UXboxRenderDevice::Lock( FPlane InFlashScale, FPlane InFlashFog, FPlane Scr
     if( !Device )
         return;
 
-    if( TexLiveBytes > (12 * 1024 * 1024) || TexPoolNext > XBOX_TEX_RESIDENT_LIMIT )
-    {
-        GXboxLog.Write( "RTEX frame-flush frame=%d liveKB=%d pool=%d",
-            FrameCounter, TexLiveBytes / 1024, TexPoolNext );
-        Device->SetTexture( 0, NULL );
-        Device->SetTexture( 1, NULL );
-        FlushTexCache();
-    }
-
     FrameCounter++;
+    if( TexLiveBytes > XBOX_TEX_LIVE_BUDGET )
+        EvictTexCacheForUpload( 0 );
     DOUBLE NowSeconds = appSeconds();
     GRD_FrameStartSeconds = NowSeconds;
     if( GRD_LastFrameStartSeconds > 0.0 )
@@ -1470,12 +1471,28 @@ void UXboxRenderDevice::Lock( FPlane InFlashScale, FPlane InFlashFog, FPlane Scr
     // and xQuake gl_fakegl.cpp:1752-1760 both follow this pattern.
     HRESULT hrClear = S_OK;
     HRESULT hrViewport = S_OK;
+    UBOOL bClearRenderLock = XboxSplitShouldClearRenderLock();
+    UBOOL bClearedFullTarget = 0;
     if( GRD_HasPendingLockViewport )
     {
+        if( bClearRenderLock && GRD_PendingLockClearFullTarget )
+        {
+            hrViewport = XboxRenderApplyViewport( Device, 0, 0, ActualBackBufferW, ActualBackBufferH, ActualBackBufferW, ActualBackBufferH );
+            if( SUCCEEDED(hrViewport) )
+            {
+                hrClear = Device->Clear( 0, NULL,
+                    D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER,
+                    0x00000000,
+                    1.0f, 0 );
+                bClearedFullTarget = SUCCEEDED(hrClear);
+            }
+        }
+
         hrViewport = XboxRenderApplyViewport( Device, GRD_PendingLockX, GRD_PendingLockY, GRD_PendingLockW, GRD_PendingLockH, ActualBackBufferW, ActualBackBufferH );
         GRD_HasPendingLockViewport = 0;
+        GRD_PendingLockClearFullTarget = 0;
     }
-    if( XboxSplitShouldClearRenderLock() )
+    if( bClearRenderLock && !bClearedFullTarget )
     {
         hrClear = Device->Clear( 0, NULL,
             D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER,
@@ -1908,6 +1925,8 @@ UBOOL UXboxRenderDevice::SetTextureD3D( INT Stage, FTextureInfo& Info, DWORD Pol
                     if( Candidate->CacheID == BoundCacheID[0] || Candidate->CacheID == BoundCacheID[1] )
                         continue;
                     INT Age = FrameCounter - Candidate->FrameCounter;
+                    if( Age <= 0 )
+                        continue;
                     if( Age > BestAge )
                     {
                         BestAge = Age;
@@ -1982,13 +2001,56 @@ UBOOL UXboxRenderDevice::SetTextureD3D( INT Stage, FTextureInfo& Info, DWORD Pol
             SrcUSize = Info.Mips[FirstMip]->USize;
             SrcVSize = Info.Mips[FirstMip]->VSize;
         }
+
+        // Retail Xbox memory is shared by the CPU and GPU. Large maps can leave
+        // too little room to load a HUD texture while keeping every full-size
+        // world texture resident. Latch a pressure mode for the rest of the
+        // session, but preserve skins and UI at full resolution.
+        DWORD TextureAvailKB = RenderAvailPhysKB();
+        if( !GRD_LowMemoryTextureMode && TextureAvailKB < 6144 )
+        {
+            GRD_LowMemoryTextureMode = 1;
+            GXboxLog.Write( "RTEX lowmem-mode f=%d availKB=%u liveKB=%d pool=%d",
+                FrameCounter, (unsigned)TextureAvailKB, TexLiveBytes / 1024, TexPoolNext );
+        }
+
+        INT SoftwareMipBias = 0;
+        UBOOL bLowMemoryWorldTexture =
+            GRD_LowMemoryTextureMode &&
+            Info.Texture &&
+            Info.Texture->LODSet == LODSET_World &&
+            (SrcUSize >= 128 || SrcVSize >= 128);
+        if( bLowMemoryWorldTexture )
+        {
+            if( FirstMip + 1 < Info.NumMips && Info.Mips[FirstMip + 1] )
+            {
+                FirstMip++;
+                SrcUSize = Info.Mips[FirstMip]->USize;
+                SrcVSize = Info.Mips[FirstMip]->VSize;
+            }
+            else if( Info.Format != TEXF_DXT1 )
+            {
+                SoftwareMipBias = 1;
+            }
+        }
         // PC D3D7 transposed tall textures to satisfy old surface-pool
         // constraints. Xbox D3D8 accepts rectangular power-of-two swizzled
         // textures directly; keeping the source orientation avoids making the
         // base texture upload path disagree with the UT surface UVs.
         UBOOL bSwapUV = 0;
-        INT USize = SrcUSize;
-        INT VSize = SrcVSize;
+        INT USize = Max( 1, SrcUSize >> SoftwareMipBias );
+        INT VSize = Max( 1, SrcVSize >> SoftwareMipBias );
+
+        if( bLowMemoryWorldTexture && (SoftwareMipBias || FirstMip > 0) && GRD_LowMemoryScaleLogCount < 48 )
+        {
+            GRD_LowMemoryScaleLogCount++;
+            GXboxLog.Write( "RTEX lowmem-scale #%d f=%d stage=%d id=%08X:%08X fmt=%d lod=%d src=%dx%d dst=%dx%d first=%d soft=%d availKB=%u",
+                GRD_LowMemoryScaleLogCount, FrameCounter, Stage,
+                GRD_LastTextureIDHi, GRD_LastTextureIDLo, Info.Format,
+                Info.Texture ? (INT)Info.Texture->LODSet : -1,
+                SrcUSize, SrcVSize, USize, VSize, FirstMip, SoftwareMipBias,
+                (unsigned)TextureAvailKB );
+        }
 
         if( SrcUSize < 1 || SrcVSize < 1 || USize < 1 || VSize < 1 || USize > 1024 || VSize > 1024 )
         {
@@ -2034,25 +2096,7 @@ UBOOL UXboxRenderDevice::SetTextureD3D( INT Stage, FTextureInfo& Info, DWORD Pol
         Entry->UIndex = bSwapUV ? 1 : 0;
         Entry->VIndex = bSwapUV ? 0 : 1;
 
-        // Ensure mipmap data is loaded for the upload, then drop static source
-        // bytes once the D3D texture owns its copy.
-        Info.Load();
         UBOOL bUnloadSourceAfterUpload = !Info.bRealtime && !Info.bParametric;
-        if( Info.Format == TEXF_RGBA7 && Info.MaxColor )
-        {
-            DWORD BeforeMaxColor = GET_COLOR_DWORD(*Info.MaxColor);
-            Info.CacheMaxColor();
-            if( GVerboseRenderPerfLog && BeforeMaxColor == 0xFFFFFFFF && GRD_Rgba7MaxLogCount < 24 )
-            {
-                GRD_Rgba7MaxLogCount++;
-                GXboxLog.Write( "RTEX rgba7-max #%d f=%d stage=%d id=%08X:%08X size=%dx%d clamp=%dx%d max=%08X",
-                    GRD_Rgba7MaxLogCount, FrameCounter, Stage,
-                    GRD_LastTextureIDHi, GRD_LastTextureIDLo,
-                    SrcUSize, SrcVSize, Info.UClamp, Info.VClamp,
-                    GET_COLOR_DWORD(*Info.MaxColor) );
-            }
-        }
-        Info.bRealtimeChanged = 0;
 
         INT ApproxBytes = 0;
         INT NumMips = Info.NumMips - FirstMip;
@@ -2105,6 +2149,26 @@ UBOOL UXboxRenderDevice::SetTextureD3D( INT Stage, FTextureInfo& Info, DWORD Pol
             }
             EvictTexCacheForUpload( ExpectedBytes );
         }
+
+        // Static texture locks remain lazy on Xbox. Reserve shared memory
+        // before loading source mips, then release those CPU bytes after the
+        // D3D texture owns its copy.
+        Info.Load();
+        if( Info.Format == TEXF_RGBA7 && Info.MaxColor )
+        {
+            DWORD BeforeMaxColor = GET_COLOR_DWORD(*Info.MaxColor);
+            Info.CacheMaxColor();
+            if( GVerboseRenderPerfLog && BeforeMaxColor == 0xFFFFFFFF && GRD_Rgba7MaxLogCount < 24 )
+            {
+                GRD_Rgba7MaxLogCount++;
+                GXboxLog.Write( "RTEX rgba7-max #%d f=%d stage=%d id=%08X:%08X size=%dx%d clamp=%dx%d max=%08X",
+                    GRD_Rgba7MaxLogCount, FrameCounter, Stage,
+                    GRD_LastTextureIDHi, GRD_LastTextureIDLo,
+                    SrcUSize, SrcVSize, Info.UClamp, Info.VClamp,
+                    GET_COLOR_DWORD(*Info.MaxColor) );
+            }
+        }
+        Info.bRealtimeChanged = 0;
 
         // Xbox D3D8 is much less forgiving than D3D7's system-surface upload
         // path: do not LockRect a texture while it is still resident in either
@@ -2295,8 +2359,8 @@ UBOOL UXboxRenderDevice::SetTextureD3D( INT Stage, FTextureInfo& Info, DWORD Pol
 
                     INT MipW = Info.Mips[m]->USize;
                     INT MipH = Info.Mips[m]->VSize;
-                    INT DestW = bSwapUV ? MipH : MipW;
-                    INT DestH = bSwapUV ? MipW : MipH;
+                    INT DestW = Max( 1, (bSwapUV ? MipH : MipW) >> SoftwareMipBias );
+                    INT DestH = Max( 1, (bSwapUV ? MipW : MipH) >> SoftwareMipBias );
                     INT Need = DestW * DestH;
                     if( MipW < 1 || MipH < 1 || DestW < 1 || DestH < 1 || Need <= 0 || Need > (1024 * 1024) )
                     {
@@ -2331,10 +2395,14 @@ UBOOL UXboxRenderDevice::SetTextureD3D( INT Stage, FTextureInfo& Info, DWORD Pol
                             for( INT y = 0; y < ChunkH; y++ )
                             {
                                 INT dy = y0 + y;
-                                INT sy = bSwapUV ? Min( dy, CopyW - 1 ) : Min( dy, CopyH - 1 );
                                 for( INT x = 0; x < DestW; x++ )
                                 {
-                                    INT sx = bSwapUV ? Min( x, CopyH - 1 ) : Min( x, CopyW - 1 );
+                                    INT sy = bSwapUV
+                                        ? Min( (x * CopyH) / DestW, CopyH - 1 )
+                                        : Min( (dy * CopyH) / DestH, CopyH - 1 );
+                                    INT sx = bSwapUV
+                                        ? Min( (dy * CopyW) / DestH, CopyW - 1 )
+                                        : Min( (x * CopyW) / DestW, CopyW - 1 );
                                     ScratchP8[y * DestW + x] = Src[sy * MipW + sx];
                                 }
                             }
@@ -2427,8 +2495,8 @@ UBOOL UXboxRenderDevice::SetTextureD3D( INT Stage, FTextureInfo& Info, DWORD Pol
 
                     INT MipW = Info.Mips[m]->USize;
                     INT MipH = Info.Mips[m]->VSize;
-                    INT DestW = bSwapUV ? MipH : MipW;
-                    INT DestH = bSwapUV ? MipW : MipH;
+                    INT DestW = Max( 1, (bSwapUV ? MipH : MipW) >> SoftwareMipBias );
+                    INT DestH = Max( 1, (bSwapUV ? MipW : MipH) >> SoftwareMipBias );
                     INT Need = DestW * DestH * 4;
                     if( MipW < 1 || MipH < 1 || DestW < 1 || DestH < 1 || Need <= 0 || Need > (4 * 1024 * 1024) )
                     {
@@ -2484,10 +2552,14 @@ UBOOL UXboxRenderDevice::SetTextureD3D( INT Stage, FTextureInfo& Info, DWORD Pol
                                 for( INT y = 0; y < ChunkH; y++ )
                                 {
                                     INT dy = y0 + y;
-                                    INT sy = bSwapUV ? Min( dy, CopyW - 1 ) : Min( dy, CopyH - 1 );
                                     for( INT x = 0; x < DestW; x++ )
                                     {
-                                        INT sx = bSwapUV ? Min( x, CopyH - 1 ) : Min( x, CopyW - 1 );
+                                        INT sy = bSwapUV
+                                            ? Min( (x * CopyH) / DestW, CopyH - 1 )
+                                            : Min( (dy * CopyH) / DestH, CopyH - 1 );
+                                        INT sx = bSwapUV
+                                            ? Min( (dy * CopyW) / DestH, CopyW - 1 )
+                                            : Min( (x * CopyW) / DestW, CopyW - 1 );
                                         BYTE Idx = Src[sy * MipW + sx];
                                         if( Idx == 0 && (PolyFlags & PF_Masked) )
                                             Dst[y * DestW + x] = 0x00000000;
@@ -2508,11 +2580,15 @@ UBOOL UXboxRenderDevice::SetTextureD3D( INT Stage, FTextureInfo& Info, DWORD Pol
                                 for( INT y = 0; y < ChunkH; y++ )
                                 {
                                     INT dy = y0 + y;
-                                    INT sy = bSwapUV ? Min( dy, CopyW - 1 ) : Min( dy, CopyH - 1 );
-                                    DWORD* SrcRow = Src + sy * SrcStride;
                                     for( INT x = 0; x < DestW; x++ )
                                     {
-                                        INT sx = bSwapUV ? Min( x, CopyH - 1 ) : Min( x, CopyW - 1 );
+                                        INT sy = bSwapUV
+                                            ? Min( (x * CopyH) / DestW, CopyH - 1 )
+                                            : Min( (dy * CopyH) / DestH, CopyH - 1 );
+                                        INT sx = bSwapUV
+                                            ? Min( (dy * CopyW) / DestH, CopyW - 1 )
+                                            : Min( (x * CopyW) / DestW, CopyW - 1 );
+                                        DWORD* SrcRow = Src + sy * SrcStride;
                                         Dst[y * DestW + x] = SrcRow[sx] * 2;
                                     }
                                 }
@@ -2523,10 +2599,14 @@ UBOOL UXboxRenderDevice::SetTextureD3D( INT Stage, FTextureInfo& Info, DWORD Pol
                                 for( INT y = 0; y < ChunkH; y++ )
                                 {
                                     INT dy = y0 + y;
-                                    INT sy = bSwapUV ? Min( dy, CopyW - 1 ) : Min( dy, CopyH - 1 );
                                     for( INT x = 0; x < DestW; x++ )
                                     {
-                                        INT sx = bSwapUV ? Min( x, CopyH - 1 ) : Min( x, CopyW - 1 );
+                                        INT sy = bSwapUV
+                                            ? Min( (x * CopyH) / DestW, CopyH - 1 )
+                                            : Min( (dy * CopyH) / DestH, CopyH - 1 );
+                                        INT sx = bSwapUV
+                                            ? Min( (dy * CopyW) / DestH, CopyW - 1 )
+                                            : Min( (x * CopyW) / DestW, CopyW - 1 );
                                         FColor& C = Src[sy * MipW + sx];
                                         Dst[y * DestW + x] = D3DCOLOR_ARGB( C.A, C.R, C.G, C.B );
                                     }

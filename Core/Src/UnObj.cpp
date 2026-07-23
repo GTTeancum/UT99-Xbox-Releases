@@ -3258,7 +3258,11 @@ UObject* UObject::StaticConstructObject
 void UObject::SerializeRootSet( FArchive& Ar, DWORD KeepFlags, DWORD RequiredFlags )
 {
 	guard(UObject::SerializeRootSet);
-	static const UBOOL GXboxVerboseGCLog = 0;
+#if TARGET_XBOX
+	const UBOOL GXboxVerboseGCLog = GXboxHardwareBootTraceActive ? 1 : 0;
+#else
+	const UBOOL GXboxVerboseGCLog = 0;
+#endif
 	// Xbox-port: granular beacons so we can spot which root object's
 	// Serialize() hangs the mark pass.  Print the name of every matched root
 	// just before we hand it to the archive — if the log stops at

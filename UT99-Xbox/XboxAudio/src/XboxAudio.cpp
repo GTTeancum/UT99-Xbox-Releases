@@ -93,9 +93,11 @@ struct FXboxSoundMeta
     USound* Sound;
     DWORD   BaseRate;
     DWORD   Bytes;
+    DOUBLE  LastUsed;
 };
 
 static FXboxSoundMeta GXboxSoundMeta[XboxSoundMetaSlots];
+static INT GXboxSoundPressureLogCount = 0;
 
 static INT XboxSoundMetaFindSlot( USound* Sound, UBOOL bAllowEmpty )
 {
@@ -123,6 +125,7 @@ static void XboxSoundMetaSet( USound* Sound, DWORD BaseRate, DWORD Bytes )
         GXboxSoundMeta[Index].Sound    = Sound;
         GXboxSoundMeta[Index].BaseRate = BaseRate ? BaseRate : 22050;
         GXboxSoundMeta[Index].Bytes    = Bytes;
+        GXboxSoundMeta[Index].LastUsed = appSeconds();
     }
 }
 
@@ -130,6 +133,25 @@ static DWORD XboxSoundMetaGetBaseRate( USound* Sound )
 {
     INT Index = XboxSoundMetaFindSlot( Sound, 0 );
     return (Index >= 0 && GXboxSoundMeta[Index].BaseRate) ? GXboxSoundMeta[Index].BaseRate : 22050;
+}
+
+static DWORD XboxSoundMetaGetBytes( USound* Sound )
+{
+    INT Index = XboxSoundMetaFindSlot( Sound, 0 );
+    return Index >= 0 ? GXboxSoundMeta[Index].Bytes : 0;
+}
+
+static DOUBLE XboxSoundMetaGetLastUsed( USound* Sound )
+{
+    INT Index = XboxSoundMetaFindSlot( Sound, 0 );
+    return Index >= 0 ? GXboxSoundMeta[Index].LastUsed : 0.0;
+}
+
+static void XboxSoundMetaTouch( USound* Sound )
+{
+    INT Index = XboxSoundMetaFindSlot( Sound, 0 );
+    if( Index >= 0 )
+        GXboxSoundMeta[Index].LastUsed = appSeconds();
 }
 
 static void XboxSoundMetaClear( USound* Sound )
@@ -516,6 +538,8 @@ class UXboxAudioDevice : public UAudioSubsystem
     INT             RegisteredSounds;
     INT             PlayedSounds;
     INT             FailedSounds;
+    INT             EvictedSounds;
+    DWORD           ResidentSoundBytes;
     INT             MusicVolume;
     INT             SoundVolume;
     FLOAT           AmbientFactor;
@@ -568,6 +592,8 @@ public:
         RegisteredSounds = 0;
         PlayedSounds     = 0;
         FailedSounds     = 0;
+        EvictedSounds    = 0;
+        ResidentSoundBytes = 0;
         MusicVolume      = 255;
         SoundVolume      = 255;
         AmbientFactor    = 0.7f;
@@ -698,8 +724,9 @@ public:
             DirectSound = NULL;
         }
 
-        GXboxLog.Write( "XboxAudio: Destroy registered=%d played=%d failed=%d",
-            RegisteredSounds, PlayedSounds, FailedSounds );
+        GXboxLog.Write( "XboxAudio: Destroy registered=%d played=%d failed=%d evicted=%d residentKB=%u",
+            RegisteredSounds, PlayedSounds, FailedSounds, EvictedSounds,
+            (unsigned)(ResidentSoundBytes / 1024) );
         Super::Destroy();
 
         unguard;
@@ -835,7 +862,10 @@ public:
         DOUBLE Now = appSeconds();
         for( INT i=0; i<ARRAY_COUNT(LoopingSounds); i++ )
         {
-            if( LoopingSounds[i].Buffer && (Now - LoopingSounds[i].LastSeen) > 0.35 )
+            // A pressure-heavy rendered frame can exceed 350 ms. Keep a loop
+            // alive long enough to survive that frame; ServiceAmbientSounds
+            // still removes emitters that are no longer selected immediately.
+            if( LoopingSounds[i].Buffer && (Now - LoopingSounds[i].LastSeen) > 2.0 )
                 StopLoopingSoundSlot( i );
         }
     }
@@ -1009,6 +1039,65 @@ public:
             Music->Handle = (void*)-1;
     }
 
+    UBOOL EnsureSoundHeadroom( USound* Preserve, DWORD RequiredBytes, const char* Context )
+    {
+        const DWORD RequiredKB = RequiredBytes / 1024 + 256;
+        const DWORD WantedKB = Max<DWORD>( RequiredKB, 2048 );
+        const DWORD BeforeKB = XboxAudioAvailPhysKB();
+        INT Released = 0;
+        DWORD ReleasedBytes = 0;
+
+        while( XboxAudioAvailPhysKB() < WantedKB )
+        {
+            USound* Candidate = NULL;
+            DOUBLE OldestUse = 1.0e30;
+            for( TObjectIterator<USound> It; It; ++It )
+            {
+                USound* TestSound = *It;
+                if( !TestSound || TestSound == Preserve || !TestSound->Handle )
+                    continue;
+
+                IDirectSoundBuffer* TestBuffer = (IDirectSoundBuffer*)TestSound->Handle;
+                DWORD Status = 0;
+                if( FAILED(TestBuffer->GetStatus( &Status )) || (Status & DSBSTATUS_PLAYING) )
+                    continue;
+
+                const DOUBLE LastUsed = XboxSoundMetaGetLastUsed( TestSound );
+                if( LastUsed < OldestUse )
+                {
+                    OldestUse = LastUsed;
+                    Candidate = TestSound;
+                }
+            }
+
+            if( !Candidate )
+                break;
+
+            IDirectSoundBuffer* Buffer = (IDirectSoundBuffer*)Candidate->Handle;
+            const DWORD Bytes = XboxSoundMetaGetBytes( Candidate );
+            Buffer->StopEx( 0, DSBSTOPEX_IMMEDIATE );
+            Buffer->Release();
+            Candidate->Handle = NULL;
+            Candidate->Data.Unload();
+            XboxSoundMetaClear( Candidate );
+            ResidentSoundBytes = Bytes <= ResidentSoundBytes ? ResidentSoundBytes - Bytes : 0;
+            ReleasedBytes += Bytes;
+            Released++;
+            EvictedSounds++;
+            DirectSoundDoWork();
+        }
+
+        const DWORD AfterKB = XboxAudioAvailPhysKB();
+        GXboxSoundPressureLogCount++;
+        if( (Released || AfterKB < RequiredKB) && (GXboxSoundPressureLogCount <= 32 || (GXboxSoundPressureLogCount & 127) == 0) )
+            GXboxLog.Write( "XboxAudio: pressure context=%s preserve=%s beforeKB=%u afterKB=%u needKB=%u wantKB=%u released=%d releasedKB=%u residentKB=%u",
+                Context ? Context : "?", Preserve ? TCHAR_TO_ANSI(Preserve->GetName()) : "None",
+                (unsigned)BeforeKB, (unsigned)AfterKB, (unsigned)RequiredKB, (unsigned)WantedKB,
+                Released, (unsigned)(ReleasedBytes / 1024), (unsigned)(ResidentSoundBytes / 1024) );
+
+        return AfterKB >= RequiredKB;
+    }
+
     IDirectSoundBuffer* CreateSoundBufferForSound(
         USound* Sound,
         DWORD& OutRate,
@@ -1024,7 +1113,25 @@ public:
         if( !DirectSound || !Sound )
             return NULL;
 
+        const DWORD SourceBytes = Max<DWORD>( (DWORD)Max(Sound->Data.Num(), 0), 65536 );
+        if( !EnsureSoundHeadroom( Sound, SourceBytes, Context ) )
+        {
+            if( FailedSounds < 64 )
+                GXboxLog.Write( "XboxAudio: %s skipped %s; insufficient memory for %u source bytes",
+                    Context, TCHAR_TO_ANSI(Sound->GetName()), (unsigned)SourceBytes );
+            FailedSounds++;
+            return NULL;
+        }
+
+        // FSoundData::Load normally calls RegisterSound after loading. This
+        // helper is already creating the requested buffer, so use a temporary
+        // sentinel to prevent recursive registration and a leaked duplicate.
+        void* ExistingHandle = Sound->Handle;
+        if( !ExistingHandle )
+            Sound->Handle = (void*)-1;
         Sound->Data.Load();
+        if( Sound->Handle == (void*)-1 )
+            Sound->Handle = ExistingHandle;
         if( Sound->Data.Num() <= 0 )
         {
             Sound->Data.Unload();
@@ -1124,6 +1231,7 @@ public:
 
         Sound->Handle = Buffer;
         XboxSoundMetaSet( Sound, BaseRate, SampleBytes );
+        ResidentSoundBytes += SampleBytes;
         RegisteredSounds++;
         if( RegisteredSounds <= 24 )
             GXboxLog.Write( "XboxAudio: registered #%d %s ch=%d bits=%d rate=%d bytes=%d",
@@ -1139,11 +1247,13 @@ public:
         if( Sound && Sound->Handle )
         {
             IDirectSoundBuffer* Buffer = (IDirectSoundBuffer*)Sound->Handle;
+            const DWORD Bytes = XboxSoundMetaGetBytes( Sound );
             StopLoopingSoundsForSound( Sound );
             Buffer->StopEx( 0, DSBSTOPEX_IMMEDIATE );
             Buffer->Release();
             Sound->Handle = NULL;
             XboxSoundMetaClear( Sound );
+            ResidentSoundBytes = Bytes <= ResidentSoundBytes ? ResidentSoundBytes - Bytes : 0;
             Sound->Data.Unload();
         }
 
@@ -1177,6 +1287,9 @@ public:
             return 0;
         }
 
+        if( Actor && Actor->AmbientSound == Sound )
+            return PlayLoopingSound( Actor, Id, Sound, Volume, Pitch, 22050 );
+
         if( !Sound->Handle )
             RegisterSound( Sound );
 
@@ -1185,8 +1298,6 @@ public:
             return 0;
 
         DWORD BaseRate = XboxSoundMetaGetBaseRate( Sound );
-        if( Actor && Actor->AmbientSound == Sound )
-            return PlayLoopingSound( Actor, Id, Sound, Volume, Pitch, BaseRate );
 
         FLOAT ClampedPitch = Clamp( Pitch, 0.25f, 4.0f );
         Buffer->SetVolume( XboxVolumeToDS( Clamp( Volume * ((FLOAT)SoundVolume / 255.0f), 0.0f, 1.0f ) ) );
@@ -1204,6 +1315,7 @@ public:
         }
 
         PlayedSounds++;
+        XboxSoundMetaTouch( Sound );
         if( PlayedSounds <= 32 )
             GXboxLog.Write( "XboxAudio: play #%d %s vol=%.2f pitch=%.2f",
                 PlayedSounds, TCHAR_TO_ANSI(Sound->GetName()), Volume, Pitch );

@@ -3,6 +3,7 @@
 
 #include "XboxLaunchPrivate.h"
 #include "FConfigCacheIni.h"
+#include "XboxDashboardAssets.inc"
 
 // InitEngine and MainLoop live in UT99Engine.lib.
 // With ENGINE_API empty these have plain (non-decorated) linkage.
@@ -39,6 +40,7 @@ DWORD GXboxMallocLargestBytes = 0;
 DWORD GXboxMallocLastLargeBytes = 0;
 char  GXboxMallocLargestTag[64] = {0};
 char  GXboxMallocLastLargeTag[64] = {0};
+extern "C" int GXboxHardwareBootTraceActive = 1;
 
 extern "C" volatile unsigned int g_XboxDebugMirrorMagic0 = 0x55395439; // UT9U
 extern "C" volatile unsigned int g_XboxBootPhase = 0;
@@ -152,6 +154,216 @@ static void XboxLogMemorySnapshot( const char* Label )
         GXboxMallocLastLargeTag );
 }
 
+static DWORD GXboxHardwareTraceCRC32Table[256];
+static BOOL  GXboxHardwareTraceCRC32Ready = FALSE;
+
+static void XboxHardwareTraceInitCRC32()
+{
+    if( GXboxHardwareTraceCRC32Ready )
+        return;
+
+    for( DWORD i=0; i<256; i++ )
+    {
+        DWORD Value = i;
+        for( INT Bit=0; Bit<8; Bit++ )
+            Value = (Value & 1) ? (Value >> 1) ^ 0xEDB88320 : Value >> 1;
+        GXboxHardwareTraceCRC32Table[i] = Value;
+    }
+    GXboxHardwareTraceCRC32Ready = TRUE;
+}
+
+static BOOL XboxHardwareTraceFingerprintFile( const char* Path, DWORD& OutSize, DWORD& OutCRC, DWORD& OutError )
+{
+    OutSize = 0;
+    OutCRC = 0;
+    OutError = 0;
+
+    HANDLE File = CreateFileA( Path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING,
+        FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN, NULL );
+    if( File == INVALID_HANDLE_VALUE )
+    {
+        OutError = GetLastError();
+        return FALSE;
+    }
+
+    DWORD SizeHigh = 0;
+    DWORD SizeLow = GetFileSize( File, &SizeHigh );
+    if( SizeLow == INVALID_FILE_SIZE && GetLastError() != NO_ERROR )
+    {
+        OutError = GetLastError();
+        CloseHandle( File );
+        return FALSE;
+    }
+    if( SizeHigh != 0 )
+    {
+        OutError = 223; // ERROR_FILE_TOO_LARGE; absent from the XDK 5849 headers.
+        CloseHandle( File );
+        return FALSE;
+    }
+
+    XboxHardwareTraceInitCRC32();
+    DWORD CRC = 0xFFFFFFFF;
+    unsigned char Buffer[16384];
+    for( ;; )
+    {
+        DWORD Read = 0;
+        if( !ReadFile(File, Buffer, sizeof(Buffer), &Read, NULL) )
+        {
+            OutError = GetLastError();
+            CloseHandle( File );
+            return FALSE;
+        }
+        if( Read == 0 )
+            break;
+        for( DWORD i=0; i<Read; i++ )
+            CRC = GXboxHardwareTraceCRC32Table[(CRC ^ Buffer[i]) & 0xFF] ^ (CRC >> 8);
+    }
+
+    CloseHandle( File );
+    OutSize = SizeLow;
+    OutCRC = CRC ^ 0xFFFFFFFF;
+    return TRUE;
+}
+
+static void XboxHardwareTraceLogFile( const char* Path )
+{
+    DWORD Size = 0;
+    DWORD CRC = 0;
+    DWORD Error = 0;
+    if( XboxHardwareTraceFingerprintFile(Path, Size, CRC, Error) )
+        GXboxLog.Write( "XTRACE FILE path=%s bytes=%u crc32=%08X", Path, (unsigned)Size, (unsigned)CRC );
+    else
+        GXboxLog.Write( "XTRACE FILE path=%s status=MISSING_OR_UNREADABLE error=%u", Path, (unsigned)Error );
+}
+
+static void XboxHardwareTraceLogCityIntroState()
+{
+    const char* Path = "D:\\Maps\\CityIntro.unr";
+    HANDLE File = CreateFileA( Path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL );
+    if( File == INVALID_HANDLE_VALUE )
+    {
+        GXboxLog.Write( "XTRACE CITYINTRO status=UNREADABLE error=%u", (unsigned)GetLastError() );
+        return;
+    }
+
+    unsigned char Song[2] = {0,0};
+    unsigned char GameType[2] = {0,0};
+    DWORD Read = 0;
+    BOOL SongOK = SetFilePointer(File, 33268, NULL, FILE_BEGIN) != INVALID_SET_FILE_POINTER
+        && ReadFile(File, Song, sizeof(Song), &Read, NULL) && Read == sizeof(Song);
+    Read = 0;
+    BOOL GameTypeOK = SetFilePointer(File, 33273, NULL, FILE_BEGIN) != INVALID_SET_FILE_POINTER
+        && ReadFile(File, GameType, sizeof(GameType), &Read, NULL) && Read == sizeof(GameType);
+    CloseHandle( File );
+
+    BOOL Patched = SongOK && GameTypeOK
+        && Song[0] == 0x40 && Song[1] == 0x00
+        && GameType[0] == 0xF4 && GameType[1] == 0x01;
+    GXboxLog.Write( "XTRACE CITYINTRO song=%02X%02X gameType=%02X%02X songRead=%d gameRead=%d patched=%d",
+        Song[0], Song[1], GameType[0], GameType[1], SongOK ? 1 : 0, GameTypeOK ? 1 : 0, Patched ? 1 : 0 );
+}
+
+static void XboxHardwareTraceDeploymentManifest()
+{
+    static const char* Paths[] =
+    {
+        "D:\\default.xbe",
+        "D:\\Maps\\CityIntro.unr",
+        "D:\\Maps\\DM-HangEmHigh.unr",
+        "D:\\Maps\\DM-Halo-Derelict.unr",
+        "D:\\Maps\\CTF-Titania.unr",
+        "D:\\Maps\\CTF-Darji16.unr",
+        "D:\\Maps\\DOM-Coagulate.unr",
+        "D:\\Maps\\AS-HiSpeed.unr",
+        "D:\\Maps\\JB-Alcatraz.unr",
+        "D:\\System\\UTPS2Characters.u",
+        "D:\\System\\UTPS2Baked.u",
+        "D:\\System\\UTPS2CharactersSkins.utx",
+        "D:\\System\\HaloMasterChief.u",
+        "D:\\System\\HaloMasterChiefSkins.utx",
+        "D:\\System\\HaloMasterChiefSkinsExtraA.utx",
+        "D:\\System\\HaloMasterChiefSkinsExtraB.utx",
+        "D:\\System\\HaloMasterChiefSkinsExtraC.utx",
+        "D:\\System\\HaloMasterChiefSkinsExtraD.utx",
+        "D:\\MenuAssets\\controller_s.xui",
+        "D:\\MenuAssets\\char_masterchief.xui",
+        "D:\\MenuAssets\\char_damien.xui",
+        "D:\\MenuAssets\\char_xan_ps2.xui"
+    };
+
+    GXboxLog.Write( "XTRACE MANIFEST BEGIN files=%d", ARRAY_COUNT(Paths) );
+    XboxHardwareTraceLogCityIntroState();
+    for( INT i=0; i<ARRAY_COUNT(Paths); i++ )
+        XboxHardwareTraceLogFile( Paths[i] );
+    GXboxLog.Write( "XTRACE MANIFEST END" );
+    GXboxLog.Flush();
+}
+
+static BOOL XboxDashboardMetadataMatches( const char* Path, const unsigned char* Data, DWORD DataSize )
+{
+    HANDLE File = CreateFileA( Path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL );
+    if( File == INVALID_HANDLE_VALUE )
+        return FALSE;
+
+    if( GetFileSize( File, NULL ) != DataSize )
+    {
+        CloseHandle( File );
+        return FALSE;
+    }
+
+    unsigned char Buffer[512];
+    DWORD Offset = 0;
+    while( Offset < DataSize )
+    {
+        DWORD Wanted = Min<DWORD>( DataSize - Offset, sizeof(Buffer) );
+        DWORD Read = 0;
+        if( !ReadFile( File, Buffer, Wanted, &Read, NULL ) || Read != Wanted || memcmp( Buffer, Data + Offset, Wanted ) != 0 )
+        {
+            CloseHandle( File );
+            return FALSE;
+        }
+        Offset += Wanted;
+    }
+
+    CloseHandle( File );
+    return TRUE;
+}
+
+static void XboxInstallDashboardMetadataFile( const char* Path, const unsigned char* Data, DWORD DataSize )
+{
+    if( XboxDashboardMetadataMatches( Path, Data, DataSize ) )
+    {
+        GXboxLog.Write( "BOOT: dashboard metadata current path=%s bytes=%u", Path, (unsigned)DataSize );
+        return;
+    }
+
+    HANDLE File = CreateFileA( Path, GENERIC_WRITE, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_SYSTEM, NULL );
+    if( File == INVALID_HANDLE_VALUE && GetLastError() == ERROR_FILE_NOT_FOUND )
+        File = CreateFileA( Path, GENERIC_WRITE, 0, NULL, CREATE_NEW, FILE_ATTRIBUTE_SYSTEM, NULL );
+    if( File == INVALID_HANDLE_VALUE )
+    {
+        GXboxLog.Write( "BOOT: dashboard metadata open failed path=%s error=%u", Path, (unsigned)GetLastError() );
+        return;
+    }
+
+    DWORD Written = 0;
+    SetFilePointer( File, 0, NULL, FILE_BEGIN );
+    BOOL Success = WriteFile( File, Data, DataSize, &Written, NULL ) && Written == DataSize && SetEndOfFile( File );
+    DWORD Error = Success ? 0 : GetLastError();
+    CloseHandle( File );
+    if( Success )
+        SetFileAttributesA( Path, FILE_ATTRIBUTE_SYSTEM | FILE_ATTRIBUTE_ARCHIVE );
+    GXboxLog.Write( "BOOT: dashboard metadata write path=%s success=%d bytes=%u/%u error=%u",
+        Path, Success ? 1 : 0, (unsigned)Written, (unsigned)DataSize, (unsigned)Error );
+}
+
+static void XboxEnsureDashboardMetadata()
+{
+    XboxInstallDashboardMetadataFile( "U:\\TitleMeta.xbx", GXboxDashboardTitleMetaXbx, GXboxDashboardTitleMetaXbxSize );
+    XboxInstallDashboardMetadataFile( "U:\\TitleImage.xbx", GXboxDashboardTitleImageXbx, GXboxDashboardTitleImageXbxSize );
+    XboxInstallDashboardMetadataFile( "U:\\SaveImage.xbx", GXboxDashboardSaveImageXbx, GXboxDashboardSaveImageXbxSize );
+}
+
 static BOOL XboxFileExistsAnsi( const char* Path )
 {
     DWORD Attr = GetFileAttributesA( Path );
@@ -245,7 +457,11 @@ static BOOL XboxDetectUnsupportedSystemPackages()
 
 static void XboxSmokeDebugHold( const char* Reason )
 {
-    if( GetFileAttributesA( "D:\\XboxSystemLinkSmoke.ini" ) == 0xFFFFFFFF )
+    const BOOL HasDiagnosticMarker =
+        GetFileAttributesA( "D:\\XboxSystemLinkSmoke.ini" ) != 0xFFFFFFFF
+        || GetFileAttributesA( "D:\\XboxCharacterSoak.ini" ) != 0xFFFFFFFF
+        || GetFileAttributesA( "D:\\XboxStartURL.ini" ) != 0xFFFFFFFF;
+    if( !HasDiagnosticMarker )
         return;
 
     GXboxLog.Write( "BOOT: smoke marker present; holding 120s for RAM-log harvest reason=%s",
@@ -274,7 +490,7 @@ void __cdecl main()
     XboxDebugSetBootPhase( 0x1001 );
     GXboxLog.Write( "BOOT: main() entered" );
     GXboxLog.Write( "BOOT: build %s %s", __DATE__, __TIME__ );
-    GXboxLog.Write( "BOOT: features p8tex=1 xinputReuse=1 xinputThrottle=1 cache=1m memstack=32k audio=normal logDiet=1 texEvict=1 texFailCooldown=1 musicMemPad=1 scratchDiet=1 fixedXboxMenuDiscovery=1" );
+    GXboxLog.Write( "BOOT: features p8tex=1 xinputReuse=1 xinputThrottle=1 cache=1m memstack=32k audio=normal logDiet=1 texEvict=1 texFailCooldown=1 musicMemPad=1 scratchDiet=1 fixedXboxMenuDiscovery=1 hardwareBootTrace=1" );
 
     XDEVICE_PREALLOC_TYPE DeviceTypes[2];
     DeviceTypes[0].DeviceType = XDEVICE_TYPE_GAMEPAD;
@@ -297,6 +513,8 @@ void __cdecl main()
     }
     XboxDebugSetBootPhase( 0x1011 );
     GXboxLog.Write( "BOOT: XInitDevices returned initialGamepadMask=0x%08X", XGetDevices( XDEVICE_TYPE_GAMEPAD ) );
+    XboxHardwareTraceDeploymentManifest();
+    XboxEnsureDashboardMetadata();
 
     // Local platform objects -- named to avoid clashing with UT99 globals
     FMallocXbox          XboxMalloc;
@@ -362,6 +580,8 @@ void __cdecl main()
     GXboxLog.Write( "BOOT: InitEngine() returned (Engine=%s)", Engine ? "OK" : "NULL" );
     XboxDebugSetBootPhase( 0x1201 );
     XboxLogMemorySnapshot( "after-InitEngine" );
+    GXboxHardwareBootTraceActive = 0;
+    GXboxLog.Write( "XTRACE BOOT COMPLETE detailed package/object trace disabled" );
 
     if( Engine && !GIsRequestingExit )
     {

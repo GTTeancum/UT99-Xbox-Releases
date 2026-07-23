@@ -120,6 +120,7 @@ D:\Emulators\CXBX\!GAME BUILD\
 ## Standing Rules
 
 - Steve uploads source/logs, Codex provides complete replacement files
+- The canonical Xbox build output is `C:\Programming\GitHub\UnrealTournament_1.40\build\`; use `--out-dir` only for explicitly named proof builds.
 - All patch theories require full code trace before writing bytes
 - Data-only patches to read-only tables are safe
 - Never reference Flycast or emulator-ripped assets

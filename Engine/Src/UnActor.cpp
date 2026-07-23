@@ -731,6 +731,30 @@ void AActor::PostLoad()
 void AActor::ProcessEvent( UFunction* Function, void* Parms, void* Result )
 {
 	guardSlow(AActor::ProcessEvent);
+#if TARGET_XBOX
+	if
+	( Function
+	&& Function->GetFName() == ENGINE_ClientMessage
+	&& Parms
+	&& GetClass()
+	&& appStricmp(GetClass()->GetName(), TEXT("Commander")) == 0 )
+	{
+		ULevel* CurrentLevel = GetLevel();
+		APawn_eventClientMessage_Parms* Message = (APawn_eventClientMessage_Parms*)Parms;
+		APlayerPawn* PlayerPawn = (APlayerPawn*)this;
+		FString OwnCameraMessage = FString::Printf( TEXT("%s %s"), *PlayerPawn->ViewingFrom, *PlayerPawn->OwnCamera );
+		if
+		( CurrentLevel
+		&& CurrentLevel->URL.Map.Len()
+		&& (appStricmp(*CurrentLevel->URL.Map, TEXT("CityIntro")) == 0
+		 || appStricmp(*CurrentLevel->URL.Map, TEXT("CityIntro.unr")) == 0)
+		&& (appStricmp(*Message->S, *OwnCameraMessage) == 0
+		 || appStricmp(*Message->S, TEXT("Now viewing from own camera")) == 0) )
+		{
+			return;
+		}
+	}
+#endif
 	if( Level->bBegunPlay )
 		Super::ProcessEvent( Function, Parms, Result );
 	unguardSlow;

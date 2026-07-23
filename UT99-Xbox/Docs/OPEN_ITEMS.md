@@ -1,6 +1,6 @@
 # UT99 Xbox Open Items
 
-Last updated: 2026-07-19
+Last updated: 2026-07-22
 
 This is the quick-access tracker for active UT99 Xbox work. It preserves the
 older project backlog and adds the current visual-signoff queue so the project
@@ -10,21 +10,74 @@ does not depend on scattered chat context.
 
 ### Current Queue
 
-8. Tournament progress saving
-   - Added by Steve after post-match work.
-   - Verify tournament progress is saved/restored correctly.
+19. Skeletal-model fidelity and animation
+   - Blocking defect discovered during the rendered 2026-07-22 soak.
+   - PS2 characters and Master Chief load and participate in matches, but remain
+     in their bind-pose T-pose because the Xbox compatibility path discards the
+     loaded bone tracks and forces every sequence to one frame.
+   - Retain the package animation data, evaluate the active sequence per bone,
+     and skin each weighted mesh point before the existing mesh transform.
+   - Live Xemu inspection on 2026-07-22 confirmed that the first implementation
+     restored motion, but the posed models flicker and their textures/surfaces
+     render incorrectly. Motion alone is not a pass; deformation, LOD behavior,
+     and material mapping must remain stable throughout animation.
+   - Treat this as a major fidelity pass across the complete skeletal-model
+     path: reference pose and bone hierarchy, influence weights, sequence and
+     track selection, interpolation and tweening, LOD transitions, bounds and
+     culling, texture/material/team-skin assignment, menu previews, gameplay,
+     hit/death/carcass states, and 64 MB memory/performance.
+   - Qualify every playable skeletal character rather than assuming one fixed
+     package proves the rest. Compare representative poses and skins against a
+     known-correct PC/reference render and investigate every visual duplicate,
+     mismatch, pop, flicker, deformation, or missing surface.
+   - The earlier character soak did not qualify animation and is not accepted as
+     proof for this item.
+   - The 2026-07-22 rendered qualification exposed a global orientation defect:
+     animated skeletal characters face 180 degrees away from their actor aim
+     and movement direction. Correct the root/basis handling rather than hiding
+     the defect with a presentation-only rotation.
+   - Requires in-game visual proof showing stable idle, walk/run, jump, attack,
+     hit, dodge, swim, crouch, and death animation across the complete custom
+     roster, plus correct menu previews and team skins, followed by rendered
+     bot-heavy multi-map and memory-heavy soaks and Steve's signoff.
 
-12. Splitscreen menu fidelity pass
-    - Perform another visual and interaction fidelity pass across all
-      splitscreen menus.
-    - Verify alignment, navigation, prompts, player-slot states, and consistency
-      with the approved single-player menu theme.
+20. `DOM-Coagulate` black/clipped world rendering
+   - Reopened by Steve on 2026-07-22 after a rendered Xemu frame showed the HUD
+     and actors while nearly all world geometry appeared black.
+   - The deployed map still matches the previously signed-off rebuilt SHA-256
+     `6537E014FCCF782AFEAD235ACBD59DC0379A1CEE29B10C318E8071FB7B7D00B6`;
+     do not replace or reconvert it without new evidence.
+   - Determine whether the current symptom is the known behind-view diagnostic
+     camera clipping outside the converted BSP or a genuine base/lightmap
+     residency regression. Re-qualify normal first-person gameplay and safe
+     third-person captures before closing it again.
 
-17. Working XBE game icon
-    - Replace the current XBE title image with a game icon that loads correctly
-      on Xbox dashboards and emulators.
-    - Use the proven Dark Forces repo implementation and asset pipeline as the
-      technical reference, then verify the result from the built XBE.
+18. Animated loading wheel
+   - Added by Steve on 2026-07-22.
+   - The existing loading wheel is currently drawn only once before synchronous
+     map loading blocks the main thread, so it appears frozen.
+   - Keep the current visual and animate it independently of percentage
+     complete. The animation must remain responsive during real map/package
+     loading and must not introduce re-entrant rendering or loading failures.
+   - Requires in-game visual proof and Steve's signoff.
+
+1.2. Co-op Tournament in existing multiplayer flows
+   - Added by Steve on 2026-07-22 as a 1.2 ask.
+   - Assess and prototype Tournament mode as multiplayer without adding a new
+     main-menu entry or changing the existing menu flows.
+   - Silo the option inside the current Split Screen and System Link paths so
+     players still join, select profiles, host, join, ready up, and start from
+     the same screens they use today.
+   - Save and load Tournament ladder progress from P1's profile on the host
+     machine only. Other local or System Link players participate in the host
+     run without owning ladder advancement.
+   - Treat UT99 LAN Coop V1 as reference material until its package contents are
+     inspected; the release-quality path should integrate with the existing Xbox
+     Tournament, profile, splitscreen, and System Link systems.
+   - Proof requirements: validate local splitscreen, System Link host/client,
+     and splitscreen plus System Link. Cover ladder load, match start, bot
+     population, end-of-match travel, result screen, save/reload, and back-out
+     or disconnect behavior.
 
 ### Active Legacy Backlog
 
@@ -131,6 +184,44 @@ does not depend on scattered chat context.
    - Controls: `C:\Games\Emulators\CXBX-CodexCapture\captures\ut99-item7-footer-controls-20260717\proofs\20260717-230043-settings-controls.png`
    - Mutators: `C:\Games\Emulators\CXBX-CodexCapture\captures\ut99-item7-mutators-20260718-80pct-retry\proofs\20260718-004110-mutators-candidate-5.png`
 
+8. Tournament progress saving
+   - Complete and signed off by Steve on 2026-07-21.
+   - Implemented profile-owned progress for Deathmatch, Domination, Capture the
+     Flag, Assault, and Final Challenge. Each ladder writes its own position to
+     the active profile and reads it back on the next launch; legacy global
+     progress migrates once to a single owning profile.
+   - The normal UnrealScript tournament result path now feeds the native result
+     screen and persists its real pending ladder position after the match ends.
+   - Qualified on final XBE SHA-256
+     `2428FCA9869783B3FF57B516EFAF5272EFD70CB8FE89D19783BA15E4A082855F`.
+     Deathmatch, Domination, CTF, Assault, and Final Challenge each completed a
+     forced first-rung victory, saved position 2, then restored rung 2 from a
+     separate clean emulator launch. All ten mode logs were clear of fatal
+     signatures.
+   - Profile isolation also passed: profile 1 retained position 2 in all five
+     ladders, while profile 2 opened Deathmatch at position 1. Switching back
+     restored profile 1 at position 2.
+   - CTF qualification exposed a staged-content mismatch: tournament rung 2
+     needs stock `CTF-Face.unr`, while the stage only contained the unrelated
+     `CTF-Face][.unr`. The canonical stock map is now in the CXBX stage, and map
+     previews now verify the package exists before loading so missing content
+     produces `NO PREVIEW` rather than taking down the frontend.
+   - Win/result proofs:
+     - Deathmatch: `C:\Games\Emulators\CXBX-CodexCapture\captures\ut99-item8-qualified-dm-win\proofs\20260721-220551-deathmatch-win-rung02-saved.png`
+     - Domination: `C:\Games\Emulators\CXBX-CodexCapture\captures\ut99-item8-qualified-dom-win\proofs\20260721-220704-domination-win-rung02-saved.png`
+     - Capture the Flag: `C:\Games\Emulators\CXBX-CodexCapture\captures\ut99-item8-qualified-ctf-win\proofs\20260721-220819-capture-the-flag-win-rung02-saved.png`
+     - Assault: `C:\Games\Emulators\CXBX-CodexCapture\captures\ut99-item8-qualified-assault-win\proofs\20260721-220936-assault-win-rung02-saved.png`
+     - Final Challenge: `C:\Games\Emulators\CXBX-CodexCapture\captures\ut99-item8-qualified-challenge-win\proofs\20260721-221053-final-challenge-win-rung02-saved.png`
+   - Fresh-launch restore proofs:
+     - Deathmatch: `C:\Games\Emulators\CXBX-CodexCapture\captures\ut99-item8-qualified-dm-resume\proofs\20260721-220614-deathmatch-fresh-launch-rung02.png`
+     - Domination: `C:\Games\Emulators\CXBX-CodexCapture\captures\ut99-item8-qualified-dom-resume\proofs\20260721-220726-domination-fresh-launch-rung02.png`
+     - Capture the Flag: `C:\Games\Emulators\CXBX-CodexCapture\captures\ut99-item8-qualified-ctf-resume\proofs\20260721-220843-capture-the-flag-fresh-launch-rung02.png`
+     - Assault: `C:\Games\Emulators\CXBX-CodexCapture\captures\ut99-item8-qualified-assault-resume\proofs\20260721-220959-assault-fresh-launch-rung02.png`
+     - Final Challenge: `C:\Games\Emulators\CXBX-CodexCapture\captures\ut99-item8-qualified-challenge-resume\proofs\20260721-221117-final-challenge-fresh-launch-rung02.png`
+   - Profile-isolation proofs:
+     - Profile 2 remains at rung 1: `C:\Games\Emulators\CXBX-CodexCapture\captures\ut99-item8-qualified-profile2-isolation\proofs\20260721-221213-profile2-deathmatch-remains-rung01.png`
+     - Profile 1 remains at rung 2: `C:\Games\Emulators\CXBX-CodexCapture\captures\ut99-item8-qualified-profile1-isolation\proofs\20260721-221237-profile1-deathmatch-still-rung02.png`
+
 9. Updated PlayStation 2 character pack
    - Complete and signed off by Steve on 2026-07-18.
    - The staged 3.0 pack exposes 16 player classes and 16 matching bot classes.
@@ -201,6 +292,35 @@ does not depend on scattered chat context.
       `2CF1A3AAF2139DC75999D4C0CBB5C6D8C28D1C31E396DBD99FA73EED41AEA37C`
     - Runtime log:
       `C:\Games\Emulators\CXBX-CodexCapture\captures\ut99-item11-pause-confirmation-20260718\logs\ut99-item11-pause-confirmation-pass.log`
+
+12. Splitscreen menu fidelity pass
+    - Complete and signed off by Steve on 2026-07-21 after inspecting the full
+      rendered CXBX-R menu/gameplay proof matrix.
+    - The ready screen keeps four fixed physical-controller slots labeled `P1`
+      through `P4`, left to right. Players choose a unique profile inside their
+      own slot and cannot choose or renumber the player slot itself.
+    - `P1` is active automatically and cannot vacate the primary slot. Sparse
+      joins remain sparse in the menu, so a controller in port 3 activates the
+      `P3` card while `P2` remains visibly inactive.
+    - Gameplay preserves each active physical port for input/profile ownership,
+      then assigns a separate compact render order. Two active ports draw two
+      full-width horizontal views; three active ports draw three quadrants with
+      the lower-right quadrant inactive.
+    - All six requested slot combinations passed clean independent launches:
+      `P1+P2` (`0x3`), `P1+P3` (`0x5`), `P1+P4` (`0x9`), `P1+P2+P3`
+      (`0x7`), `P1+P2+P4` (`0xB`), and `P1+P3+P4` (`0xD`). Logs report the
+      physical port, compact render order, profile, joined/dummy state, region,
+      active mask, and drawn/skipped viewport count. No accepted proof log has
+      a fatal error, assertion failure, or general protection fault.
+    - Menu and gameplay proofs:
+      - `P1+P2`: `C:\Games\Emulators\CXBX-CodexCapture\captures\ut99-item12-p1p2-menu-proof-a1\proofs\20260721-143730-p1p2-menu.png`; `C:\Games\Emulators\CXBX-CodexCapture\captures\ut99-item12-p1p2-game-proof-a1\proofs\20260721-143743-p1p2-game.png`
+      - `P1+P3`: `C:\Games\Emulators\CXBX-CodexCapture\captures\ut99-item12-p1p3-menu-proof-a1\proofs\20260721-143757-p1p3-menu.png`; `C:\Games\Emulators\CXBX-CodexCapture\captures\ut99-item12-p1p3-game-final\proofs\20260721-141448-p1-p3-two-viewports-final.png`
+      - `P1+P4`: `C:\Games\Emulators\CXBX-CodexCapture\captures\ut99-item12-p1p4-menu-proof-a1\proofs\20260721-143812-p1p4-menu.png`; `C:\Games\Emulators\CXBX-CodexCapture\captures\ut99-item12-p1p4-game-proof-a1\proofs\20260721-143824-p1p4-game.png`
+      - `P1+P2+P3`: `C:\Games\Emulators\CXBX-CodexCapture\captures\ut99-item12-p1p2p3-menu-proof-a1\proofs\20260721-143839-p1p2p3-menu.png`; `C:\Games\Emulators\CXBX-CodexCapture\captures\ut99-item12-p1p2p3-game-proof-a1\proofs\20260721-143851-p1p2p3-game.png`
+      - `P1+P2+P4`: `C:\Games\Emulators\CXBX-CodexCapture\captures\ut99-item12-p1p2p4-menu-proof-a1\proofs\20260721-143905-p1p2p4-menu.png`; `C:\Games\Emulators\CXBX-CodexCapture\captures\ut99-item12-p1p2p4-game-proof-a1\proofs\20260721-143917-p1p2p4-game.png`
+      - `P1+P3+P4`: `C:\Games\Emulators\CXBX-CodexCapture\captures\ut99-item12-p1p3p4-menu-proof-a1\proofs\20260721-143933-p1p3p4-menu.png`; `C:\Games\Emulators\CXBX-CodexCapture\captures\ut99-item12-p1p3p4-game-proof-a1\proofs\20260721-143946-p1p3p4-game.png`
+    - Final XBE SHA-256:
+      `71E1AA5B752D7799DD0C7A3033181F3BA8E84E6886B9091D77C7FD96E66ACB6D`
 
 13. Distinct Tournament mode UI
     - Complete and signed off by Steve on 2026-07-18 after final CXBX-R
@@ -298,6 +418,15 @@ does not depend on scattered chat context.
       - Damien selection: `C:\Games\Emulators\CXBX-CodexCapture\captures\ut99-item16-damien-persistence-final-20260718\proofs\20260718-204841-damien-saved-selection.png`
       - Damien gameplay: `C:\Games\Emulators\CXBX-CodexCapture\captures\ut99-item16-damien-spawn-final-20260718\proofs\20260718-205040-damien-live-gameplay.png`
       - Classic Skaarj set: `C:\Games\Emulators\CXBX-CodexCapture\captures\ut99-item16-hires-final-baetal-20260718`, `ut99-item16-hires-final-berserker2-20260718`, `ut99-item16-hires-final-disconnect-20260718`, `ut99-item16-hires-final-dominator-20260718`, `ut99-item16-hires-final-firewall-20260718`, `ut99-item16-hires-final-guardian-20260718`, `ut99-item16-hires-final-pharoh-20260718`, and `ut99-item16-hires-final-skrilax-20260718`.
+
+17. Working XBE game icon
+    - Complete and signed off by Steve on original Xbox hardware on 2026-07-21.
+    - The Unreal Tournament icon is embedded in the XBE as a retail-format
+      128x128 `XPR0` `$$XTIMAGE` section, with matching title/save metadata.
+    - The build uses retail Title ID `0x4D4A0008` (`MJ-008`, BlowOut), an
+      obscure Xbox FPS assigned to the Xbox 360 `xefu7` profile.
+    - The XPR container and Xbox image-project wiring were cross-checked against
+      the local Unreal Championship 2 Xbox source before hardware sign-off.
 
 ## Completed Runtime Fixes
 

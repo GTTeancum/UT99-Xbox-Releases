@@ -14,6 +14,24 @@ Revision history:
 -----------------------------------------------------------------------------*/
 
 #if TARGET_XBOX
+static UMesh* XboxResolveBakedPS2Mesh( UMesh* SourceMesh )
+{
+	if( !SourceMesh )
+		return NULL;
+
+	TCHAR SourcePath[256];
+	SourceMesh->GetPathName( NULL, SourcePath );
+	if( appStrnicmp( SourcePath, TEXT("UTPS2Characters."), 16 ) != 0 )
+		return NULL;
+
+	FString TargetPath = FString::Printf( TEXT("UTPS2Baked.%s"), SourceMesh->GetName() );
+	UMesh* BakedMesh = Cast<UMesh>( UObject::StaticLoadObject(
+		UMesh::StaticClass(), NULL, *TargetPath, NULL, LOAD_NoWarn | LOAD_Quiet, NULL ) );
+	debugf( NAME_Log, TEXT("XSKELBAKE source=%s target=%s result=%s"),
+		SourcePath, *TargetPath, BakedMesh ? TEXT("loaded") : TEXT("fallback") );
+	return BakedMesh;
+}
+
 static UBOOL XboxClassNameContains( UClass* Class, const TCHAR* Fragment )
 {
 	for( UClass* Test = Class; Test; Test = Test->GetSuperClass() )
@@ -128,6 +146,14 @@ AActor* ULevel::SpawnActor
 		Template = Class->GetDefaultActor();
 	check(Template!=NULL);
 
+#if TARGET_XBOX
+	// Native vertex-animation replacements are baked offline from UE Viewer's
+	// validated UE1 skeletal decode. Patch the class default before object
+	// construction so script resets continue to use the replacement mesh.
+	if( UMesh* BakedMesh = XboxResolveBakedPS2Mesh( Template->Mesh ) )
+		Template->Mesh = BakedMesh;
+#endif
+
 	// Make sure actor will fit at desired location, and adjust location if necessary.
 	if( (Template->bCollideWorld || (Template->bCollideWhenPlacing && (GetLevelInfo()->NetMode != NM_Client))) && !bNoCollisionFail )
 		if( !FindSpot( Template->GetCylinderExtent(), Location, 0, 1 ) )
@@ -186,6 +212,19 @@ AActor* ULevel::SpawnActor
 
 	// Send PostBeginPlay.
 	Actor->eventPostBeginPlay();
+
+#if TARGET_XBOX
+	// Some imported player classes assign their mesh during the script spawn
+	// lifecycle. Resolve once more after PostBeginPlay, then update both the
+	// live actor and its class default so later ResetMesh calls stay baked.
+	if( UMesh* BakedMesh = XboxResolveBakedPS2Mesh( Actor->Mesh ) )
+	{
+		Actor->Mesh = BakedMesh;
+		AActor* ClassDefault = Actor->GetClass()->GetDefaultActor();
+		if( ClassDefault )
+			ClassDefault->Mesh = BakedMesh;
+	}
+#endif
 
 	// Check for encroachment.
 	if( !bNoCollisionFail && CheckEncroachment( Actor, Actor->Location, Actor->Rotation, 0 ) )

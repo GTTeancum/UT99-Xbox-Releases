@@ -22,6 +22,194 @@ QSORT_RETURN CDECL CompareFaceKey( const FMeshFaceSort* A, const FMeshFaceSort* 
 	return B->Key - A->Key;
 }
 
+#if TARGET_XBOX
+enum { SKELETAL_RENDER_AUDIT_SLOTS = 64 };
+
+struct FSkeletalRenderAuditState
+{
+	AActor* Owner;
+	ULodMesh* Mesh;
+	INT LastFrame;
+	INT GeometrySamples;
+	INT PreviousLod;
+	INT LastLod;
+	INT PreviousVisibleFaces;
+	INT LastVisibleFaces;
+	INT WindowMinVisibleFaces;
+	INT WindowMaxVisibleFaces;
+	INT WindowMinLod;
+	INT WindowMaxLod;
+	DWORD PreviousTextureHash;
+	DWORD LastTextureHash;
+	INT LastMissingTextures;
+};
+
+static FSkeletalRenderAuditState GSkeletalRenderAudit[SKELETAL_RENDER_AUDIT_SLOTS];
+
+static FSkeletalRenderAuditState* GetSkeletalRenderAuditState( AActor* Owner, ULodMesh* Mesh )
+{
+	INT EmptyIndex = INDEX_NONE;
+	for( INT Index=0; Index<SKELETAL_RENDER_AUDIT_SLOTS; Index++ )
+	{
+		if( GSkeletalRenderAudit[Index].Owner == Owner && GSkeletalRenderAudit[Index].Mesh == Mesh )
+			return &GSkeletalRenderAudit[Index];
+		if( EmptyIndex == INDEX_NONE && GSkeletalRenderAudit[Index].Owner == NULL )
+			EmptyIndex = Index;
+	}
+	const INT SlotIndex = EmptyIndex != INDEX_NONE
+		? EmptyIndex
+		: (((DWORD)Owner >> 4) % SKELETAL_RENDER_AUDIT_SLOTS);
+	appMemzero( &GSkeletalRenderAudit[SlotIndex], sizeof(GSkeletalRenderAudit[SlotIndex]) );
+	GSkeletalRenderAudit[SlotIndex].Owner = Owner;
+	GSkeletalRenderAudit[SlotIndex].Mesh = Mesh;
+	GSkeletalRenderAudit[SlotIndex].LastFrame = -1;
+	return &GSkeletalRenderAudit[SlotIndex];
+}
+
+static void AuditSkeletalRenderGeometry
+(
+	FSceneNode* Frame,
+	AActor* Owner,
+	ULodMesh* Mesh,
+	INT VertexSubset,
+	INT VisibleFaces,
+	DWORD MeshOutcode
+)
+{
+	if( !Mesh->IsA(USkeletalMesh::StaticClass()) )
+		return;
+	FSkeletalRenderAuditState* State = GetSkeletalRenderAuditState( Owner, Mesh );
+	const INT FrameNumber = Frame->Viewport->FrameCount;
+	if( FrameNumber <= State->LastFrame )
+		return;
+
+	const UBOOL SameLod = State->GeometrySamples > 0 && VertexSubset == State->LastLod;
+	const UBOOL FaceCollapse = SameLod && MeshOutcode == 0 && State->LastVisibleFaces > 0 && VisibleFaces == 0;
+	const INT FaceTolerance = Max( 2, State->PreviousVisibleFaces/10 );
+	const UBOOL FaceOscillation
+		= State->GeometrySamples > 1
+		&& SameLod
+		&& Abs(VisibleFaces-State->PreviousVisibleFaces) <= FaceTolerance
+		&& Max(VisibleFaces,State->LastVisibleFaces) > Min(VisibleFaces,State->LastVisibleFaces)*2 + 8;
+	const UBOOL LodOscillation
+		= State->GeometrySamples > 1
+		&& VertexSubset == State->PreviousLod
+		&& VertexSubset != State->LastLod;
+	if( State->GeometrySamples%120 == 0 )
+	{
+		State->WindowMinVisibleFaces = VisibleFaces;
+		State->WindowMaxVisibleFaces = VisibleFaces;
+		State->WindowMinLod = VertexSubset;
+		State->WindowMaxLod = VertexSubset;
+	}
+	else
+	{
+		State->WindowMinVisibleFaces = Min( State->WindowMinVisibleFaces, VisibleFaces );
+		State->WindowMaxVisibleFaces = Max( State->WindowMaxVisibleFaces, VisibleFaces );
+		State->WindowMinLod = Min( State->WindowMinLod, VertexSubset );
+		State->WindowMaxLod = Max( State->WindowMaxLod, VertexSubset );
+	}
+	const UBOOL FaceRangeCollapse
+		= State->GeometrySamples%120 == 119
+		&& State->WindowMaxVisibleFaces > State->WindowMinVisibleFaces*4 + 8;
+
+	if( FaceCollapse || FaceOscillation || LodOscillation || FaceRangeCollapse )
+	{
+		debugf
+		(
+			NAME_Warning,
+			TEXT("XSKELFLICKER kind=render owner=%s mesh=%s frame=%i lod=%i,%i,%i faces=%i,%i,%i windowfaces=%i..%i windowlod=%i..%i outcode=0x%08x collapse=%i faceosc=%i lodosc=%i rangecollapse=%i"),
+			Owner ? Owner->GetFullName() : TEXT("None"),
+			Mesh->GetFullName(),
+			FrameNumber,
+			State->PreviousLod,
+			State->LastLod,
+			VertexSubset,
+			State->PreviousVisibleFaces,
+			State->LastVisibleFaces,
+			VisibleFaces,
+			State->WindowMinVisibleFaces,
+			State->WindowMaxVisibleFaces,
+			State->WindowMinLod,
+			State->WindowMaxLod,
+			MeshOutcode,
+			FaceCollapse,
+			FaceOscillation,
+			LodOscillation,
+			FaceRangeCollapse
+		);
+	}
+	else if( State->GeometrySamples && State->GeometrySamples%120 == 0 )
+	{
+		debugf
+		(
+			NAME_Log,
+			TEXT("XSKELRENDER owner=%s mesh=%s frame=%i lod=%i faces=%i windowfaces=%i..%i windowlod=%i..%i outcode=0x%08x samples=%i"),
+			Owner ? Owner->GetFullName() : TEXT("None"),
+			Mesh->GetFullName(),
+			FrameNumber,
+			VertexSubset,
+			VisibleFaces,
+			State->WindowMinVisibleFaces,
+			State->WindowMaxVisibleFaces,
+			State->WindowMinLod,
+			State->WindowMaxLod,
+			MeshOutcode,
+			State->GeometrySamples
+		);
+	}
+
+	State->PreviousLod = State->LastLod;
+	State->LastLod = VertexSubset;
+	State->PreviousVisibleFaces = State->LastVisibleFaces;
+	State->LastVisibleFaces = VisibleFaces;
+	State->LastFrame = FrameNumber;
+	State->GeometrySamples++;
+}
+
+static void AuditSkeletalRenderTextures( AActor* Owner, ULodMesh* Mesh, UTexture** ResolvedTextures )
+{
+	if( !Mesh->IsA(USkeletalMesh::StaticClass()) )
+		return;
+	FSkeletalRenderAuditState* State = GetSkeletalRenderAuditState( Owner, Mesh );
+	DWORD TextureHash = 2166136261u;
+	INT MissingTextures = 0;
+	for( INT Index=0; Index<Mesh->Textures.Num(); Index++ )
+	{
+		const DWORD TextureId = ResolvedTextures[Index]
+			? (DWORD)(ResolvedTextures[Index]->GetIndex()+1)
+			: 0;
+		TextureHash = (TextureHash ^ TextureId) * 16777619u;
+		if( !ResolvedTextures[Index] )
+			MissingTextures++;
+	}
+	const UBOOL TextureOscillation
+		= State->PreviousTextureHash
+		&& TextureHash == State->PreviousTextureHash
+		&& TextureHash != State->LastTextureHash;
+	if( MissingTextures || TextureOscillation )
+	{
+		debugf
+		(
+			NAME_Warning,
+			TEXT("XSKELFLICKER kind=texture owner=%s mesh=%s texhash=0x%08x,0x%08x,0x%08x missing=%i previousmissing=%i texcount=%i oscillation=%i"),
+			Owner ? Owner->GetFullName() : TEXT("None"),
+			Mesh->GetFullName(),
+			State->PreviousTextureHash,
+			State->LastTextureHash,
+			TextureHash,
+			MissingTextures,
+			State->LastMissingTextures,
+			Mesh->Textures.Num(),
+			TextureOscillation
+		);
+	}
+	State->PreviousTextureHash = State->LastTextureHash;
+	State->LastTextureHash = TextureHash;
+	State->LastMissingTextures = MissingTextures;
+}
+#endif
+
 //
 // Draw a mesh map with level-of-detail support.
 //
@@ -543,6 +731,9 @@ void URender::DrawLodMesh
 		unguardSlow;
 	}
 
+#if TARGET_XBOX
+	AuditSkeletalRenderGeometry( Frame, Owner, Mesh, VertexSubset, FacePool.Num(), MeshOutcode );
+#endif
 
 	//
 	// Render triangles.
@@ -576,6 +767,9 @@ void URender::DrawLodMesh
 				EnvironmentMap = Textures[i];								
 			}
 		}
+#if TARGET_XBOX
+		AuditSkeletalRenderTextures( Owner, Mesh, Textures );
+#endif
 		if( Owner->Texture )
 			EnvironmentMap = Owner->Texture;
 		else if( Owner->Region.Zone && Owner->Region.Zone->EnvironmentMap )

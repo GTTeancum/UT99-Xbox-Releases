@@ -101,17 +101,20 @@ def find_xiso_tool(build_root):
 def stop_xemu_for_config(config_path):
     full_config = os.path.abspath(config_path)
     script = r"""
-$config = [System.IO.Path]::GetFullPath($args[0])
+$config = [System.IO.Path]::GetFullPath($env:XEMU_CONFIG_TO_STOP)
 Get-CimInstance Win32_Process -Filter "Name = 'xemu.exe'" -ErrorAction SilentlyContinue |
     Where-Object { $_.CommandLine -and $_.CommandLine.IndexOf($config, [System.StringComparison]::OrdinalIgnoreCase) -ge 0 } |
     ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
 """
     try:
+        env = os.environ.copy()
+        env["XEMU_CONFIG_TO_STOP"] = full_config
         with open(os.devnull, "w") as devnull:
             subprocess.run(
-                ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script, full_config],
+                ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script],
                 stdout=devnull,
                 stderr=devnull,
+                env=env,
                 timeout=10,
             )
     except subprocess.TimeoutExpired:

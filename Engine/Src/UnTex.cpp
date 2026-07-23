@@ -223,12 +223,18 @@ void UTexture::Lock( FTextureInfo& TextureInfo, DOUBLE CurrentTime, INT LOD, URe
 	TextureInfo.VSize			= TextureInfo.VClamp			= WhichMips(LOD).VSize;
 	TextureInfo.NumMips			= WhichMips.Num() - LOD;
 	TextureInfo.Format          = (ETextureFormat)(UseComp ? CompFormat : Format);
-	if( !bParametric && (!RenDev || !RenDev->PrefersDeferredLoad) )
+	UBOOL DeferredLoad = !bParametric && RenDev && RenDev->PrefersDeferredLoad;
+	if( !bParametric && !DeferredLoad )
 		for( INT i=LOD; i<WhichMips.Num(); i++ )
 			WhichMips(i).DataArray.Load();
 	for( INT i=LOD; i<WhichMips.Num(); i++ )
 	{
-		WhichMips(i).DataPtr    = &WhichMips(i).DataArray(0);
+		// A deferred renderer owns the load point. Using operator() here defeats
+		// TLazyArray by loading every source mip before the renderer can reserve
+		// memory or determine that the GPU copy is already resident.
+		WhichMips(i).DataPtr    = DeferredLoad
+			? (BYTE*)WhichMips(i).DataArray.GetData()
+			: &WhichMips(i).DataArray(0);
 		TextureInfo.Mips[i-LOD] = &WhichMips(i);
 	}
 

@@ -43,22 +43,37 @@ map_path = exe_path.replace('.exe', '.map')
 cmd = [imagebld, '/IN:' + temp_exe, '/OUT:' + xbe_path]
 if os.path.exists(map_path):
     cmd.append('/MAP:' + map_path)
-cmd.append('/TESTNAME:UnrealTournament')
-cmd.append('/TESTID:0x4C410001')
+cmd.append('/TESTNAME:Unreal Tournament')
+# BlowOut: Military Fighting Unit (MJ-008). This obscure retail title is
+# officially assigned to the Xbox 360 xefu7 compatibility profile.
+cmd.append('/TESTID:0x4D4A0008')
 # UE1 GC mark phase (UObject::SerializeRootSet -> FArchiveTagUsed::operator<<)
 # recurses through every reachable object's property graph.  With ~16K objects
 # loaded after CityIntro the recursion can go many hundreds of frames deep,
 # and the previous 0x40000 (256KB) stack overflowed silently and hung the
 # engine right at "Collecting garbage".  Bump to 1MB to match the PC build.
 cmd.append('/STACK:0x100000')
+# Match retail Xbox memory exactly in emulator/debug-kit runs. Original Xbox
+# hardware is already limited to 64 MB; this keeps CXBX-R qualification honest.
+cmd.append('/LIMITMEM')
 cmd.append('/DEBUG')
 cmd.append('/TESTMEDIATYPES:0xFFFFFFFF')
 
-# Title icon — 128x128 BMP embedded as XBE SaveImage
-icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'xbe_icon.bmp')
-if os.path.exists(icon_path):
-    cmd.append('/TITLEIMAGE:' + icon_path)
-    print("Using title icon: " + icon_path)
+# Embed the XPR title/save images and matching title metadata.
+asset_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'XboxAssets')
+dashboard_assets = (
+    ('/TITLEINFO:', os.path.join(asset_dir, 'titleinfo.txt')),
+    ('/TITLEIMAGE:', os.path.join(asset_dir, 'titleimage.xbx')),
+    ('/DEFAULTSAVEIMAGE:', os.path.join(asset_dir, 'saveimage.xbx')),
+)
+for option, asset_path in dashboard_assets:
+    if not os.path.isfile(asset_path):
+        print("ERROR: Missing dashboard asset: " + asset_path)
+        print("Run UT99-Xbox\\Tools\\generate_dashboard_assets.py")
+        os.remove(temp_exe)
+        sys.exit(1)
+    cmd.append(option + asset_path)
+    print("Using dashboard asset: " + asset_path)
 
 print("Running: " + ' '.join(cmd))
 result = subprocess.call(cmd)
@@ -108,7 +123,7 @@ for i in range(lib_count):
 # always mapped, so a table living there is safe.
 n_sect = struct.unpack_from('<I', xbe, 0x11C)[0]
 sh = struct.unpack_from('<I', xbe, 0x120)[0] - base_addr
-first_raw = min(struct.unpack_from('<I', xbe, sh + i*0x38 + 0x10)[0] for i in range(n_sect))
+first_raw = min(struct.unpack_from('<I', xbe, sh + i*0x38 + 0x0C)[0] for i in range(n_sect))
 if lib_offset >= first_raw:
     print("  WARNING: lib table at file 0x%X is past first section raw 0x%X — runtime VA may be unmapped!" % (lib_offset, first_raw))
 else:
@@ -126,6 +141,13 @@ print("  Sections: " + ", ".join(section_names))
 for required in ("D3D", "D3DX", "DSOUND", "XGRPH", "XPP"):
     if required not in section_names:
         print("  WARNING: missing section %s (OpenJKDF2 baseline has it)" % required)
+
+dashboard_sections = ("$$XTINFO", "$$XTIMAGE", "$$XSIMAGE")
+missing_dashboard_sections = [name for name in dashboard_sections if name not in section_names]
+if missing_dashboard_sections:
+    print("ERROR: missing dashboard XBE sections: " + ", ".join(missing_dashboard_sections))
+    sys.exit(1)
+print("  OK: dashboard metadata sections are present")
 
 with open(xbe_path, 'wb') as f:
     f.write(xbe)

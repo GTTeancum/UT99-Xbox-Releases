@@ -408,7 +408,7 @@ class ENGINE_API ULodMesh : public UMesh
 	ULodMesh( INT NumPolys, INT NumVerts, INT NumFrames );
 	
 	// GetFrame for LOD.
-	void GetFrame( FVector* Verts, INT Size, FCoords Coords, AActor* Owner, INT& LODRequest );
+	virtual void GetFrame( FVector* Verts, INT Size, FCoords Coords, AActor* Owner, INT& LODRequest );
 };
 
 /*-----------------------------------------------------------------------------
@@ -417,14 +417,76 @@ class ENGINE_API ULodMesh : public UMesh
 
 //
 // UE1 skeletal meshes serialize a ULodMesh render header followed by skeletal
-// bind-pose data. The Xbox port renders the bind pose through the existing
-// ULodMesh path so packages importing Engine.SkeletalMesh can load in-game.
+// bind-pose, influence, and animation data.
 //
+struct FSkeletalJointPos
+{
+	FAnimationQuat Orientation;
+	FVector        Position;
+	FLOAT          Length;
+	FVector        Size;
+
+	friend FArchive& operator<<( FArchive& Ar, FSkeletalJointPos& P )
+		{return Ar << P.Orientation << P.Position << P.Length << P.Size;}
+};
+
+struct FSkeletalBone
+{
+	FName             Name;
+	DWORD             Flags;
+	FSkeletalJointPos BonePos;
+	INT               NumChildren;
+	INT               ParentIndex;
+
+	friend FArchive& operator<<( FArchive& Ar, FSkeletalBone& B )
+		{return Ar << B.Name << B.Flags << B.BonePos << B.NumChildren << B.ParentIndex;}
+};
+
+struct FSkeletalBoneInfluenceIndex
+{
+	_WORD WeightIndex;
+	_WORD Number;
+	_WORD DetailA;
+	_WORD DetailB;
+
+	friend FArchive& operator<<( FArchive& Ar, FSkeletalBoneInfluenceIndex& I )
+		{return Ar << I.WeightIndex << I.Number << I.DetailA << I.DetailB;}
+};
+
+struct FSkeletalBoneInfluence
+{
+	_WORD PointIndex;
+	_WORD BoneWeight;
+
+	friend FArchive& operator<<( FArchive& Ar, FSkeletalBoneInfluence& I )
+		{return Ar << I.PointIndex << I.BoneWeight;}
+};
+
 class ENGINE_API USkeletalMesh : public ULodMesh
 {
 	DECLARE_CLASS(USkeletalMesh,ULodMesh,0)
 
+	TArray<FVector>                     SkeletalPoints;
+	TArray<FSkeletalBone>               RefSkeleton;
+	TArray<FSkeletalBoneInfluenceIndex> BoneInfluenceIndices;
+	TArray<FSkeletalBoneInfluence>      BoneInfluences;
+	TArray<FCoords>                     InvRefBases;
+	TArray<INT>                         AnimBoneMap;
+	FVector                             SkeletalBindMin;
+	FVector                             SkeletalBindMax;
+	INT                                 SkeletalDepth;
+	UAnimation*                         Animation;
+
+	USkeletalMesh()
+	: SkeletalBindMin(0,0,0)
+	, SkeletalBindMax(0,0,0)
+	, SkeletalDepth(0)
+	, Animation(NULL)
+	{}
+
 	void Serialize( FArchive& Ar );
+	virtual void GetFrame( FVector* Verts, INT Size, FCoords Coords, AActor* Owner );
+	virtual void GetFrame( FVector* Verts, INT Size, FCoords Coords, AActor* Owner, INT& LODRequest );
 };
 
 /*----------------------------------------------------------------------------

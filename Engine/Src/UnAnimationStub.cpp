@@ -24,31 +24,59 @@ void UAnimation::Serialize( FArchive& Ar )
 #if TARGET_XBOX
 	if( Ar.IsLoading() )
 	{
-		const INT LoadedBoneCount = RefBones.Num();
-		const INT LoadedMoveCount = Moves.Num();
+		INT TimedTracks = 0;
+		INT NonMonotonicTracks = 0;
+		INT MismatchedTimeTracks = 0;
+		INT EmptyRotationTracks = 0;
+		INT EmptyPositionTracks = 0;
+		INT TotalTracks = 0;
+
+		for( INT MoveIndex=0; MoveIndex<Moves.Num(); MoveIndex++ )
+		{
+			FAnimationMotionChunk& Move = Moves(MoveIndex);
+			for( INT TrackIndex=0; TrackIndex<Move.AnimTracks.Num(); TrackIndex++ )
+			{
+				FAnimationTrack& Track = Move.AnimTracks(TrackIndex);
+				TotalTracks++;
+				if( !Track.KeyQuat.Num() )
+					EmptyRotationTracks++;
+				if( !Track.KeyPos.Num() )
+					EmptyPositionTracks++;
+
+				if( Track.KeyTime.Num() )
+				{
+					TimedTracks++;
+					const INT ExpectedKeys = Max( Track.KeyQuat.Num(), Track.KeyPos.Num() );
+					if( Track.KeyTime.Num() != ExpectedKeys )
+						MismatchedTimeTracks++;
+					for( INT KeyIndex=1; KeyIndex<Track.KeyTime.Num(); KeyIndex++ )
+						if( Track.KeyTime(KeyIndex) < Track.KeyTime(KeyIndex-1) )
+						{
+							NonMonotonicTracks++;
+							break;
+						}
+				}
+
+				// UE1 skeletal packages carry unreliable time tracks. Preserve their
+				// native basis; this engine consumes UE1 data directly.
+				Track.KeyTime.Empty();
+			}
+		}
 
 		debugf
 		(
 			NAME_Log,
-			TEXT("XAnimation load %s bones=%i moves=%i seqs=%i"),
+			TEXT("XSKELAUDIT animation=%s bones=%i moves=%i seqs=%i tracks=%i timed=%i nonmonotonic=%i mismatched=%i emptyrot=%i emptypos=%i timing=uniform basis=ue1-native"),
 			GetFullName(),
 			RefBones.Num(),
 			Moves.Num(),
-			AnimSeqs.Num()
-		);
-
-		// Xbox skeletal meshes render their bind pose and retain only sequence metadata.
-		RefBones.Empty();
-		Moves.Empty();
-
-		debugf
-		(
-			NAME_Log,
-			TEXT("XAnimation discard %s bones=%i moves=%i retainedSeqs=%i"),
-			GetFullName(),
-			LoadedBoneCount,
-			LoadedMoveCount,
-			AnimSeqs.Num()
+			AnimSeqs.Num(),
+			TotalTracks,
+			TimedTracks,
+			NonMonotonicTracks,
+			MismatchedTimeTracks,
+			EmptyRotationTracks,
+			EmptyPositionTracks
 		);
 	}
 #endif

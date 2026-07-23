@@ -361,6 +361,9 @@ class ULinkerLoad : public ULinker, public FArchive
 		DWORD XboxLinkerAvailStartKB = XboxLinkerMemStart.dwAvailPhys / 1024;
 		DWORD XboxLinkerHeapStartKB = GXboxMallocLiveBytes / 1024;
 		DWORD XboxLinkerTotalStartKB = GXboxMallocTotalBytes / 1024;
+		if( GXboxHardwareBootTraceActive )
+			debugf( NAME_Init, TEXT("XTRACE PKG BEGIN file=%s root=%s flags=%08X"),
+				InFilename ? InFilename : TEXT("<NULL>"), InParent ? InParent->GetFullName() : TEXT("<NULL>"), InLoadFlags );
 #endif
 		if( bVerbosePackageLoad )
 			debugf( TEXT("Loading: %s"), InParent->GetFullName() );
@@ -369,6 +372,10 @@ class ULinkerLoad : public ULinker, public FArchive
 		Loader = GFileManager->CreateFileReader( InFilename, 0, GError );
 		if( !Loader )
 			appThrowf( LocalizeError("OpenFailed") );
+#if TARGET_XBOX
+		if( GXboxHardwareBootTraceActive )
+			debugf( NAME_Init, TEXT("XTRACE PKG OPEN file=%s bytes=%i"), *Filename, Loader->TotalSize() );
+#endif
 		if( bVerbosePackageLoad )
 			debugf( TEXT("ULinkerLoad: opened '%s' size=%i"), *Filename, Loader->TotalSize() );
 
@@ -393,6 +400,11 @@ class ULinkerLoad : public ULinker, public FArchive
 		guard(LoadSummary);
 		*this << Summary;
 		ArVer = Summary.FileVersion;
+#if TARGET_XBOX
+		if( GXboxHardwareBootTraceActive )
+			debugf( NAME_Init, TEXT("XTRACE PKG SUMMARY file=%s tag=%08X ver=%i names=%i imports=%i exports=%i"),
+				*Filename, Summary.Tag, Summary.FileVersion, Summary.NameCount, Summary.ImportCount, Summary.ExportCount );
+#endif
 		if( Cast<UPackage>(LinkerRoot) )
 			Cast<UPackage>(LinkerRoot)->PackageFlags = Summary.PackageFlags;
 		if( bVerbosePackageLoad )
@@ -452,6 +464,10 @@ class ULinkerLoad : public ULinker, public FArchive
 		}
 		if( bVerbosePackageLoad )
 			debugf( TEXT("ULinkerLoad: loaded names for '%s'"), *Filename );
+#if TARGET_XBOX
+		if( GXboxHardwareBootTraceActive )
+			debugf( NAME_Init, TEXT("XTRACE PKG NAMES-END file=%s count=%i"), *Filename, NameMap.Num() );
+#endif
 		unguard;
 
 		// Load import map.
@@ -466,6 +482,10 @@ class ULinkerLoad : public ULinker, public FArchive
 		}
 		if( bVerbosePackageLoad )
 			debugf( TEXT("ULinkerLoad: loaded imports for '%s'"), *Filename );
+#if TARGET_XBOX
+		if( GXboxHardwareBootTraceActive )
+			debugf( NAME_Init, TEXT("XTRACE PKG IMPORTS-END file=%s count=%i"), *Filename, ImportMap.Num() );
+#endif
 		unguard;
 
 		// Load export map.
@@ -480,6 +500,10 @@ class ULinkerLoad : public ULinker, public FArchive
 		}
 		if( bVerbosePackageLoad )
 			debugf( TEXT("ULinkerLoad: loaded exports for '%s'"), *Filename );
+#if TARGET_XBOX
+		if( GXboxHardwareBootTraceActive )
+			debugf( NAME_Init, TEXT("XTRACE PKG EXPORTS-END file=%s count=%i"), *Filename, ExportMap.Num() );
+#endif
 		unguard;
 
 		// Create export hash.
@@ -499,15 +523,28 @@ class ULinkerLoad : public ULinker, public FArchive
 		GObjLoaders.AddItem( this );
 		if( !(LoadFlags & LOAD_NoVerify) )
 		{
+#if TARGET_XBOX
+			if( GXboxHardwareBootTraceActive )
+				debugf( NAME_Init, TEXT("XTRACE PKG VERIFY-BEGIN file=%s"), *Filename );
+#endif
 			if( bVerbosePackageLoad )
 				debugf( TEXT("ULinkerLoad: verifying '%s' imports=%i"), *Filename, Summary.ImportCount );
 			Verify();
+#if TARGET_XBOX
+			if( GXboxHardwareBootTraceActive )
+				debugf( NAME_Init, TEXT("XTRACE PKG VERIFY-END file=%s"), *Filename );
+#endif
 			if( bVerbosePackageLoad )
 				debugf( TEXT("ULinkerLoad: verified '%s'"), *Filename );
 		}
 
 		// Success.
 		Success = 1;
+#if TARGET_XBOX
+		if( GXboxHardwareBootTraceActive )
+			debugf( NAME_Init, TEXT("XTRACE PKG END file=%s root=%s"), *Filename,
+				LinkerRoot ? LinkerRoot->GetName() : TEXT("NULL") );
+#endif
 		if( bVerbosePackageLoad )
 			debugf( TEXT("ULinkerLoad: success '%s'"), *Filename );
 #if TARGET_XBOX
@@ -973,7 +1010,26 @@ class ULinkerLoad : public ULinker, public FArchive
 				DWORD XboxPreloadAvailStartKB = XboxPreloadMemStart.dwAvailPhys / 1024;
 				DWORD XboxPreloadHeapStartKB = GXboxMallocLiveBytes / 1024;
 #endif
+				#if TARGET_XBOX
+				const TCHAR* XboxTraceClass = Object->GetClass() ? Object->GetClass()->GetName() : TEXT("NULL");
+				UBOOL XboxTraceThisObject = GXboxHardwareBootTraceActive
+					&& ( Export.SerialSize >= 32 * 1024
+						|| appStricmp(XboxTraceClass,TEXT("Class")) == 0
+						|| appStricmp(XboxTraceClass,TEXT("LodMesh")) == 0
+						|| appStricmp(XboxTraceClass,TEXT("SkeletalMesh")) == 0
+						|| appStricmp(XboxTraceClass,TEXT("Music")) == 0
+						|| appStricmp(XboxTraceClass,TEXT("Sound")) == 0 );
+				if( XboxTraceThisObject )
+					debugf( NAME_Init, TEXT("XTRACE OBJ BEGIN export=%i class=%s object=%s pkg=%s serialOffset=%i serialBytes=%i availKB=%u heapLiveKB=%u"),
+						Object->_LinkerIndex, XboxTraceClass, Object->GetFullName(), LinkerRoot ? LinkerRoot->GetName() : TEXT("NULL"),
+						Export.SerialOffset, Export.SerialSize, (unsigned)XboxPreloadAvailStartKB, (unsigned)XboxPreloadHeapStartKB );
+				#endif
 				Object->Serialize  ( *this );
+				#if TARGET_XBOX
+				if( XboxTraceThisObject )
+					debugf( NAME_Init, TEXT("XTRACE OBJ END export=%i class=%s object=%s pkg=%s"),
+						Object->_LinkerIndex, XboxTraceClass, Object->GetFullName(), LinkerRoot ? LinkerRoot->GetName() : TEXT("NULL") );
+				#endif
 #if TARGET_XBOX
 				MEMORYSTATUS XboxPreloadMemEnd;
 				appMemzero( &XboxPreloadMemEnd, sizeof(XboxPreloadMemEnd) );
@@ -1020,9 +1076,12 @@ class ULinkerLoad : public ULinker, public FArchive
 				// enough to identify it; the loud byte-dump version is in git
 				// history if we need to dig in again.
 				if( Tell()-Export.SerialOffset != Export.SerialSize )
-				{
-				}
+					{
+					}
 				Loader->Seek( SavedPos );
+#if TARGET_XBOX
+				XboxPulseLoadingActivity();
+#endif
 				unguardf(( TEXT("(%s %i==%i/%i %i %i)"), Object->GetFullName(), Loader->Tell(), Loader->Tell(), Loader->TotalSize(), ExportMap( Object->_LinkerIndex ).SerialOffset, ExportMap( Object->_LinkerIndex ).SerialSize ));
 			}
 		}

@@ -32,7 +32,12 @@ extern DWORD GXboxMallocLastLargeBytes;
 extern char  GXboxMallocLargestTag[64];
 extern char  GXboxMallocLastLargeTag[64];
 static UBOOL GXboxShowLoadActivity = 0;
+static UBOOL GXboxDrawingLoadActivity = 0;
+static UGameEngine* GXboxLoadActivityEngine = NULL;
 static INT GXboxLoadActivityStep = 0;
+static INT GXboxLoadActivityDrawCount = 0;
+static DOUBLE GXboxLoadActivityStartTime = 0.0;
+static DOUBLE GXboxLoadActivityLastDrawTime = 0.0;
 
 static void XboxMemMark( const TCHAR* Label )
 {
@@ -330,11 +335,63 @@ static UBOOL XboxRestartCityIntroFlyby( ULevel* Level, UViewport* Viewport )
 	unguard;
 }
 
-static void XboxSetLoadActivity( UBOOL bShow )
+static void XboxSetLoadActivity( UGameEngine* GameEngine, UBOOL bShow )
 {
+	if( bShow && !GXboxShowLoadActivity )
+	{
+		GXboxLoadActivityStep = 0;
+		GXboxLoadActivityDrawCount = 0;
+		GXboxLoadActivityStartTime = appSeconds();
+		GXboxLoadActivityLastDrawTime = 0.0;
+		debugf( NAME_Init, TEXT("XLOADANIM begin") );
+	}
+	else if( !bShow && GXboxShowLoadActivity )
+	{
+		DWORD ElapsedMS = (DWORD)Max<DOUBLE>( 0.0, (appSeconds() - GXboxLoadActivityStartTime) * 1000.0 );
+		debugf( NAME_Init, TEXT("XLOADANIM end frames=%i elapsedMS=%u"), GXboxLoadActivityDrawCount, (unsigned)ElapsedMS );
+	}
 	GXboxShowLoadActivity = bShow;
-	if( bShow )
-		GXboxLoadActivityStep = (GXboxLoadActivityStep + 1) & 7;
+	GXboxLoadActivityEngine = bShow ? GameEngine : NULL;
+}
+
+extern "C" void XboxPulseLoadingActivity()
+{
+	if( !GXboxShowLoadActivity || GXboxDrawingLoadActivity || !GXboxLoadActivityEngine )
+		return;
+
+	UGameEngine* GameEngine = GXboxLoadActivityEngine;
+	if( !GameEngine || !GameEngine->Client || !GameEngine->Client->Viewports.Num() )
+		return;
+
+	UViewport* Viewport = GameEngine->Client->Viewports(0);
+	if( !Viewport || !Viewport->Actor || !Viewport->Canvas )
+		return;
+
+	DOUBLE Now = appSeconds();
+	if( GXboxLoadActivityLastDrawTime > 0.0 && Now - GXboxLoadActivityLastDrawTime < 0.10 )
+		return;
+
+	ULevel* ViewLevel = Viewport->Actor->GetLevel();
+	ALevelInfo* LevelInfo = ViewLevel ? ViewLevel->GetLevelInfo() : NULL;
+	if( !LevelInfo )
+		return;
+
+	GXboxLoadActivityLastDrawTime = Now;
+	GXboxLoadActivityStep = (GXboxLoadActivityStep + 1) & 7;
+	GXboxLoadActivityDrawCount++;
+	BYTE SavedAction = LevelInfo->LevelAction;
+	LevelInfo->LevelAction = LEVACT_Loading;
+	GXboxDrawingLoadActivity = 1;
+	GameEngine->PaintProgress();
+	GXboxDrawingLoadActivity = 0;
+	LevelInfo->LevelAction = SavedAction;
+
+	if( GXboxLoadActivityDrawCount == 1 || (GXboxLoadActivityDrawCount & 7) == 0 )
+	{
+		DWORD ElapsedMS = (DWORD)Max<DOUBLE>( 0.0, (appSeconds() - GXboxLoadActivityStartTime) * 1000.0 );
+		debugf( NAME_Init, TEXT("XLOADANIM frame=%i step=%i elapsedMS=%u"),
+			GXboxLoadActivityDrawCount, GXboxLoadActivityStep, (unsigned)ElapsedMS );
+	}
 }
 
 static void XboxDrawLoadingActivity( UViewport* Viewport )
@@ -1226,7 +1283,7 @@ ULevel* UGameEngine::LoadMap( const FURL& URL, UPendingLevel* Pending, const TMa
 	Error = TEXT("");
 	debugf( NAME_Log, TEXT("LoadMap: %s"), *URL.String() );
 #if TARGET_XBOX
-	XboxSetLoadActivity( !XboxIsCityIntroURL( URL ) );
+	XboxSetLoadActivity( this, !XboxIsCityIntroURL( URL ) );
 	XboxMemMark( *FString::Printf( TEXT("LoadMap enter %s"), *URL.String() ) );
 #endif
 	GInitRunaway();
@@ -1333,6 +1390,9 @@ ULevel* UGameEngine::LoadMap( const FURL& URL, UPendingLevel* Pending, const TMa
 #endif
 		Error = CatchError;
 		SetProgress( LocalizeError(TEXT("UrlFailed"),TEXT("Core")), CatchError, 6.0 );
+#if TARGET_XBOX
+		XboxSetLoadActivity( this, 0 );
+#endif
 		return NULL;
 	}
 	unguard;
@@ -1764,6 +1824,7 @@ ULevel* UGameEngine::LoadMap( const FURL& URL, UPendingLevel* Pending, const TMa
 		{
 			Error = TEXT("Xbox network client viewport has no Entry holding level");
 			debugf( NAME_Log, TEXT("Xbox: aborting client viewport match because pending network map has no Entry level") );
+			XboxSetLoadActivity( this, 0 );
 			return NULL;
 		}
 		MatchViewportsToActors( Client, ViewLevel, URL );
@@ -1830,7 +1891,7 @@ ULevel* UGameEngine::LoadMap( const FURL& URL, UPendingLevel* Pending, const TMa
 
 	// Successfully started local level.
 #if TARGET_XBOX
-	XboxSetLoadActivity( 0 );
+	XboxSetLoadActivity( this, 0 );
 	XboxMemMark( TEXT("LoadMap return") );
 #endif
 	return GLevel;

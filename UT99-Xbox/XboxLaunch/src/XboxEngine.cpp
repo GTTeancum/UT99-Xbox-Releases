@@ -318,6 +318,8 @@ void MainLoop( UEngine* Engine )
 	UBOOL bXboxStartSmokeEnabled = bXboxSoakEnabled || (GetFileAttributesA( "D:\\XboxStartURL.ini" ) != 0xFFFFFFFF);
 	UBOOL bXboxCharacterSoakEnabled = GetFileAttributesA( "D:\\XboxCharacterSoak.ini" ) != 0xFFFFFFFF;
 	UBOOL bXboxSmokeMatchEndLogged = 0;
+	DWORD XboxSoakCameraNextTime = 0;
+	INT XboxSoakCameraIndex = 0;
 
 	GXboxLog.Write( "MainLoop: entering game loop (Engine=0x%08X)", (DWORD)Engine );
 	GXboxLog.Write( "MainLoop: Xbox frame limiter active max=%.1f Hz", XboxMaxTickRate );
@@ -356,6 +358,65 @@ void MainLoop( UEngine* Engine )
 
 		if( bBoundaryTick )
 			GXboxLog.Write( "MainLoop: pre-tick %d dt=%.3f", TickCount + 1, DeltaTime );
+
+		// Keep the diagnostic camera alive and unobstructed for rendered character
+		// soaks. This path is enabled only by the staged XboxCharacterSoak.ini.
+		if( bXboxCharacterSoakEnabled )
+		{
+			UGameEngine* SoakEngine = (UGameEngine*)Engine;
+			UViewport* SoakViewport = (SoakEngine && SoakEngine->Client && SoakEngine->Client->Viewports.Num() > 0)
+				? SoakEngine->Client->Viewports(0)
+				: NULL;
+			APlayerPawn* SoakActor = SoakViewport ? SoakViewport->Actor : NULL;
+			if( SoakActor )
+			{
+				SoakActor->ReducedDamageType = FName(TEXT("All"));
+				SoakActor->Health = Max( SoakActor->Health, 100 );
+				SoakActor->bBehindView = 1;
+				SoakActor->DesiredFOV = 40.0f;
+				SoakActor->bShowScores = 0;
+				SoakActor->bShowMenu = 0;
+				SoakActor->bSpecialMenu = 0;
+
+				DWORD CameraNow = GetTickCount();
+				ULevel* SoakLevel = SoakActor->GetLevel();
+				if( TickCount >= 30 && SoakLevel && SoakLevel->GetLevelInfo()
+				&& (!XboxSoakCameraNextTime || (INT)(CameraNow-XboxSoakCameraNextTime) >= 0) )
+				{
+					INT LiveBotCount = 0;
+					for( APawn* Bot = SoakLevel->GetLevelInfo()->PawnList; Bot; Bot = Bot->nextPawn )
+					{
+						Bot->bViewTarget = 0;
+						if( Bot->PlayerReplicationInfo && Bot->PlayerReplicationInfo->bIsABot && Bot->Health > 0 )
+							LiveBotCount++;
+					}
+					if( LiveBotCount )
+					{
+						const INT WantedBot = XboxSoakCameraIndex % LiveBotCount;
+						INT BotIndex = 0;
+						for( APawn* Bot = SoakLevel->GetLevelInfo()->PawnList; Bot; Bot = Bot->nextPawn )
+						{
+							if( !Bot->PlayerReplicationInfo || !Bot->PlayerReplicationInfo->bIsABot || Bot->Health <= 0 )
+								continue;
+							if( BotIndex++ == WantedBot )
+							{
+								Bot->ReducedDamageType = FName(TEXT("All"));
+								Bot->Health = Max( Bot->Health, 100 );
+								SoakActor->ViewTarget = Bot;
+								Bot->bViewTarget = 1;
+								GXboxLog.Write( "XSKELCAM tick=%d index=%d class=%s",
+									TickCount,
+									WantedBot,
+									Bot->GetClass() ? TCHAR_TO_ANSI(Bot->GetClass()->GetFullName()) : "(none)" );
+								break;
+							}
+						}
+						XboxSoakCameraIndex++;
+						XboxSoakCameraNextTime = CameraNow + 300000;
+					}
+				}
+			}
+		}
 
 		// Tick the engine
 		Engine->Tick( DeltaTime );
@@ -406,6 +467,11 @@ void MainLoop( UEngine* Engine )
 							Player->bReadyToPlay = 1;
 							Player->bShowMenu = 0;
 							Player->bSpecialMenu = 0;
+							if( bXboxCharacterSoakEnabled )
+							{
+								Player->ReducedDamageType = FName(TEXT("All"));
+								Player->Health = Max( Player->Health, 100 );
+							}
 							ReadyPlayers++;
 						}
 					}
@@ -416,10 +482,14 @@ void MainLoop( UEngine* Engine )
 				INT PawnCount = 0;
 				INT PlayerPawnCount = 0;
 				INT BotPawnCount = 0;
+				if( TickCount == 30 )
+					GXboxLog.Write( "SMOKE stage=post-ready level=0x%08X info=0x%08X", (DWORD)Level, (DWORD)Level->GetLevelInfo() );
 				MEMORYSTATUS MemStatus;
 				appMemzero( &MemStatus, sizeof(MemStatus) );
 				MemStatus.dwLength = sizeof(MemStatus);
 				GlobalMemoryStatus( &MemStatus );
+				if( TickCount == 30 )
+					GXboxLog.Write( "SMOKE stage=memory availKB=%d", MemStatus.dwAvailPhys / 1024 );
 				for( APawn* Pawn = Level->GetLevelInfo()->PawnList; Pawn; Pawn = Pawn->nextPawn )
 				{
 					PawnCount++;
@@ -428,11 +498,17 @@ void MainLoop( UEngine* Engine )
 					if( Pawn->PlayerReplicationInfo && Pawn->PlayerReplicationInfo->bIsABot )
 						BotPawnCount++;
 				}
+				if( TickCount == 30 )
+					GXboxLog.Write( "SMOKE stage=pawns count=%d players=%d bots=%d", PawnCount, PlayerPawnCount, BotPawnCount );
 
 				AGameInfo* Game = Level->GetLevelInfo()->Game;
 				AGameReplicationInfo* GRI = Game ? Game->GameReplicationInfo : NULL;
+				if( TickCount == 30 )
+					GXboxLog.Write( "SMOKE stage=game game=0x%08X gri=0x%08X", (DWORD)Game, (DWORD)GRI );
 				FXboxSmokeMatchStats MatchStats;
 				XboxSmokeBuildMatchStats( GRI, MatchStats );
+				if( TickCount == 30 )
+					GXboxLog.Write( "SMOKE stage=match-stats pri=%d bots=%d", MatchStats.PriCount, MatchStats.PriBots );
 				FString EndedComment = TEXT("");
 				if( GRI )
 					EndedComment = GRI->GameEndedComments;
@@ -444,6 +520,8 @@ void MainLoop( UEngine* Engine )
 				INT RemainingBots = XboxSmokeGetObjectPropertyInt( Game, TEXT("RemainingBots"), -1 );
 				INT TimeLimit = XboxSmokeGetObjectPropertyInt( Game, TEXT("TimeLimit"), -1 );
 				FLOAT GoalTeamScore = XboxSmokeGetObjectPropertyFloat( Game, TEXT("GoalTeamScore"), -1.0f );
+				if( TickCount == 30 )
+					GXboxLog.Write( "SMOKE stage=properties min=%d initial=%d bots=%d remaining=%d time=%d goal=%.1f", MinPlayers, InitialBots, NumBots, RemainingBots, TimeLimit, GoalTeamScore );
 				UBOOL bURLChanged = CurrentURL != LastSmokeURL;
 				if( bURLChanged )
 				{
@@ -457,6 +535,12 @@ void MainLoop( UEngine* Engine )
 				{
 					UViewport* LocalViewport = (GE && GE->Client && GE->Client->Viewports.Num() > 0) ? GE->Client->Viewports(0) : NULL;
 					APlayerPawn* LocalActor = LocalViewport ? LocalViewport->Actor : NULL;
+					if( bXboxCharacterSoakEnabled && LocalActor )
+					{
+						LocalActor->ReducedDamageType = FName(TEXT("All"));
+						LocalActor->Health = Max( LocalActor->Health, 100 );
+						LocalActor->bBehindView = 1;
+					}
 					ULevel* LocalLevel = LocalActor ? LocalActor->GetLevel() : NULL;
 					APlayerReplicationInfo* LocalPRI = LocalActor ? LocalActor->PlayerReplicationInfo : NULL;
 					LastSmokeURL = CurrentURL;

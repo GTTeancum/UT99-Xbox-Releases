@@ -228,6 +228,10 @@ def choose_phys_delta(sock, symbols, requested):
         0x264000,
     ]
     for delta in candidates:
+        # Link-layout changes can put this symbol below a historical delta.
+        # Skip those values instead of issuing malformed negative xp reads.
+        if delta > magic_va:
+            continue
         if read_u32(sock, magic_va, delta) == MAGIC0:
             return delta
 

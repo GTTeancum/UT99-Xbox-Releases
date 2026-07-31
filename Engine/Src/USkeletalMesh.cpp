@@ -18,13 +18,29 @@ struct FSkeletalExtWedge
 
 enum { SKELETAL_AUDIT_SAMPLES = 32 };
 
+#if TARGET_XBOX
+static UBOOL SkelAuditEnabled()
+{
+	static UBOOL Initialized = 0;
+	static UBOOL Enabled = 0;
+	if( !Initialized )
+	{
+		Enabled
+			= GetFileAttributesA( "D:\\XboxCharacterSoak.ini" ) != 0xFFFFFFFF
+			|| GetFileAttributesA( "D:\\XboxSkeletalAudit.ini" ) != 0xFFFFFFFF;
+		Initialized = 1;
+	}
+	return Enabled;
+}
+#endif
+
 struct CFSkeletalHeader
 {
 	USkeletalMesh* CachedMesh;
 	FLOAT          CachedFrame;
 	FName          CachedSeq;
 	INT            CachedLodVerts;
-	FLOAT          TweenIndicator;
+	UBOOL          CachedBonesValid;
 	FName          AuditSeq;
 	FLOAT          AuditFrame;
 	FVector        AuditMin;
@@ -59,10 +75,10 @@ static FVector SkelPivotTransformPoint( const FCoords& C, const FVector& V )
 
 static FCoords SkelComposeCoords( const FCoords& Parent, const FCoords& Local )
 {
-	// Equivalent to Local.ApplyPivot(Parent) in the original skeletal path.
+	// FCoords::ApplyPivot from the shipped UE1 skeletal evaluator.
 	return FCoords
 	(
-		Parent.Origin + Local.Origin.TransformVectorBy( Parent ),
+		Local.Origin.TransformVectorBy( Parent ) + Parent.Origin,
 		Parent.XAxis.TransformVectorBy( Local ),
 		Parent.YAxis.TransformVectorBy( Local ),
 		Parent.ZAxis.TransformVectorBy( Local )
@@ -71,29 +87,12 @@ static FCoords SkelComposeCoords( const FCoords& Parent, const FCoords& Local )
 
 static FCoords SkelPivotInverse( const FCoords& C )
 {
-	FCoords Result
+	return FCoords
 	(
-		FVector(0,0,0),
+		-C.Origin.TransformVectorBy( C ),
 		FVector( C.XAxis.X, C.YAxis.X, C.ZAxis.X ),
 		FVector( C.XAxis.Y, C.YAxis.Y, C.ZAxis.Y ),
 		FVector( C.XAxis.Z, C.YAxis.Z, C.ZAxis.Z )
-	);
-	Result.Origin = (-C.Origin).TransformVectorBy( Result );
-	return Result;
-}
-
-static FCoords SkelComposeSkinCoords( const FCoords& Pose, const FCoords& InvRef )
-{
-	// This is Pose.ApplyPivot(InvRef) in Epic's skeletal deformation path.
-	// Its basis product is intentionally different from parent/child hierarchy
-	// composition: transform a reference-space point into bone-local space,
-	// then transform it by the posed bone.
-	return FCoords
-	(
-		Pose.Origin + InvRef.Origin.TransformVectorBy( Pose ),
-		InvRef.XAxis * Pose.XAxis.X + InvRef.YAxis * Pose.XAxis.Y + InvRef.ZAxis * Pose.XAxis.Z,
-		InvRef.XAxis * Pose.YAxis.X + InvRef.YAxis * Pose.YAxis.Y + InvRef.ZAxis * Pose.YAxis.Z,
-		InvRef.XAxis * Pose.ZAxis.X + InvRef.YAxis * Pose.ZAxis.Y + InvRef.ZAxis * Pose.ZAxis.Z
 	);
 }
 
@@ -126,16 +125,6 @@ static void SkelNormalizeQuat( FAnimationQuat& Q )
 	}
 }
 
-static void SkelConvertUe1Transform( FVector& Position, FAnimationQuat& Orientation )
-{
-	// The UE1 skeletal payload uses the opposite X handedness from Epic's
-	// later skeletal evaluator. Convert only the evaluator inputs; rendered
-	// vertices are converted back to native UE1 mesh space after skinning.
-	Position.X *= -1.0f;
-	Orientation.X *= -1.0f;
-	Orientation.W *= -1.0f;
-}
-
 static FAnimationQuat SkelSlerpQuat( const FAnimationQuat& A, const FAnimationQuat& B, FLOAT Alpha )
 {
 	FAnimationQuat Result;
@@ -143,7 +132,7 @@ static FAnimationQuat SkelSlerpQuat( const FAnimationQuat& A, const FAnimationQu
 	const FLOAT Cosom = Clamp( Abs(RawCosom), 0.0f, 1.0f );
 	FLOAT ScaleA;
 	FLOAT ScaleB;
-	if( Cosom < 0.55f )
+	if( Cosom < 0.999999f )
 	{
 		const FLOAT Omega = (FLOAT)acos( Cosom );
 		const FLOAT SinOmega = appSin( Omega );
@@ -216,7 +205,7 @@ static FLOAT SkelWrapFrame( FLOAT Frame, FLOAT Duration, UBOOL Loop )
 	return Clamp( Frame, 0.0f, Duration );
 }
 
-static void SkelGetKeyParams
+static void SkelGetUniformKeyParams
 (
 	INT                  KeyCount,
 	FLOAT                Frame,
@@ -246,6 +235,50 @@ static void SkelGetKeyParams
 	Alpha = Clamp( Alpha, 0.0f, 1.0f );
 }
 
+static void SkelGetKeyParams
+(
+	const FAnimationTrack& Track,
+	FLOAT                  Frame,
+	FLOAT                  Duration,
+	UBOOL                  Loop,
+	INT&                   KeyA,
+	INT&                   KeyB,
+	FLOAT&                 Alpha
+)
+{
+	const INT KeyCount = Track.KeyTime.Num();
+	if( KeyCount <= 0 )
+	{
+		SkelGetUniformKeyParams( Max(Track.KeyQuat.Num(),Track.KeyPos.Num()), Frame, Duration, Loop, KeyA, KeyB, Alpha );
+		return;
+	}
+
+	KeyA = KeyB = 0;
+	Alpha = 0.0f;
+	if( KeyCount == 1 || Duration <= 0.0f )
+		return;
+
+	Frame = SkelWrapFrame( Frame, Duration, Loop );
+	KeyA = KeyCount - 1;
+	for( INT KeyIndex=1; KeyIndex<KeyCount; KeyIndex++ )
+	{
+		if( Frame < Track.KeyTime(KeyIndex) )
+		{
+			KeyA = KeyIndex - 1;
+			break;
+		}
+	}
+
+	const UBOOL WrapKey = KeyA >= KeyCount - 1;
+	KeyB = WrapKey ? 0 : KeyA + 1;
+	const FLOAT Interval = WrapKey
+		? Duration - Track.KeyTime(KeyA)
+		: Abs( Track.KeyTime(KeyB) - Track.KeyTime(KeyA) );
+	if( Interval > 0.000001f )
+		Alpha = (Frame - Track.KeyTime(KeyA)) / Interval;
+	Alpha = Clamp( Alpha, 0.0f, 1.0f );
+}
+
 static void SkelSampleTrack
 (
 	const FAnimationTrack& Track,
@@ -256,22 +289,24 @@ static void SkelSampleTrack
 	FAnimationQuat&        Orientation
 )
 {
+	INT A, B;
+	FLOAT Alpha;
+	SkelGetKeyParams( Track, Frame, Duration, Loop, A, B, Alpha );
+
 	if( Track.KeyPos.Num() )
 	{
-		INT A, B;
-		FLOAT Alpha;
-		SkelGetKeyParams( Track.KeyPos.Num(), Frame, Duration, Loop, A, B, Alpha );
-		Position = Track.KeyPos(A) + (Track.KeyPos(B) - Track.KeyPos(A)) * Alpha;
+		const INT PosA = Min( A, Track.KeyPos.Num()-1 );
+		const INT PosB = Min( B, Track.KeyPos.Num()-1 );
+		Position = Track.KeyPos(PosA) + (Track.KeyPos(PosB) - Track.KeyPos(PosA)) * Alpha;
 	}
 
 	if( Track.KeyQuat.Num() )
 	{
-		INT A, B;
-		FLOAT Alpha;
-		SkelGetKeyParams( Track.KeyQuat.Num(), Frame, Duration, Loop, A, B, Alpha );
+		const INT QuatA = Min( A, Track.KeyQuat.Num()-1 );
+		const INT QuatB = Min( B, Track.KeyQuat.Num()-1 );
 		Orientation = Alpha > 0.0f
-			? SkelSlerpQuat( Track.KeyQuat(A), Track.KeyQuat(B), Alpha )
-			: Track.KeyQuat(A);
+			? SkelSlerpQuat( Track.KeyQuat(QuatA), Track.KeyQuat(QuatB), Alpha )
+			: Track.KeyQuat(QuatA);
 	}
 }
 
@@ -285,17 +320,17 @@ static INT SkelFindSequenceIndex( const UAnimation* Animation, FName Sequence )
 	return INDEX_NONE;
 }
 
-static void SkelBuildPose
+static void SkelSampleLocalPose
 (
 	const USkeletalMesh* Mesh,
 	INT                  SequenceIndex,
 	FLOAT                NormalizedFrame,
 	UBOOL                Loop,
-	FCoords*             SkinBases
+	FVector*             Positions,
+	FAnimationQuat*      Orientations
 )
 {
 	const INT BoneCount = Mesh->RefSkeleton.Num();
-	FCoords* PosedBases = (FCoords*)appAlloca( BoneCount * sizeof(FCoords) );
 	const FAnimationMotionChunk* Move = NULL;
 	FLOAT Duration = 1.0f;
 	FLOAT Frame = 0.0f;
@@ -317,23 +352,73 @@ static void SkelBuildPose
 	for( INT BoneIndex=0; BoneIndex<BoneCount; BoneIndex++ )
 	{
 		const FSkeletalBone& Bone = Mesh->RefSkeleton(BoneIndex);
-		FVector Position = Bone.BonePos.Position;
-		FAnimationQuat Orientation = Bone.BonePos.Orientation;
+		Positions[BoneIndex] = Bone.BonePos.Position;
+		Orientations[BoneIndex] = Bone.BonePos.Orientation;
 		const INT AnimBoneIndex = BoneIndex < Mesh->AnimBoneMap.Num()
 			? Mesh->AnimBoneMap(BoneIndex)
 			: INDEX_NONE;
 
 		if( Move && AnimBoneIndex >= 0 && AnimBoneIndex < Move->AnimTracks.Num() )
-			SkelSampleTrack( Move->AnimTracks(AnimBoneIndex), Frame, Duration, Loop, Position, Orientation );
-		SkelConvertUe1Transform( Position, Orientation );
+			SkelSampleTrack
+			(
+				Move->AnimTracks(AnimBoneIndex),
+				Frame,
+				Duration,
+				Loop,
+				Positions[BoneIndex],
+				Orientations[BoneIndex]
+			);
+		SkelNormalizeQuat( Orientations[BoneIndex] );
+	}
+}
 
-		const FCoords Local = SkelCoordsFromQuat( Orientation, Position );
+static void SkelBuildPose
+(
+	const USkeletalMesh* Mesh,
+	const FVector*      Positions,
+	const FAnimationQuat* Orientations,
+	FCoords*             PosedBases
+)
+{
+	for( INT BoneIndex=0; BoneIndex<Mesh->RefSkeleton.Num(); BoneIndex++ )
+	{
+		const FSkeletalBone& Bone = Mesh->RefSkeleton(BoneIndex);
+		const FCoords Local = SkelCoordsFromQuat( Orientations[BoneIndex], Positions[BoneIndex] );
 		const INT ParentIndex = Bone.ParentIndex;
 		PosedBases[BoneIndex] = BoneIndex > 0 && ParentIndex >= 0 && ParentIndex < BoneIndex
 			? SkelComposeCoords( PosedBases[ParentIndex], Local )
 			: Local;
-		SkinBases[BoneIndex] = SkelComposeSkinCoords( PosedBases[BoneIndex], Mesh->InvRefBases(BoneIndex) );
 	}
+}
+
+static FCoords SkelApplyPivot( const FCoords& Pivot, const FCoords& Coords )
+{
+	FCoords Result;
+	Result.Origin = Pivot.Origin.TransformVectorBy( Coords ) + Coords.Origin;
+	Result.XAxis = Coords.XAxis.TransformVectorBy( Pivot );
+	Result.YAxis = Coords.YAxis.TransformVectorBy( Pivot );
+	Result.ZAxis = Coords.ZAxis.TransformVectorBy( Pivot );
+	return Result;
+}
+
+static FCoords SkelBuildClassicWeaponCoords
+(
+	const FCoords& WeaponCoords,
+	const FVector& MeshOrigin,
+	const FCoords& MeshCoords
+)
+{
+	const FVector Pivot = (WeaponCoords.Origin - MeshOrigin).TransformPointBy( MeshCoords );
+	const FVector XPoint = (WeaponCoords.Origin + WeaponCoords.XAxis - MeshOrigin).TransformPointBy( MeshCoords );
+	const FVector YPoint = (WeaponCoords.Origin + WeaponCoords.YAxis - MeshOrigin).TransformPointBy( MeshCoords );
+
+	FCoords Attachment;
+	Attachment.Origin = Pivot;
+	Attachment.XAxis = (XPoint - Pivot).SafeNormal();
+	const FVector CrossAxis = (Attachment.XAxis ^ (YPoint - Pivot)).SafeNormal();
+	Attachment.YAxis = CrossAxis * -1.0f;
+	Attachment.ZAxis = Attachment.XAxis ^ CrossAxis;
+	return GMath.UnitCoords * Attachment;
 }
 
 static void SkelSkinVertices
@@ -341,24 +426,24 @@ static void SkelSkinVertices
 	const USkeletalMesh* Mesh,
 	FVector*             Destination,
 	INT                  VertexCount,
-	INT                  SequenceIndex,
-	FLOAT                NormalizedFrame,
-	UBOOL                Loop
+	const FCoords*       PosedBases
 )
 {
 	const INT BoneCount = Mesh->RefSkeleton.Num();
-	if( !BoneCount || Mesh->InvRefBases.Num() != BoneCount )
+	if
+	(
+		!BoneCount
+	||	Mesh->LocalPoints.Num() != Mesh->BoneInfluences.Num()
+	)
 	{
 		for( INT VertexIndex=0; VertexIndex<VertexCount; VertexIndex++ )
 			Destination[VertexIndex] = Mesh->SkeletalPoints(VertexIndex);
 		return;
 	}
 
-	FCoords* SkinBases = (FCoords*)appAlloca( BoneCount * sizeof(FCoords) );
 	FLOAT* WeightSums = (FLOAT*)appAlloca( VertexCount * sizeof(FLOAT) );
 	appMemzero( WeightSums, VertexCount * sizeof(FLOAT) );
 	appMemzero( Destination, VertexCount * sizeof(FVector) );
-	SkelBuildPose( Mesh, SequenceIndex, NormalizedFrame, Loop, SkinBases );
 
 	const INT IndexedBoneCount = Min( BoneCount, Mesh->BoneInfluenceIndices.Num() );
 	for( INT BoneIndex=0; BoneIndex<IndexedBoneCount; BoneIndex++ )
@@ -373,21 +458,14 @@ static void SkelSkinVertices
 			if( PointIndex >= VertexCount )
 				continue;
 			const FLOAT Weight = Influence.BoneWeight / 65535.0f;
-			FVector ConvertedPoint = Mesh->SkeletalPoints(PointIndex);
-			ConvertedPoint.X *= -1.0f;
-			Destination[PointIndex] += SkelPivotTransformPoint( SkinBases[BoneIndex], ConvertedPoint ) * Weight;
+			Destination[PointIndex] += SkelPivotTransformPoint( PosedBases[BoneIndex], Mesh->LocalPoints(InfluenceIndex) ) * Weight;
 			WeightSums[PointIndex] += Weight;
 		}
 	}
 
 	for( INT VertexIndex=0; VertexIndex<VertexCount; VertexIndex++ )
 	{
-		if( WeightSums[VertexIndex] > 0.000001f )
-		{
-			Destination[VertexIndex] /= WeightSums[VertexIndex];
-			Destination[VertexIndex].X *= -1.0f;
-		}
-		else
+		if( WeightSums[VertexIndex] <= 0.000001f )
 			Destination[VertexIndex] = Mesh->SkeletalPoints(VertexIndex);
 	}
 }
@@ -407,6 +485,9 @@ static void SkelAuditLoadedMesh( USkeletalMesh* Mesh, const FCoords* RefBases, I
 	INT InvalidFaces = 0;
 	INT InvalidMaterials = 0;
 	INT InvalidCollapses = 0;
+	INT RadialNegativeFaces = 0;
+	INT RadialPositiveFaces = 0;
+	INT RadialFlatFaces = 0;
 	FLOAT MinWeight = 999999.0f;
 	FLOAT MaxWeight = -999999.0f;
 	FLOAT MaxBindError = 0.0f;
@@ -479,6 +560,11 @@ static void SkelAuditLoadedMesh( USkeletalMesh* Mesh, const FCoords* RefBases, I
 	for( INT WedgeIndex=0; WedgeIndex<Mesh->Wedges.Num(); WedgeIndex++ )
 		if( Mesh->Wedges(WedgeIndex).iVertex >= PointCount )
 			InvalidWedges++;
+	FVector MeshCenter(0,0,0);
+	for( INT PointIndex=0; PointIndex<PointCount; PointIndex++ )
+		MeshCenter += Mesh->SkeletalPoints(PointIndex);
+	if( PointCount )
+		MeshCenter /= PointCount;
 	for( INT FaceIndex=0; FaceIndex<Mesh->Faces.Num(); FaceIndex++ )
 	{
 		const FMeshFace& Face = Mesh->Faces(FaceIndex);
@@ -490,6 +576,25 @@ static void SkelAuditLoadedMesh( USkeletalMesh* Mesh, const FCoords* RefBases, I
 		||	Face.MaterialIndex >= Mesh->Materials.Num()
 		)
 			InvalidFaces++;
+		else
+		{
+			const INT Vertex0 = Mesh->Wedges(Face.iWedge[0]).iVertex;
+			const INT Vertex1 = Mesh->Wedges(Face.iWedge[1]).iVertex;
+			const INT Vertex2 = Mesh->Wedges(Face.iWedge[2]).iVertex;
+			if( Vertex0 >= PointCount || Vertex1 >= PointCount || Vertex2 >= PointCount )
+				continue;
+			const FVector& V0 = Mesh->SkeletalPoints(Vertex0);
+			const FVector& V1 = Mesh->SkeletalPoints(Vertex1);
+			const FVector& V2 = Mesh->SkeletalPoints(Vertex2);
+			const FVector FaceNormal = (V0-V1) ^ (V2-V0);
+			const FLOAT RadialSign = FaceNormal | ((V0+V1+V2)/3.0f-MeshCenter);
+			if( RadialSign < -0.001f )
+				RadialNegativeFaces++;
+			else if( RadialSign > 0.001f )
+				RadialPositiveFaces++;
+			else
+				RadialFlatFaces++;
+		}
 	}
 	for( INT MaterialIndex=0; MaterialIndex<Mesh->Materials.Num(); MaterialIndex++ )
 		if( Mesh->Materials(MaterialIndex).TextureIndex < 0 || Mesh->Materials(MaterialIndex).TextureIndex >= Mesh->Textures.Num() )
@@ -501,7 +606,7 @@ static void SkelAuditLoadedMesh( USkeletalMesh* Mesh, const FCoords* RefBases, I
 	if( PointCount )
 	{
 		FVector* BindVerts = (FVector*)appAlloca( PointCount * sizeof(FVector) );
-		SkelSkinVertices( Mesh, BindVerts, PointCount, INDEX_NONE, 0.0f, 0 );
+		SkelSkinVertices( Mesh, BindVerts, PointCount, RefBases );
 		for( INT PointIndex=0; PointIndex<PointCount; PointIndex++ )
 		{
 			const FLOAT Error = (BindVerts[PointIndex] - Mesh->SkeletalPoints(PointIndex)).Size();
@@ -526,7 +631,7 @@ static void SkelAuditLoadedMesh( USkeletalMesh* Mesh, const FCoords* RefBases, I
 	debugf
 	(
 		NAME_Log,
-		TEXT("XSKELAUDIT mesh=%s points=%i modelverts=%i special=%i bones=%i mapped=%i badparents=%i influences=%i badspans=%i badpoints=%i unweighted=%i weightmismatch=%i weights=%.4f..%.4f wedges=%i extwedges=%i replaceduv=%i badwedges=%i faces=%i badfaces=%i materials=%i badmaterials=%i badcollapse=%i moves=%i seqs=%i trackmismatch=%i bonemapmismatch=%i binderror=%.6f basiserror=%.6f"),
+		TEXT("XSKELAUDIT mesh=%s points=%i modelverts=%i special=%i bones=%i mapped=%i badparents=%i influences=%i badspans=%i badpoints=%i unweighted=%i weightmismatch=%i weights=%.4f..%.4f wedges=%i extwedges=%i replaceduv=%i badwedges=%i faces=%i badfaces=%i radialsign=%i/%i/%i materials=%i badmaterials=%i badcollapse=%i moves=%i seqs=%i trackmismatch=%i bonemapmismatch=%i binderror=%.6f basiserror=%.6f"),
 		Mesh->GetFullName(),
 		PointCount,
 		Mesh->ModelVerts,
@@ -547,6 +652,9 @@ static void SkelAuditLoadedMesh( USkeletalMesh* Mesh, const FCoords* RefBases, I
 		InvalidWedges,
 		Mesh->Faces.Num(),
 		InvalidFaces,
+		RadialNegativeFaces,
+		RadialPositiveFaces,
+		RadialFlatFaces,
 		Mesh->Materials.Num(),
 		InvalidMaterials,
 		InvalidCollapses,
@@ -659,7 +767,8 @@ static void SkelAuditRuntimePose
 		= Header->AuditHasBounds
 		&& !SequenceChanged
 		&& !LodChanged
-		&& ((FrameDelta >= 0.0f && FrameDelta <= 0.25f) || Frame < 0.0f)
+		&& FrameDelta >= 0.0f
+		&& FrameDelta <= 0.25f
 		&& Header->AuditSampleCount == SampleCount;
 	FLOAT MaxStep = 0.0f;
 	FLOAT AverageStep = 0.0f;
@@ -690,11 +799,21 @@ static void SkelAuditRuntimePose
 		}
 	}
 
-	const FLOAT StepThreshold = MaxBindAxis * (0.35f + 2.0f*Clamp(FrameDelta,0.0f,0.25f));
-	const UBOOL LargePoseJump = ComparablePose && MaxBindAxis > 0.0f && MaxStep > StepThreshold;
-	const UBOOL NormalFlipBurst = ComparablePose && NormalFlips >= Max( 2, ComparedNormals/4 );
+	const FLOAT StepThreshold = MaxBindAxis * (0.35f + 4.0f*Clamp(FrameDelta,0.0f,0.25f));
+	const UBOOL TransitionPose = Frame < 0.0f || Header->AuditFrame < 0.0f;
+	const UBOOL LargePoseJump
+		= ComparablePose
+		&& !TransitionPose
+		&& MaxBindAxis > 0.0f
+		&& MaxStep > StepThreshold;
+	const UBOOL NormalFlipBurst
+		= ComparablePose
+		&& !TransitionPose
+		&& FrameDelta <= 0.10f
+		&& NormalFlips >= Max( 2, ComparedNormals/4 );
 	const UBOOL DegenerateBurst
 		= ComparablePose
+		&& !TransitionPose
 		&& DegenerateFaces >= 3
 		&& DegenerateFaces > Header->AuditDegenerateFaces + 1;
 	const UBOOL Flicker = LargePoseJump || NormalFlipBurst || DegenerateBurst || LodOscillation;
@@ -778,10 +897,6 @@ void USkeletalMesh::Serialize( FArchive& Ar )
 	Super::Serialize( Ar );
 
 	TArray<FSkeletalExtWedge> ExtraWedges;
-	TArray<FVector> LocalPoints;
-	INT WeaponBoneIndex;
-	FCoords WeaponAdjust;
-
 	Ar << ExtraWedges;
 	Ar << SkeletalPoints;
 	Ar << RefSkeleton;
@@ -822,16 +937,17 @@ void USkeletalMesh::Serialize( FArchive& Ar )
 			Destination.TexUV.V = V;
 		}
 #if TARGET_XBOX
-		debugf
-		(
-			NAME_Log,
-			TEXT("XSKELAUDIT uv mesh=%s extwedges=%i range=(%.4f..%.4f,%.4f..%.4f) scale=%.1f replaced=%i"),
-			GetFullName(),
-			ExtraWedges.Num(),
-			MinU, MaxU, MinV, MaxV,
-			UVScale,
-			ReplacedWedges
-		);
+		if( SkelAuditEnabled() )
+			debugf
+			(
+				NAME_Log,
+				TEXT("XSKELAUDIT uv mesh=%s extwedges=%i range=(%.4f..%.4f,%.4f..%.4f) scale=%.1f replaced=%i"),
+				GetFullName(),
+				ExtraWedges.Num(),
+				MinU, MaxU, MinV, MaxV,
+				UVScale,
+				ReplacedWedges
+			);
 #endif
 	}
 
@@ -844,20 +960,21 @@ void USkeletalMesh::Serialize( FArchive& Ar )
 	if( Ar.IsLoading() )
 	{
 		const INT SerializedYaw = RotOrigin.Yaw;
-		RotOrigin.Yaw = -RotOrigin.Yaw;
 
 #if TARGET_XBOX
-		debugf
-		(
-			NAME_Log,
-			TEXT("XSKELAUDIT basis mesh=%s points=%i faces=%i bones=%i yaw=%i->%i conversion=ue1-evaluator-bridge-yaw"),
-			GetFullName(),
-			SkeletalPoints.Num(),
-			Faces.Num(),
-			RefSkeleton.Num(),
-			SerializedYaw,
-			RotOrigin.Yaw
-		);
+		if( SkelAuditEnabled() )
+			debugf
+			(
+				NAME_Log,
+				TEXT("XSKELAUDIT basis mesh=%s points=%i localpoints=%i faces=%i bones=%i yaw=%i->%i conversion=native-ue1-pose winding=serialized"),
+				GetFullName(),
+				SkeletalPoints.Num(),
+				LocalPoints.Num(),
+				Faces.Num(),
+				RefSkeleton.Num(),
+				SerializedYaw,
+				RotOrigin.Yaw
+			);
 #endif
 	}
 
@@ -901,7 +1018,6 @@ void USkeletalMesh::Serialize( FArchive& Ar )
 			const FSkeletalBone& Bone = RefSkeleton(BoneIndex);
 			FVector RefPosition = Bone.BonePos.Position;
 			FAnimationQuat RefOrientation = Bone.BonePos.Orientation;
-			SkelConvertUe1Transform( RefPosition, RefOrientation );
 			const FCoords Local = SkelCoordsFromQuat( RefOrientation, RefPosition );
 			const INT ParentIndex = Bone.ParentIndex;
 			RefBases[BoneIndex] = BoneIndex > 0 && ParentIndex >= 0 && ParentIndex < BoneIndex
@@ -919,7 +1035,10 @@ void USkeletalMesh::Serialize( FArchive& Ar )
 				}
 		}
 
-		SkelAuditLoadedMesh( this, RefBases, ExtraWedges.Num(), ReplacedWedges );
+#if TARGET_XBOX
+		if( SkelAuditEnabled() )
+#endif
+			SkelAuditLoadedMesh( this, RefBases, ExtraWedges.Num(), ReplacedWedges );
 
 		debugf
 		(
@@ -933,7 +1052,41 @@ void USkeletalMesh::Serialize( FArchive& Ar )
 			Animation ? Animation->Moves.Num() : 0,
 			AnimSeqs.Num()
 		);
+#if TARGET_XBOX
+		if( SkelAuditEnabled() )
+			debugf
+			(
+				NAME_Log,
+				TEXT("XSKELATTACH mesh=%s bone=%i valid=%i adjustOrigin=(%.3f,%.3f,%.3f) adjustX=(%.3f,%.3f,%.3f) adjustY=(%.3f,%.3f,%.3f) adjustZ=(%.3f,%.3f,%.3f)"),
+				GetFullName(),
+				WeaponBoneIndex,
+				WeaponBoneIndex >= 0 && WeaponBoneIndex < RefSkeleton.Num(),
+				WeaponAdjust.Origin.X, WeaponAdjust.Origin.Y, WeaponAdjust.Origin.Z,
+				WeaponAdjust.XAxis.X, WeaponAdjust.XAxis.Y, WeaponAdjust.XAxis.Z,
+				WeaponAdjust.YAxis.X, WeaponAdjust.YAxis.Y, WeaponAdjust.YAxis.Z,
+				WeaponAdjust.ZAxis.X, WeaponAdjust.ZAxis.Y, WeaponAdjust.ZAxis.Z
+			);
+#endif
 	}
+
+	unguardobj;
+}
+
+FBox USkeletalMesh::GetRenderBoundingBox( const AActor* Owner, UBOOL Exact )
+{
+	guard(USkeletalMesh::GetRenderBoundingBox);
+
+	const FLOAT DrawScale = Owner->bParticles ? 1.5f : Owner->DrawScale;
+	FBox Bound
+	(
+		Scale * DrawScale * (BoundingBox.Min - Origin),
+		Scale * DrawScale * (BoundingBox.Max - Origin)
+	);
+	Bound = Bound.ExpandBy( 1.0f );
+
+	FCoords Coords = GMath.UnitCoords / RotOrigin / Owner->Rotation;
+	Coords.Origin = Owner->Location + Owner->PrePivot;
+	return Bound.TransformBy( Coords.Transpose() );
 
 	unguardobj;
 }
@@ -971,9 +1124,9 @@ void USkeletalMesh::GetFrame
 	const INT VertsRequested = Min( LODRequest + SpecialVerts, FrameVerts );
 	INT VertexCount = VertsRequested;
 	LODRequest = Max( 0, VertexCount - SpecialVerts );
+	const INT BoneCount = RefSkeleton.Num();
 
 	FCacheItem* Item = NULL;
-	UBOOL WasCached = 1;
 	const QWORD CacheID = MakeCacheID( CID_TweenAnim, Owner, NULL );
 	BYTE* Mem = GCache.Get( CacheID, Item );
 	CFSkeletalHeader* Header = (CFSkeletalHeader*)Mem;
@@ -984,13 +1137,21 @@ void USkeletalMesh::GetFrame
 			Item->Unlock();
 			GCache.Flush( CacheID );
 		}
-		Mem = GCache.Create( CacheID, Item, sizeof(CFSkeletalHeader) + FrameVerts * sizeof(FVector) );
+		Mem = GCache.Create
+		(
+			CacheID,
+			Item,
+			sizeof(CFSkeletalHeader)
+			+ FrameVerts * sizeof(FVector)
+			+ BoneCount * sizeof(FVector)
+			+ BoneCount * sizeof(FAnimationQuat)
+		);
 		Header = (CFSkeletalHeader*)Mem;
 		Header->CachedMesh = this;
 		Header->CachedFrame = 0.0f;
 		Header->CachedSeq = NAME_None;
 		Header->CachedLodVerts = 0;
-		Header->TweenIndicator = 1.0f;
+		Header->CachedBonesValid = 0;
 		Header->AuditSeq = NAME_None;
 		Header->AuditFrame = 0.0f;
 		Header->AuditMin = FVector(0,0,0);
@@ -1004,84 +1165,140 @@ void USkeletalMesh::GetFrame
 		Header->AuditNormalSampleCount = 0;
 		Header->AuditDegenerateFaces = 0;
 		Header->AuditHasBounds = 0;
-		WasCached = 0;
 	}
 
 	FVector* CachedVerts = (FVector*)(Mem + sizeof(CFSkeletalHeader));
+	FVector* CachedPositions = CachedVerts + FrameVerts;
+	FAnimationQuat* CachedOrientations = (FAnimationQuat*)(CachedPositions + BoneCount);
 	const INT SequenceIndex = SkelFindSequenceIndex( Animation, AnimOwner->AnimSequence );
 	const FMeshAnimSeq* Seq = GetAnimSeq( AnimOwner->AnimSequence );
+	FCoords* PosedBases = BoneCount
+		? (FCoords*)appAlloca( BoneCount * sizeof(FCoords) )
+		: NULL;
 
-	if( AnimOwner->AnimFrame >= 0.0f || !WasCached )
+	if( BoneCount )
 	{
-		SkelSkinVertices
-		(
-			this,
-			CachedVerts,
-			VertexCount,
-			SequenceIndex,
-			Max(AnimOwner->AnimFrame,0.0f),
-			AnimOwner->bAnimLoop
-		);
-		Header->CachedFrame = AnimOwner->AnimFrame;
-		Header->CachedSeq = AnimOwner->AnimSequence;
+		if( AnimOwner->AnimFrame >= 0.0f || !Header->CachedBonesValid )
+		{
+			SkelSampleLocalPose
+			(
+				this,
+				SequenceIndex,
+				Max(AnimOwner->AnimFrame,0.0f),
+				AnimOwner->bAnimLoop,
+				CachedPositions,
+				CachedOrientations
+			);
+			Header->CachedBonesValid = 1;
+			Header->CachedFrame = AnimOwner->AnimFrame;
+			Header->CachedSeq = AnimOwner->AnimSequence;
+		}
+		else
+		{
+			FVector* TargetPositions = (FVector*)appAlloca( BoneCount * sizeof(FVector) );
+			FAnimationQuat* TargetOrientations
+				= (FAnimationQuat*)appAlloca( BoneCount * sizeof(FAnimationQuat) );
+			SkelSampleLocalPose
+			(
+				this,
+				SequenceIndex,
+				0.0f,
+				AnimOwner->bAnimLoop,
+				TargetPositions,
+				TargetOrientations
+			);
+
+			const FLOAT StartFrame = Seq && Seq->NumFrames > 0
+				? -1.0f / Seq->NumFrames
+				: 0.0f;
+			FLOAT Alpha = Header->CachedFrame != 0.0f
+				? 1.0f - AnimOwner->AnimFrame / Header->CachedFrame
+				: 0.0f;
+			if
+			(
+				Header->CachedSeq != AnimOwner->AnimSequence
+			||	Alpha < 0.0f
+			||	Alpha > 1.0f
+			)
+			{
+				Header->CachedFrame = StartFrame;
+				Header->CachedSeq = AnimOwner->AnimSequence;
+				Alpha = 0.0f;
+			}
+
+			if( Alpha > 0.0f )
+			{
+				for( INT BoneIndex=0; BoneIndex<BoneCount; BoneIndex++ )
+				{
+					CachedPositions[BoneIndex]
+						+= (TargetPositions[BoneIndex] - CachedPositions[BoneIndex]) * Alpha;
+					CachedOrientations[BoneIndex] = SkelSlerpQuat
+					(
+						CachedOrientations[BoneIndex],
+						TargetOrientations[BoneIndex],
+						Alpha
+					);
+				}
+			}
+			Header->CachedFrame = AnimOwner->AnimFrame;
+		}
+
+		SkelBuildPose( this, CachedPositions, CachedOrientations, PosedBases );
+		SkelSkinVertices( this, CachedVerts, VertexCount, PosedBases );
 		Header->CachedLodVerts = VertexCount;
 	}
 	else
 	{
-		FVector* TargetVerts = (FVector*)appAlloca( VertsRequested * sizeof(FVector) );
-		SkelSkinVertices( this, TargetVerts, VertsRequested, SequenceIndex, 0.0f, AnimOwner->bAnimLoop );
-		VertexCount = Min( VertexCount, Header->CachedLodVerts );
-		LODRequest = Max( 0, VertexCount - SpecialVerts );
-		const FLOAT StartFrame = Seq && Seq->NumFrames > 0 ? -1.0f / Seq->NumFrames : 0.0f;
-		FLOAT Alpha = Header->CachedFrame != 0.0f
-			? 1.0f - AnimOwner->AnimFrame / Header->CachedFrame
-			: 0.0f;
-		if( Header->CachedSeq != AnimOwner->AnimSequence )
-			Header->TweenIndicator = 0.0f;
-
-		if
-		(
-			Header->CachedSeq != AnimOwner->AnimSequence
-		||	Alpha < 0.0f
-		||	Alpha > 1.0f
-		)
-		{
-			Header->CachedFrame = StartFrame;
-			Header->CachedSeq = AnimOwner->AnimSequence;
-			Alpha = 0.0f;
-		}
-
-		Header->TweenIndicator += (1.0f - Header->TweenIndicator) * Alpha;
-		if( Header->TweenIndicator > 0.97f )
-		{
-			Alpha = 0.0f;
-			for( INT NewVertexIndex=VertexCount; NewVertexIndex<VertsRequested; NewVertexIndex++ )
-				CachedVerts[NewVertexIndex] = TargetVerts[NewVertexIndex];
-			VertexCount = VertsRequested;
-			LODRequest = Max( 0, VertexCount - SpecialVerts );
-		}
-
-		if( Alpha > 0.0f )
-			for( INT VertexIndex=0; VertexIndex<VertexCount; VertexIndex++ )
-				CachedVerts[VertexIndex] += (TargetVerts[VertexIndex] - CachedVerts[VertexIndex]) * Alpha;
-
-		Header->CachedFrame = AnimOwner->AnimFrame;
-		Header->CachedLodVerts = VertexCount;
+		for( INT VertexIndex=0; VertexIndex<VertexCount; VertexIndex++ )
+			CachedVerts[VertexIndex] = SkeletalPoints(VertexIndex);
 	}
 
-	SkelAuditRuntimePose
-	(
-		this,
-		AnimOwner,
-		Header,
-		CachedVerts,
-		VertexCount,
-		AnimOwner->AnimSequence,
-		AnimOwner->AnimFrame
-	);
+#if TARGET_XBOX
+	if( SkelAuditEnabled() )
+#endif
+		SkelAuditRuntimePose
+		(
+			this,
+			AnimOwner,
+			Header,
+			CachedVerts,
+			VertexCount,
+			AnimOwner->AnimSequence,
+			AnimOwner->AnimFrame
+		);
 
 	const FLOAT DrawScale = AnimOwner->bParticles ? 1.0f : Owner->DrawScale;
-	Coords = Coords * (Owner->Location + Owner->PrePivot) * Owner->Rotation * RotOrigin * FScale(Scale * DrawScale,0.0,SHEER_None);
+	FVector SkeletalScale = Scale * DrawScale;
+	// PS2 skeletal imports use the opposite Y handedness. Keep this correction
+	// local to USkeletalMesh; stock ULodMesh geometry must retain native winding.
+	SkeletalScale.Y *= -1.0f;
+	Coords = Coords * (Owner->Location + Owner->PrePivot) * Owner->Rotation * RotOrigin * FScale(SkeletalScale,0.0,SHEER_None);
+
+	if( WeaponBoneIndex >= 0 && WeaponBoneIndex < RefSkeleton.Num() )
+	{
+		const FCoords AdjustedWeaponBone = SkelApplyPivot( WeaponAdjust, PosedBases[WeaponBoneIndex] );
+		ClassicWeaponCoords = SkelBuildClassicWeaponCoords( AdjustedWeaponBone, Origin, Coords );
+#if TARGET_XBOX
+		if( SkelAuditEnabled() && Header->AuditPoseCount%120 == 1 )
+		{
+			const FCoords WeaponPivot = ClassicWeaponCoords.Inverse();
+			debugf
+			(
+				NAME_Log,
+				TEXT("XSKELATTACHPOSE mesh=%s owner=%s bone=%i seq=%s frame=%.4f pivot=(%.2f,%.2f,%.2f)"),
+				GetFullName(),
+				Owner->GetFullName(),
+				WeaponBoneIndex,
+				*AnimOwner->AnimSequence,
+				AnimOwner->AnimFrame,
+				WeaponPivot.Origin.X,
+				WeaponPivot.Origin.Y,
+				WeaponPivot.Origin.Z
+			);
+		}
+#endif
+	}
+
 	for( INT VertexIndex=0; VertexIndex<VertexCount; VertexIndex++ )
 	{
 		*ResultVerts = (CachedVerts[VertexIndex] - Origin).TransformPointBy( Coords );

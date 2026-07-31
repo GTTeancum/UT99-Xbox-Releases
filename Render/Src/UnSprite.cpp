@@ -11,6 +11,23 @@
 // Parameters.
 #define SPRITE_PROJECTION_FORWARD 32.f /* Move sprite projection planes forward */
 
+#if TARGET_XBOX
+static UBOOL XboxSkeletalProofEnabled()
+{
+	static UBOOL Initialized = 0;
+	static UBOOL Enabled = 0;
+	if( !Initialized )
+	{
+		Enabled
+			= GetFileAttributesA( "D:\\XboxCharacterSoak.ini" ) != 0xFFFFFFFF
+			|| GetFileAttributesA( "D:\\XboxSkeletalAudit.ini" ) != 0xFFFFFFFF;
+		Initialized = 1;
+	}
+	return Enabled;
+}
+
+#endif
+
 /*------------------------------------------------------------------------------
 	Dynamics setup and rendering.
 ------------------------------------------------------------------------------*/
@@ -27,12 +44,84 @@ void URender::SetupDynamics( FSceneNode* Frame, AActor* Exclude )
 		return;
 	STAT(clock(GStat.FilterTime));
 	UBOOL HighDetailActors=Frame->Viewport->RenDev->HighDetailActors;
+#if TARGET_XBOX
+	static AActor* LastXboxProofActor = NULL;
+	static AActor* LastXboxProofViewTarget = NULL;
+	static UBOOL LastXboxProofAdmitted = 0;
+	static UBOOL HasXboxProofAdmission = 0;
+#endif
 
 	// Traverse entire actor list.
 	for( INT iActor=0; iActor<Frame->Level->Actors.Num(); iActor++ )
 	{
 		// Add this actor to dynamics if it's renderable.
 		AActor* Actor = Frame->Level->Actors(iActor);
+#if TARGET_XBOX
+		APawn* XboxProofPawn = Cast<APawn>( Actor );
+		if
+		(
+			Frame->Parent == NULL
+		&&	XboxProofPawn
+		&&	XboxProofPawn->bViewTarget
+		&&	XboxSkeletalProofEnabled()
+		)
+		{
+			const UBOOL PassDetail = !Actor->bHighDetail || HighDetailActors;
+			const UBOOL PassViewTarget
+				= Frame->Viewport->Actor->bBehindView
+				|| Actor != Frame->Viewport->Actor->ViewTarget;
+			const UBOOL PassExclude = Actor != Exclude;
+			const UBOOL PassHidden = GIsEditor ? !Actor->bHiddenEd : !Actor->bHidden;
+			const UBOOL PassOnlyOwner
+				= !Actor->bOnlyOwnerSee
+				|| (Actor->IsOwnedBy(Frame->Viewport->Actor) && !Frame->Viewport->Actor->bBehindView);
+			const UBOOL PassOwnerNoSee
+				= !Actor->IsOwnedBy(Frame->Viewport->Actor)
+				|| !Actor->bOwnerNoSee
+				|| (Actor->IsOwnedBy(Frame->Viewport->Actor) && Frame->Viewport->Actor->bBehindView);
+			const UBOOL Admitted
+				= PassDetail
+				&& PassViewTarget
+				&& PassExclude
+				&& PassHidden
+				&& PassOnlyOwner
+				&& PassOwnerNoSee;
+			if
+			(
+				!HasXboxProofAdmission
+				|| Actor != LastXboxProofActor
+				|| Frame->Viewport->Actor->ViewTarget != LastXboxProofViewTarget
+				|| Admitted != LastXboxProofAdmitted
+			)
+			{
+				debugf
+				(
+					Admitted ? NAME_Log : NAME_Warning,
+					TEXT("XSKELADMIT state=%s actor=%s viewport=%08X viewer=%s viewtarget=%s exclude=%s behind=%i detail=%i viewgate=%i excludegate=%i hidden=%i onlyowner=%i ownernosee=%i health=%i"),
+					Admitted ? TEXT("admitted") : TEXT("excluded"),
+					Actor->GetFullName(),
+					(DWORD)Frame->Viewport,
+					Frame->Viewport->Actor ? Frame->Viewport->Actor->GetFullName() : TEXT("None"),
+					Frame->Viewport->Actor && Frame->Viewport->Actor->ViewTarget
+						? Frame->Viewport->Actor->ViewTarget->GetFullName()
+						: TEXT("None"),
+					Exclude ? Exclude->GetFullName() : TEXT("None"),
+					Frame->Viewport->Actor ? Frame->Viewport->Actor->bBehindView : 0,
+					PassDetail,
+					PassViewTarget,
+					PassExclude,
+					PassHidden,
+					PassOnlyOwner,
+					PassOwnerNoSee,
+					XboxProofPawn->Health
+				);
+				LastXboxProofActor = Actor;
+				LastXboxProofViewTarget = Frame->Viewport->Actor->ViewTarget;
+				LastXboxProofAdmitted = Admitted;
+				HasXboxProofAdmission = 1;
+			}
+		}
+#endif
 		if
 		(	Actor
 		&&	(!Actor->bHighDetail || HighDetailActors) 
@@ -289,28 +378,91 @@ UBOOL FDynamicSprite::Setup( FSceneNode* Frame )
 	}
 	else if( Actor->DrawType==DT_Mesh )
 	{
-		// Verify mesh.
+		UBOOL SetupResult = 0;
+		INT SetupReason = 0;
+		FVector DebugBoundMin(0,0,0);
+		FVector DebugBoundMax(0,0,0);
+
 		if( !Actor->Mesh )
-			return 0;
+		{
+			SetupReason = 1;
+		}
+		else
+		{
+			// Setup projection plane.
+			Z = ((Actor->Location - Frame->Coords.Origin) | Frame->Coords.ZAxis) - SPRITE_PROJECTION_FORWARD;
+			if( Z<-2*SPRITE_PROJECTION_FORWARD && !Frame->Viewport->IsOrtho() )
+			{
+				SetupReason = 2;
+			}
+			else
+			{
+				FScreenBounds ScreenBounds;
+				FBox Bounds = Actor->Mesh->GetRenderBoundingBox( Actor, 0 );
+				DebugBoundMin = Bounds.Min;
+				DebugBoundMax = Bounds.Max;
+				if( !GRender->BoundVisible( Frame, &Bounds, NULL, ScreenBounds ) )
+				{
+					SetupReason = 3;
+				}
+				else
+				{
+					X1 = (INT) ScreenBounds.MinX;
+					X2 = (INT) ScreenBounds.MaxX;
+					Y1 = (INT) ScreenBounds.MinY;
+					Y2 = (INT) ScreenBounds.MaxY;
+					if( Y1>=Y2 )
+						SetupReason = 4;
+					else
+						SetupResult = 1;
+				}
+			}
+		}
 
-		// Setup projection plane.
-		Z = ((Actor->Location - Frame->Coords.Origin) | Frame->Coords.ZAxis) - SPRITE_PROJECTION_FORWARD;
-		if( Z<-2*SPRITE_PROJECTION_FORWARD && !Frame->Viewport->IsOrtho() )
-			return 0;
-
-		FScreenBounds ScreenBounds;
-		FBox Bounds = Actor->Mesh->GetRenderBoundingBox( Actor, 0 );
-		if( !GRender->BoundVisible( Frame, &Bounds, NULL, ScreenBounds ) )
-			return 0;
-
-		X1 = (INT) ScreenBounds.MinX;
-		X2 = (INT) ScreenBounds.MaxX;
-		Y1 = (INT) ScreenBounds.MinY;
-		Y2 = (INT) ScreenBounds.MaxY;
-		if( Y1>=Y2 )
-			return 0;
-
-		return 1;
+#if TARGET_XBOX
+		APawn* XboxSetupPawn = Cast<APawn>( Actor );
+		static AActor* LastXboxSetupActor = NULL;
+		static UBOOL LastXboxSetupResult = 0;
+		static INT LastXboxSetupReason = -1;
+		static UBOOL HasXboxSetupResult = 0;
+		if
+		(
+			Frame->Parent == NULL
+		&&	XboxSetupPawn
+		&&	XboxSetupPawn->bViewTarget
+		&&	Actor->Mesh
+		&&	Actor->Mesh->IsA(USkeletalMesh::StaticClass())
+		&&	XboxSkeletalProofEnabled()
+		&&
+			(
+				!HasXboxSetupResult
+				|| Actor != LastXboxSetupActor
+				|| SetupResult != LastXboxSetupResult
+				|| SetupReason != LastXboxSetupReason
+			)
+		)
+		{
+			debugf
+			(
+				SetupResult ? NAME_Log : NAME_Warning,
+				TEXT("XSKELSPRITE setup=%s reason=%i actor=%s frame=%i z=%.2f screen=(%i,%i)-(%i,%i) bounds=(%.2f,%.2f,%.2f)-(%.2f,%.2f,%.2f) loc=(%.2f,%.2f,%.2f)"),
+				SetupResult ? TEXT("accepted") : TEXT("rejected"),
+				SetupReason,
+				Actor->GetFullName(),
+				Frame->Viewport->FrameCount,
+				Z,
+				X1, Y1, X2, Y2,
+				DebugBoundMin.X, DebugBoundMin.Y, DebugBoundMin.Z,
+				DebugBoundMax.X, DebugBoundMax.Y, DebugBoundMax.Z,
+				Actor->Location.X, Actor->Location.Y, Actor->Location.Z
+			);
+			LastXboxSetupActor = Actor;
+			LastXboxSetupResult = SetupResult;
+			LastXboxSetupReason = SetupReason;
+			HasXboxSetupResult = 1;
+		}
+#endif
+		return SetupResult;
 	}
 	else return 0;
 	unguardSlow;
@@ -819,17 +971,67 @@ void URender::DrawActorSprite( FSceneNode* Frame, FDynamicSprite* Sprite )
 		);
 		extern UBOOL HasSpecialCoords;
 		extern FCoords SpecialCoords;
-		if( HasSpecialCoords && Sprite->Actor->IsA(APawn::StaticClass()) && ((APawn*)Sprite->Actor)->Weapon )
+		#if TARGET_XBOX
+		static INT XboxSkeletalWeaponTraceCounter = 0;
+		APawn* XboxTracePawn = Sprite->Actor->IsA(APawn::StaticClass()) ? (APawn*)Sprite->Actor : NULL;
+		UBOOL XboxTraceWeapon
+			= XboxSkeletalProofEnabled()
+			&& XboxTracePawn
+			&& XboxTracePawn->bViewTarget
+			&& (XboxSkeletalWeaponTraceCounter++%120)==0;
+		if( XboxTraceWeapon )
+		{
+			AInventory* XboxWeapon = XboxTracePawn->Weapon;
+			debugf
+			(
+				NAME_Log,
+				TEXT("XSKELWEAPON actor=%s mesh=%s special=%i origin=(%.2f,%.2f,%.2f) weapon=%s third=%s"),
+				Sprite->Actor->GetFullName(),
+				Sprite->Actor->Mesh ? Sprite->Actor->Mesh->GetFullName() : TEXT("None"),
+				HasSpecialCoords,
+				SpecialCoords.Origin.X,
+				SpecialCoords.Origin.Y,
+				SpecialCoords.Origin.Z,
+				XboxWeapon ? XboxWeapon->GetFullName() : TEXT("None"),
+				XboxWeapon && XboxWeapon->ThirdPersonMesh ? XboxWeapon->ThirdPersonMesh->GetFullName() : TEXT("None")
+			);
+		}
+		#endif
+		if
+		(
+			HasSpecialCoords
+		&&	Sprite->Actor->IsA(APawn::StaticClass())
+		&&	((APawn*)Sprite->Actor)->Weapon
+		)
 		{
 			// Draw weapon
 			AInventory* Weapon = ((APawn*)Sprite->Actor)->Weapon;
 			if( Weapon->ThirdPersonMesh )
 			{
+				#if TARGET_XBOX
+				if( XboxTraceWeapon )
+					debugf( NAME_Log, TEXT("XSKELWEAPON draw actor=%s weapon=%s"), Sprite->Actor->GetFullName(), Weapon->GetFullName() );
+				#endif
 				Exchange( Weapon->ThirdPersonMesh, Weapon->Mesh );
 				Exchange( Weapon->ThirdPersonScale, Weapon->DrawScale );
 				Weapon->Rotation = FRotator(0,0,0);
 				FLOAT Mirror  = Frame->Mirror;
-				Frame->Mirror = 1;
+				const FLOAT WeaponCoordsDeterminant
+					= SpecialCoords.XAxis | (SpecialCoords.YAxis ^ SpecialCoords.ZAxis);
+				// SpecialCoords already carries the mirrored attachment basis.
+				// Frame->Mirror describes the view and must not flip culling again.
+				Frame->Mirror = 1.0f;
+				#if TARGET_XBOX
+				if( XboxTraceWeapon )
+					debugf
+					(
+						NAME_Log,
+						TEXT("XSKELWEAPON coords actor=%s determinant=%.4f mirror=%.1f"),
+						Sprite->Actor->GetFullName(),
+						WeaponCoordsDeterminant,
+						Frame->Mirror
+					);
+				#endif
 				DrawMesh
 				(
 					Frame,

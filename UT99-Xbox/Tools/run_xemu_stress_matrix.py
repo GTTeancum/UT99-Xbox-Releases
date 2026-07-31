@@ -14,7 +14,7 @@ import shutil
 import sys
 import time
 
-from PIL import ImageGrab
+from PIL import Image, ImageGrab
 
 import poll_xemu_ram_log as xemu_poll
 import run_jailbreak_soak as soak_log
@@ -52,7 +52,40 @@ ROSTER = [
     ("Master Chief", "HaloMasterChief.HaloMasterChiefBot"),
 ]
 
+SKELETAL_PROOF_STATES = (
+    "idle",
+    "walk",
+    "run",
+    "jump",
+    "attack",
+    "hit",
+    "dodge",
+    "swim",
+    "crouch",
+    "death",
+)
+
 CASES = [
+    {
+        "map": "DM-Deck16][",
+        "game": "Botpack.DeathMatchPlus",
+        "player": "Botpack.TMale1",
+        "bots": 1,
+        "roster_offset": 2,
+        "roster_span": 1,
+        "seconds": 20,
+        "reason": "well-lit stock arena for close skeletal, winding, material, and weapon inspection",
+    },
+    {
+        "map": "DM-Morpheus",
+        "game": "Botpack.DeathMatchPlus",
+        "player": "Botpack.TMale1",
+        "bots": 1,
+        "roster_offset": 2,
+        "roster_span": 1,
+        "seconds": 20,
+        "reason": "open stock arena for unobstructed skeletal, weapon, and chase-camera fidelity",
+    },
     {
         "map": "DM-HangEmHigh",
         "game": "Botpack.DeathMatchPlus",
@@ -116,13 +149,24 @@ CASES = [
 ARRAY_RE = re.compile(r"^(BotClasses|BotNames|BotTeams|BotSkins|BotFaces)\[(\d+)\]=", re.IGNORECASE)
 SMOKE_MAP_RE = re.compile(r"SMOKE tick=(\d+).*?url=([^?\s]+).*?\bbots=(\d+)")
 XCHAR_RE = re.compile(r"XCHAR tick=(\d+) name=(.*?) class=Class (\S+) mesh=(.*?) skin=")
-XSKELCAM_RE = re.compile(r"XSKELCAM tick=(\d+) index=(\d+) class=Class (\S+)")
+XSKELCAM_RE = re.compile(
+    r"XSKELCAM tick=(\d+) index=(\d+) class=Class "
+    r"([A-Za-z0-9_]+\.[A-Za-z0-9_]+)"
+)
+XLIGHTCAM_RE = re.compile(
+    r"XLIGHTCAM draw=(\d+) slot=(\d+) count=(\d+) map=([^\s]+).*?wouldClear=(\d+)"
+)
 PERF_RE = re.compile(r"\bPERF fps=([0-9.]+)")
 PERF_DETAIL_RE = re.compile(
     r"UT99XDBG t=(\d+).*?\bPERF fps=([0-9.]+).*?"
     r"texNew=(\d+) texUp=(\d+).*?liveKB=(\d+) texKB=(\d+) availKB=(\d+)"
 )
 XSKEL_FLICKER_RE = re.compile(r"[^\r\n]*XSKELFLICKER[^\r\n]*")
+XSKEL_STATE_RE = re.compile(
+    r"XSKELSTATE tick=(\d+) class=Class (\S+) mesh=(.+?) "
+    r"state=([a-z]+) seq=(\S+) frame=([0-9.]+) "
+    r"numframes=(\d+) rate=([0-9.]+) found=([01])"
+)
 
 
 def read_lines(path):
@@ -141,7 +185,16 @@ def roster_entry(index, roster_offset=0, roster_span=None):
     return ROSTER[(roster_offset + (index % span)) % len(ROSTER)]
 
 
-def patch_bot_roster(path, count, roster_offset=0, roster_span=None):
+def expected_case_classes(case):
+    if case.get("bot_class"):
+        return set([case["bot_class"]])
+    return set(
+        roster_entry(index, case.get("roster_offset", 0), case.get("roster_span"))[1]
+        for index in range(case["bots"])
+    )
+
+
+def patch_bot_roster(path, count, roster_offset=0, roster_span=None, bot_class_override=None):
     lines = read_lines(path)
     found = set()
     output = []
@@ -155,6 +208,9 @@ def patch_bot_roster(path, count, roster_offset=0, roster_span=None):
         found.add((key.lower(), index))
         if index < 32:
             name, bot_class = roster_entry(index, roster_offset, roster_span)
+            if bot_class_override:
+                name = bot_class_override.split(".")[-1]
+                bot_class = bot_class_override
             values = {
                 "botclasses": bot_class,
                 "botnames": name,
@@ -194,7 +250,7 @@ def patch_match_ini(path, bots):
 
 
 def build_url(case):
-    return (
+    url = (
         "{map}.unr?Game={game}?Name=SoakP1?Class={player}?Team=0"
         "?MinPlayers={players}?InitialBots={bots}?MaxPlayers=16?Difficulty=3"
         "?FragLimit=0?TimeLimit=0?GoalTeamScore=0"
@@ -205,21 +261,52 @@ def build_url(case):
         players=case["bots"] + 1,
         bots=case["bots"],
     )
+    if case.get("mutator"):
+        url += "?Mutator=" + case["mutator"]
+    return url
 
 
 def prepare_base(args):
     stage = os.path.abspath(args.stage_dir)
-    xemu_soak.safe_remove_tree(stage, os.path.join(XBOX_DIR, "build_cli"))
-    xemu_soak.ensure_dir(os.path.dirname(stage))
-    xemu_soak.copy_runtime_tree(args.runtime_source, stage)
+    if not os.path.isdir(stage):
+        xemu_soak.ensure_dir(os.path.dirname(stage))
+        xemu_soak.copy_runtime_tree(args.runtime_source, stage)
     copied = xemu_soak.copy_build_overlay(args.build_dir, stage)
+    retired_bake = os.path.join(stage, "System", "UTPS2Baked.u")
+    if os.path.isfile(retired_bake):
+        os.remove(retired_bake)
     soak_log.remove_old_logs(stage)
-    for marker in ("XboxSoakMapList.ini", "XboxStartURL.ini", "XboxCharacterSoak.ini"):
+    for marker in (
+        "XboxSoakMapList.ini",
+        "XboxStartURL.ini",
+        "XboxCharacterSoak.ini",
+        "XboxLightingProof.ini",
+        "XboxSkeletalStateProof.ini",
+        "XboxSkaarjSkinProof.ini",
+        "XboxIssueMapSmoke.ini",
+        "XboxSoakSmoke.ini",
+        "XboxInstantMenuProofSmoke.ini",
+        "XboxInstantMenuProof_DM.ini",
+        "XboxInstantMenuProof_CTF.ini",
+        "XboxInstantMenuProof_DOM.ini",
+        "XboxInstantMenuProof_AS.ini",
+        "XboxInstantMenuProof_JB.ini",
+    ):
         path = os.path.join(stage, marker)
         if os.path.isfile(path):
             os.remove(path)
-    with open(os.path.join(stage, "XboxCharacterSoak.ini"), "w") as handle:
-        handle.write("; Log exact bot class, mesh, and skin during Xemu stress\n")
+    if args.lighting_proof:
+        with open(os.path.join(stage, "XboxLightingProof.ini"), "w") as handle:
+            handle.write("; Deterministic map-lighting viewpoint qualification\n")
+    else:
+        with open(os.path.join(stage, "XboxCharacterSoak.ini"), "w") as handle:
+            handle.write("; Log exact bot class, mesh, and skin during Xemu stress\n")
+    if args.skeletal_state_proof:
+        with open(os.path.join(stage, "XboxSkeletalStateProof.ini"), "w") as handle:
+            handle.write("; Deterministic post-simulation animation-state qualification\n")
+    if args.skaarj_skin_proof:
+        with open(os.path.join(stage, "XboxSkaarjSkinProof.ini"), "w") as handle:
+            handle.write("; Repeated harmless hits for Skaarj blood/material qualification\n")
     return stage, copied
 
 
@@ -234,27 +321,116 @@ def prepare_case(args, stage, case, run_dir):
                 case["bots"],
                 case.get("roster_offset", 0),
                 case.get("roster_span"),
+                case.get("bot_class"),
             )
 
-    url = build_url(case)
-    soak_log.write_lines(
-        os.path.join(stage, "XboxStartURL.ini"),
-        ["; Isolated rendered Xemu stress case", "StartURL=" + url],
-    )
-    for name in ("XboxStartURL.ini", "XboxCharacterSoak.ini"):
+    if args.frontend_loading_proof:
+        marker_by_mode = {
+            "issue": "XboxIssueMapSmoke.ini",
+            "soak": "XboxSoakSmoke.ini",
+            "instant-dm": "XboxInstantMenuProof_DM.ini",
+        }
+        marker_name = marker_by_mode[args.frontend_loading_proof]
+        start_url_path = os.path.join(stage, "XboxStartURL.ini")
+        if os.path.isfile(start_url_path):
+            os.remove(start_url_path)
+        with open(os.path.join(stage, marker_name), "w") as handle:
+            handle.write("; Frontend-driven loading-spinner proof\n")
+        url = "frontend-proof:" + marker_name
+        proof_markers = [marker_name]
+        if args.lighting_proof:
+            proof_markers.append("XboxLightingProof.ini")
+        else:
+            proof_markers.append("XboxCharacterSoak.ini")
+    else:
+        url = build_url(case)
+        soak_log.write_lines(
+            os.path.join(stage, "XboxStartURL.ini"),
+            ["; Isolated rendered Xemu stress case", "StartURL=" + url],
+        )
+        proof_markers = ["XboxStartURL.ini"]
+        if args.lighting_proof:
+            proof_markers.append("XboxLightingProof.ini")
+        else:
+            proof_markers.append("XboxCharacterSoak.ini")
+    if args.skeletal_state_proof:
+        proof_markers.append("XboxSkeletalStateProof.ini")
+    if args.skaarj_skin_proof:
+        proof_markers.append("XboxSkaarjSkinProof.ini")
+    for name in proof_markers:
         shutil.copy2(os.path.join(stage, name), os.path.join(run_dir, name))
     for name in ("Default.ini", "UnrealTournament.ini", "User.ini"):
         shutil.copy2(os.path.join(stage, "System", name), os.path.join(run_dir, name))
     return url
 
 
-def capture_screen(pid, source_dir, output_path):
+def capture_screen(pid, source_dir, output_path, monitor_port=None):
     if os.name != "nt":
         return "built-in screenshot trigger requires Windows"
 
     user32 = ctypes.windll.user32
     handles = []
     enum_proc_type = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
+
+    def collect_fast_window(hwnd, _lparam):
+        process_id = ctypes.c_ulong()
+        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(process_id))
+        if process_id.value == pid:
+            handles.append(hwnd)
+        return True
+
+    callback = enum_proc_type(collect_fast_window)
+    user32.EnumWindows(callback, 0)
+    top_level = []
+    for hwnd in set(handles):
+        if user32.GetParent(hwnd) or not user32.IsWindowVisible(hwnd):
+            continue
+        rect = ctypes.wintypes.RECT()
+        if user32.GetWindowRect(hwnd, ctypes.byref(rect)):
+            width = rect.right - rect.left
+            height = rect.bottom - rect.top
+            if width > 0 and height > 0:
+                top_level.append((width * height, hwnd, width, height))
+    if top_level:
+        _area, hwnd, _width, _height = max(top_level)
+        try:
+            image = ImageGrab.grab(window=int(hwnd))
+            image.save(output_path, "PNG")
+            return "captured from Xemu window without focus via PrintWindow"
+        except Exception:
+            pass
+
+    hmp_error = None
+    if monitor_port is not None:
+        ppm_path = os.path.splitext(output_path)[0] + ".ppm"
+        try:
+            if os.path.isfile(ppm_path):
+                os.remove(ppm_path)
+            sock = xemu_poll.connect_monitor(monitor_port, 5.0)
+            try:
+                monitor_path = os.path.abspath(ppm_path).replace("\\", "/")
+                reply = xemu_poll.monitor_cmd(
+                    sock,
+                    'screendump "%s"' % monitor_path,
+                    0.5,
+                )
+            finally:
+                sock.close()
+            deadline = time.time() + 5.0
+            while time.time() < deadline and not os.path.isfile(ppm_path):
+                time.sleep(0.05)
+            if os.path.isfile(ppm_path) and os.path.getsize(ppm_path) > 0:
+                with Image.open(ppm_path) as image:
+                    image.save(output_path, "PNG")
+                os.remove(ppm_path)
+                return "captured from Xemu HMP screendump"
+            if os.path.isfile(ppm_path):
+                os.remove(ppm_path)
+            hmp_error = "Xemu HMP screendump produced no image: " + reply.strip()
+        except Exception as exc:
+            hmp_error = "Xemu HMP screendump failed: %s" % exc
+
+    handles = []
 
     def collect_window(hwnd, _lparam):
         process_id = ctypes.c_ulong()
@@ -313,7 +489,7 @@ def capture_screen(pid, source_dir, output_path):
         time.sleep(0.1)
 
     if not top_level:
-        return "Xemu screenshot did not fire and no visible top-level window was found"
+        return hmp_error or "Xemu screenshot did not fire and no visible top-level window was found"
 
     _area, hwnd, _width, _height = max(top_level)
     try:
@@ -396,6 +572,22 @@ def run_case(args, stage, case, index, xiso_tool, config_path):
     screenshot_dir = os.path.join(run_dir, "screenshots")
     xemu_soak.ensure_dir(screenshot_dir)
     url = prepare_case(args, stage, case, run_dir)
+    expected_classes = expected_case_classes(case)
+    frontend_loading_proof = bool(args.frontend_loading_proof)
+    lighting_proof = bool(args.lighting_proof)
+    required_camera_bursts = 0 if (frontend_loading_proof or lighting_proof) else min(
+        max(1, case.get("camera_burst_limit", args.camera_burst_limit)),
+        len(expected_classes),
+    )
+    camera_frames_per_burst = max(
+        1,
+        case.get("camera_frames", args.camera_frames),
+    )
+    required_state_keys = set(
+        (bot_class, state_name)
+        for bot_class in expected_classes
+        for state_name in SKELETAL_PROOF_STATES
+    ) if args.skeletal_state_proof and not frontend_loading_proof else set()
 
     xemu_soak.build_xiso(stage, args.iso_path, xiso_tool)
     config_path = xemu_soak.write_xemu_config(args, args.iso_path)
@@ -409,15 +601,27 @@ def run_case(args, stage, case, index, xiso_tool, config_path):
     last_change = time.time()
     screenshots = []
     camera_screenshots = []
+    lighting_screenshots = []
     loading_screenshots = []
     last_loading_frame = 0
+    captured_lighting_slots = set()
+    lighting_capture_failures = []
     last_camera_tick = 0
+    active_camera_tick = 0
+    active_camera_class = ""
     camera_burst_tick = 0
     camera_burst_index = ""
     camera_burst_class = ""
+    camera_burst_class_full = ""
     camera_burst_frame = 0
     camera_burst_remaining = 0
     completed_camera_bursts = 0
+    captured_camera_classes = set()
+    camera_capture_failures = []
+    state_screenshots = []
+    captured_state_keys = set()
+    state_capture_failures = []
+    state_capture_retries = []
     marker = ""
     ok = False
     poll_failures = 0
@@ -427,7 +631,11 @@ def run_case(args, stage, case, index, xiso_tool, config_path):
         os.path.join(args.build_dir, "UnrealTournament.map"),
         os.path.join(args.build_dir, "default.xbe"),
     )
-    poll_args = argparse.Namespace(timeout=args.poll_timeout, phys_delta="auto")
+    poll_args = argparse.Namespace(
+        timeout=args.poll_timeout,
+        phys_delta="auto",
+        tail_bytes=4096,
+    )
     required_tick = case.get("minimum_tick", args.minimum_tick)
     deadline = time.time() + args.boot_timeout + case["seconds"] + args.tick_timeout
 
@@ -439,6 +647,7 @@ def run_case(args, stage, case, index, xiso_tool, config_path):
                 break
             try:
                 _delta, values, snapshot = xemu_poll.poll_port(args.monitor_port, symbols, poll_args)
+                poll_args.phys_delta = "0" if _delta is None else hex(_delta)
                 poll_failures = 0
                 first_poll_failure = None
                 marker = ""
@@ -454,7 +663,7 @@ def run_case(args, stage, case, index, xiso_tool, config_path):
                     and time.time() - first_poll_failure >= 30.0
                 ):
                     path = os.path.join(screenshot_dir, "00_ram_log_wait.png")
-                    reply = capture_screen(proc.pid, args.screenshot_dir, path)
+                    reply = capture_screen(proc.pid, args.screenshot_dir, path, args.monitor_port)
                     diagnostic_screen_captured = os.path.isfile(path)
                     if not diagnostic_screen_captured:
                         with open(os.path.join(run_dir, "screendump_error.txt"), "a") as handle:
@@ -482,61 +691,357 @@ def run_case(args, stage, case, index, xiso_tool, config_path):
                 break
 
             new_camera_event = False
-            camera_events = XSKELCAM_RE.findall(accumulated or snapshot)
+            camera_events = [
+                event
+                for event in XSKELCAM_RE.findall(accumulated or snapshot)
+                if event[2] in expected_classes
+            ]
+            latest_camera_tick = 0
             if camera_events:
                 camera_tick, camera_index, camera_class = max(
                     camera_events, key=lambda item: int(item[0])
                 )
                 camera_tick = int(camera_tick)
+                latest_camera_tick = camera_tick
+                if camera_tick >= active_camera_tick:
+                    # XSKELCAM is repeated as a heartbeat while the same bot
+                    # remains targeted. Only a real handoff starts a new epoch;
+                    # otherwise early state events get discarded every 60 ticks.
+                    if camera_class != active_camera_class:
+                        active_camera_tick = camera_tick
+                    active_camera_class = camera_class
                 if (
                     camera_tick > last_camera_tick
                     and camera_burst_remaining == 0
-                    and completed_camera_bursts == 0
                 ):
-                    new_camera_event = True
                     last_camera_tick = camera_tick
-                    safe_class = re.sub(r"[^A-Za-z0-9_-]+", "_", camera_class.split(".")[-1])
+                    if (
+                        camera_class not in captured_camera_classes
+                        and completed_camera_bursts < required_camera_bursts
+                    ):
+                        new_camera_event = True
+                        safe_class = re.sub(
+                            r"[^A-Za-z0-9_-]+",
+                            "_",
+                            camera_class.split(".")[-1],
+                        )
+                        path = os.path.join(
+                            screenshot_dir,
+                            "camera_%05d_%s_slot%s_frame1.png"
+                            % (camera_tick, safe_class, camera_index),
+                        )
+                        time.sleep(0.40)
+                        reply = capture_screen(
+                            proc.pid,
+                            args.screenshot_dir,
+                            path,
+                            args.monitor_port,
+                        )
+                        if os.path.isfile(path):
+                            camera_screenshots.append(path)
+                            camera_burst_tick = camera_tick
+                            camera_burst_index = camera_index
+                            camera_burst_class = safe_class
+                            camera_burst_class_full = camera_class
+                            camera_burst_frame = 1
+                            camera_burst_remaining = camera_frames_per_burst - 1
+                            while camera_burst_remaining > 0:
+                                time.sleep(0.20)
+                                camera_burst_frame += 1
+                                path = os.path.join(
+                                    screenshot_dir,
+                                    "camera_%05d_%s_slot%s_frame%d.png"
+                                    % (
+                                        camera_burst_tick,
+                                        camera_burst_class,
+                                        camera_burst_index,
+                                        camera_burst_frame,
+                                    ),
+                                )
+                                reply = capture_screen(
+                                    proc.pid,
+                                    args.screenshot_dir,
+                                    path,
+                                    args.monitor_port,
+                                )
+                                if not os.path.isfile(path):
+                                    camera_capture_failures.append(
+                                        "%s tick=%d frame=%d: %s"
+                                        % (
+                                            camera_burst_class_full,
+                                            camera_burst_tick,
+                                            camera_burst_frame,
+                                            reply,
+                                        )
+                                    )
+                                    with open(
+                                        os.path.join(run_dir, "screendump_error.txt"),
+                                        "a",
+                                    ) as handle:
+                                        handle.write(reply + "\n")
+                                    break
+                                camera_screenshots.append(path)
+                                camera_burst_remaining -= 1
+                            if camera_burst_remaining == 0:
+                                captured_camera_classes.add(camera_burst_class_full)
+                                completed_camera_bursts += 1
+                            camera_burst_remaining = 0
+                        else:
+                            camera_capture_failures.append(
+                                "%s tick=%d: %s" % (camera_class, camera_tick, reply)
+                            )
+                            with open(os.path.join(run_dir, "screendump_error.txt"), "a") as handle:
+                                handle.write(reply + "\n")
+
+            if not new_camera_event and camera_burst_remaining > 0:
+                if latest_camera_tick > camera_burst_tick:
+                    camera_capture_failures.append(
+                        "%s tick=%d interrupted at frame %d"
+                        % (
+                            camera_burst_class_full,
+                            camera_burst_tick,
+                            camera_burst_frame + 1,
+                        )
+                    )
+                    camera_burst_remaining = 0
+                else:
+                    camera_burst_frame += 1
                     path = os.path.join(
                         screenshot_dir,
-                        "camera_%05d_%s_slot%s_frame1.png"
-                        % (camera_tick, safe_class, camera_index),
+                        "camera_%05d_%s_slot%s_frame%d.png"
+                        % (
+                            camera_burst_tick,
+                            camera_burst_class,
+                            camera_burst_index,
+                            camera_burst_frame,
+                        ),
                     )
-                    reply = capture_screen(proc.pid, args.screenshot_dir, path)
+                    reply = capture_screen(
+                        proc.pid,
+                        args.screenshot_dir,
+                        path,
+                        args.monitor_port,
+                    )
                     if os.path.isfile(path):
                         camera_screenshots.append(path)
-                        camera_burst_tick = camera_tick
-                        camera_burst_index = camera_index
-                        camera_burst_class = safe_class
-                        camera_burst_frame = 1
-                        camera_burst_remaining = 2
+                        camera_burst_remaining -= 1
+                        if camera_burst_remaining == 0:
+                            captured_camera_classes.add(camera_burst_class_full)
+                            completed_camera_bursts += 1
                     else:
+                        camera_capture_failures.append(
+                            "%s tick=%d frame=%d: %s"
+                            % (
+                                camera_burst_class_full,
+                                camera_burst_tick,
+                                camera_burst_frame,
+                                reply,
+                            )
+                        )
+                        camera_burst_remaining = 0
                         with open(os.path.join(run_dir, "screendump_error.txt"), "a") as handle:
                             handle.write(reply + "\n")
 
-            if not new_camera_event and camera_burst_remaining > 0:
-                camera_burst_frame += 1
-                path = os.path.join(
-                    screenshot_dir,
-                    "camera_%05d_%s_slot%s_frame%d.png"
-                    % (
-                        camera_burst_tick,
-                        camera_burst_class,
-                        camera_burst_index,
-                        camera_burst_frame,
-                    ),
-                )
-                reply = capture_screen(proc.pid, args.screenshot_dir, path)
-                if os.path.isfile(path):
-                    camera_screenshots.append(path)
-                    camera_burst_remaining -= 1
-                    if camera_burst_remaining == 0:
-                        completed_camera_bursts += 1
-                else:
-                    camera_burst_remaining = 0
-                    with open(os.path.join(run_dir, "screendump_error.txt"), "a") as handle:
-                        handle.write(reply + "\n")
+            if args.skeletal_state_proof and not new_camera_event:
+                state_events = [
+                    event
+                    for event in XSKEL_STATE_RE.findall(accumulated or snapshot)
+                    if active_camera_class
+                    and event[1] == active_camera_class
+                    and int(event[0]) >= active_camera_tick
+                    and event[3] in SKELETAL_PROOF_STATES
+                ]
+                if state_events:
+                    state_event = max(state_events, key=lambda item: int(item[0]))
+                    (
+                        state_tick,
+                        state_class,
+                        _state_mesh,
+                        state_name,
+                        state_sequence,
+                        state_frame,
+                        _state_numframes,
+                        _state_rate,
+                        state_found,
+                    ) = state_event
+                    state_key = (state_class, state_name)
+                    if state_found != "1":
+                        marker = (
+                            "missing skeletal proof sequence class=%s state=%s"
+                            % state_key
+                        )
+                        break
+                    # Leave enough time for every requested screendump and the
+                    # post-capture verification to finish before the next state.
+                    state_capture_window_open = float(state_frame) <= 0.40
+                    if (
+                        state_key not in captured_state_keys
+                        and state_capture_window_open
+                    ):
+                        safe_class = re.sub(
+                            r"[^A-Za-z0-9_-]+",
+                            "_",
+                            state_class.split(".")[-1],
+                        )
+                        captured_paths = []
+                        for state_frame_index in range(1, args.state_frames + 1):
+                            if state_frame_index == 1:
+                                time.sleep(0.10)
+                            else:
+                                time.sleep(0.16)
+                            path = os.path.join(
+                                screenshot_dir,
+                                "state_%05d_%s_%s_%s_frame%d.png"
+                                % (
+                                    int(state_tick),
+                                    safe_class,
+                                    state_name,
+                                    state_sequence,
+                                    state_frame_index,
+                                ),
+                            )
+                            reply = capture_screen(
+                                proc.pid,
+                                args.screenshot_dir,
+                                path,
+                                args.monitor_port,
+                            )
+                            if not os.path.isfile(path):
+                                state_capture_failures.append(
+                                    "%s %s tick=%s frame=%d: %s"
+                                    % (
+                                        state_class,
+                                        state_name,
+                                        state_tick,
+                                        state_frame_index,
+                                        reply,
+                                    )
+                                )
+                                with open(
+                                    os.path.join(run_dir, "screendump_error.txt"),
+                                    "a",
+                                ) as handle:
+                                    handle.write(reply + "\n")
+                                break
+                            captured_paths.append(path)
+                        if len(captured_paths) == args.state_frames:
+                            capture_still_current = False
+                            retry_reason = "post-capture state unavailable"
+                            try:
+                                post_delta, _post_values, post_snapshot = xemu_poll.poll_port(
+                                    args.monitor_port,
+                                    symbols,
+                                    poll_args,
+                                )
+                                poll_args.phys_delta = (
+                                    "0" if post_delta is None else hex(post_delta)
+                                )
+                                post_camera_events = [
+                                    event
+                                    for event in XSKELCAM_RE.findall(post_snapshot)
+                                    if event[2] in expected_classes
+                                ]
+                                post_state_events = [
+                                    event
+                                    for event in XSKEL_STATE_RE.findall(post_snapshot)
+                                    if int(event[0]) >= active_camera_tick
+                                    and event[3] in SKELETAL_PROOF_STATES
+                                ]
+                                post_camera = (
+                                    max(post_camera_events, key=lambda item: int(item[0]))
+                                    if post_camera_events else None
+                                )
+                                post_state = (
+                                    max(post_state_events, key=lambda item: int(item[0]))
+                                    if post_state_events else None
+                                )
+                                capture_still_current = bool(
+                                    post_state
+                                    and post_state[1] == state_class
+                                    and post_state[3] == state_name
+                                    and post_state[8] == "1"
+                                )
+                                if not capture_still_current:
+                                    retry_reason = (
+                                        "transition camera=%s state=%s"
+                                        % (
+                                            (
+                                                post_camera[2]
+                                                if post_camera
+                                                else (
+                                                    post_state[1]
+                                                    if post_state
+                                                    else "none"
+                                                )
+                                            ),
+                                            post_state[3] if post_state else "none",
+                                        )
+                                    )
+                            except Exception as exc:
+                                retry_reason = "post-capture poll failed: %s" % exc
 
-            if args.capture_loading_animation and len(loading_screenshots) < 4:
+                            if capture_still_current:
+                                state_screenshots.extend(captured_paths)
+                                captured_state_keys.add(state_key)
+                            else:
+                                state_capture_retries.append(
+                                    "%s:%s tick=%s %s"
+                                    % (
+                                        state_class,
+                                        state_name,
+                                        state_tick,
+                                        retry_reason,
+                                    )
+                                )
+                                for captured_path in captured_paths:
+                                    if os.path.isfile(captured_path):
+                                        os.remove(captured_path)
+
+            if (
+                lighting_proof
+                and current["activeMapSamples"] > 0
+                and len(lighting_screenshots) < args.lighting_proof_screenshots
+            ):
+                lighting_events = XLIGHTCAM_RE.findall(accumulated or snapshot)
+                for draw, slot, count, map_name, would_clear in lighting_events:
+                    if int(draw) < 120:
+                        continue
+                    slot_index = int(slot)
+                    if slot_index in captured_lighting_slots:
+                        continue
+                    safe_map = re.sub(r"[^A-Za-z0-9_-]+", "_", map_name)
+                    path = os.path.join(
+                        screenshot_dir,
+                        "lighting_%02d_slot%d_draw%s_clear%s_%s.png"
+                        % (
+                            len(lighting_screenshots) + 1,
+                            slot_index,
+                            draw,
+                            would_clear,
+                            safe_map,
+                        ),
+                    )
+                    time.sleep(0.12)
+                    reply = capture_screen(
+                        proc.pid,
+                        args.screenshot_dir,
+                        path,
+                        args.monitor_port,
+                    )
+                    if os.path.isfile(path):
+                        lighting_screenshots.append(path)
+                        captured_lighting_slots.add(slot_index)
+                    else:
+                        lighting_capture_failures.append(
+                            "slot=%s draw=%s map=%s: %s"
+                            % (slot, draw, map_name, reply)
+                        )
+                        with open(os.path.join(run_dir, "screendump_error.txt"), "a") as handle:
+                            handle.write(reply + "\n")
+                    break
+
+            loading_target = args.loading_proof_screenshots if frontend_loading_proof else 4
+            if args.capture_loading_animation and len(loading_screenshots) < loading_target:
                 loading_frames = re.findall(
                     r"XLOADANIM frame=(\d+) step=(\d+)", accumulated or snapshot
                 )
@@ -549,29 +1054,54 @@ def run_case(args, stage, case, index, xiso_tool, config_path):
                             "loading_%02d_frame_%d_step_%d.png"
                             % (len(loading_screenshots) + 1, frame_number, step_number),
                         )
-                        reply = capture_screen(proc.pid, args.screenshot_dir, path)
+                        reply = capture_screen(proc.pid, args.screenshot_dir, path, args.monitor_port)
                         if os.path.isfile(path):
                             loading_screenshots.append(path)
                         else:
                             with open(os.path.join(run_dir, "screendump_error.txt"), "a") as handle:
                                 handle.write(reply + "\n")
 
-            if current["activeMapMaxBots"] >= case["bots"] and live_started is None:
+            if frontend_loading_proof:
+                text = accumulated or snapshot
+                if (
+                    len(loading_screenshots) >= args.loading_proof_screenshots
+                    and re.search(r"XLOADANIM end frames=(\d+)", text)
+                ):
+                    marker = "captured frontend loading animation"
+                    ok = True
+                    break
+
+            map_live_enough = (
+                current["activeMapSamples"] > 0
+                if lighting_proof
+                else current["activeMapMaxBots"] >= case["bots"]
+            )
+            if map_live_enough and live_started is None:
                 live_started = time.time()
-                path = os.path.join(screenshot_dir, "01_live_start.png")
-                reply = capture_screen(proc.pid, args.screenshot_dir, path)
-                if os.path.isfile(path):
-                    screenshots.append(path)
-                else:
-                    with open(os.path.join(run_dir, "screendump_error.txt"), "a") as handle:
-                        handle.write(reply + "\n")
+                if not args.skip_general_screenshots:
+                    path = os.path.join(screenshot_dir, "01_live_start.png")
+                    reply = capture_screen(
+                        proc.pid,
+                        args.screenshot_dir,
+                        path,
+                        args.monitor_port,
+                    )
+                    if os.path.isfile(path):
+                        screenshots.append(path)
+                    else:
+                        with open(os.path.join(run_dir, "screendump_error.txt"), "a") as handle:
+                            handle.write(reply + "\n")
 
             if live_started is not None:
                 elapsed = time.time() - live_started
                 halfway = case["seconds"] / 2.0
-                if elapsed >= halfway and len(screenshots) < 2:
+                if (
+                    not args.skip_general_screenshots
+                    and elapsed >= halfway
+                    and len(screenshots) < 2
+                ):
                     path = os.path.join(screenshot_dir, "02_mid_soak.png")
-                    reply = capture_screen(proc.pid, args.screenshot_dir, path)
+                    reply = capture_screen(proc.pid, args.screenshot_dir, path, args.monitor_port)
                     if os.path.isfile(path):
                         screenshots.append(path)
                     else:
@@ -580,16 +1110,27 @@ def run_case(args, stage, case, index, xiso_tool, config_path):
                 if (
                     elapsed >= case["seconds"]
                     and current["activeMapLastTick"] >= required_tick
-                    and completed_camera_bursts >= 1
+                    and (
+                        not lighting_proof
+                        or len(captured_lighting_slots) >= args.lighting_proof_screenshots
+                    )
+                    and completed_camera_bursts >= required_camera_bursts
                     and camera_burst_remaining == 0
+                    and required_state_keys.issubset(captured_state_keys)
                 ):
-                    path = os.path.join(screenshot_dir, "03_final.png")
-                    reply = capture_screen(proc.pid, args.screenshot_dir, path)
-                    if os.path.isfile(path):
-                        screenshots.append(path)
-                    else:
-                        with open(os.path.join(run_dir, "screendump_error.txt"), "a") as handle:
-                            handle.write(reply + "\n")
+                    if not args.skip_general_screenshots:
+                        path = os.path.join(screenshot_dir, "03_final.png")
+                        reply = capture_screen(
+                            proc.pid,
+                            args.screenshot_dir,
+                            path,
+                            args.monitor_port,
+                        )
+                        if os.path.isfile(path):
+                            screenshots.append(path)
+                        else:
+                            with open(os.path.join(run_dir, "screendump_error.txt"), "a") as handle:
+                                handle.write(reply + "\n")
                     marker = "completed %.1fs live soak" % elapsed
                     ok = True
                     break
@@ -610,13 +1151,25 @@ def run_case(args, stage, case, index, xiso_tool, config_path):
     ended = datetime.datetime.now().isoformat()
     summary = parse_case_evidence(accumulated or last_snapshot, case)
     allowed_classes = set(item[1] for item in ROSTER)
-    expected_classes = set(
-        roster_entry(index, case.get("roster_offset", 0), case.get("roster_span"))[1]
-        for index in range(case["bots"])
-    )
+    allowed_classes.update(expected_classes)
     seen_classes = set(item["class"] for item in summary["characters"])
     unexpected_classes = seen_classes.difference(allowed_classes)
     missing_classes = expected_classes.difference(seen_classes)
+    missing_camera_classes = expected_classes.difference(captured_camera_classes)
+    camera_coverage_complete = (
+        len(captured_camera_classes.intersection(expected_classes))
+        >= required_camera_bursts
+    )
+    missing_state_keys = required_state_keys.difference(captured_state_keys)
+    state_coverage_complete = not missing_state_keys
+    loading_proof_complete = (
+        not frontend_loading_proof
+        or len(loading_screenshots) >= args.loading_proof_screenshots
+    )
+    lighting_proof_complete = (
+        not lighting_proof
+        or len(captured_lighting_slots) >= args.lighting_proof_screenshots
+    )
     ps2_classes = set(item for item in seen_classes if item.startswith("UTPS2Characters."))
     master_chief_count = summary["characterClassCounts"].get(
         "HaloMasterChief.HaloMasterChiefBot", 0
@@ -636,7 +1189,34 @@ def run_case(args, stage, case, index, xiso_tool, config_path):
         "xemuPid": proc.pid if proc else None,
         "screenshots": screenshots,
         "cameraScreenshots": camera_screenshots,
+        "lightingProofEnabled": lighting_proof,
+        "lightingProofComplete": lighting_proof_complete,
+        "lightingProofRequiredScreenshots": args.lighting_proof_screenshots if lighting_proof else 0,
+        "lightingScreenshots": lighting_screenshots,
+        "capturedLightingSlots": sorted(captured_lighting_slots),
+        "lightingCaptureFailures": lighting_capture_failures,
         "completedCameraBursts": completed_camera_bursts,
+        "requiredCameraBursts": required_camera_bursts,
+        "cameraFramesPerBurst": camera_frames_per_burst,
+        "capturedCameraClasses": sorted(captured_camera_classes),
+        "missingCameraClasses": sorted(missing_camera_classes),
+        "cameraCaptureFailures": camera_capture_failures,
+        "cameraCoverageComplete": camera_coverage_complete,
+        "skeletalStateProofEnabled": args.skeletal_state_proof,
+        "stateScreenshots": state_screenshots,
+        "capturedStateKeys": [
+            "%s:%s" % key for key in sorted(captured_state_keys)
+        ],
+        "missingStateKeys": [
+            "%s:%s" % key for key in sorted(missing_state_keys)
+        ],
+        "stateCaptureFailures": state_capture_failures,
+        "stateCaptureRetries": state_capture_retries,
+        "stateCoverageComplete": state_coverage_complete,
+        "frontendLoadingProof": frontend_loading_proof,
+        "frontendLoadingProofMode": args.frontend_loading_proof or "",
+        "loadingProofComplete": loading_proof_complete,
+        "loadingProofRequiredScreenshots": args.loading_proof_screenshots if frontend_loading_proof else 0,
         "loadingAnimationScreenshots": loading_screenshots,
         "loadingAnimationLastFrame": last_loading_frame,
         "allowedBotClasses": sorted(allowed_classes),
@@ -648,19 +1228,41 @@ def run_case(args, stage, case, index, xiso_tool, config_path):
         "masterChiefBotCount": master_chief_count,
         "customRosterOnly": not unexpected_classes,
         "ok": bool(
-            ok
-            and summary["fatalCount"] == 0
-            and summary["activeMapMaxBots"] >= case["bots"]
-            and summary["activeMapLastTick"] >= required_tick
-            and summary["characterCount"] >= case["bots"]
-            and completed_camera_bursts >= 1
-            and summary["steadyAverageFps"] is not None
-            and summary["steadyAverageFps"] >= args.min_steady_fps
-            and summary["steadyMaxTextureUploads"] is not None
-            and summary["steadyMaxTextureUploads"] <= args.max_steady_texture_uploads
-            and summary["skeletalFlickerAlertCount"] == 0
-            and not unexpected_classes
-            and not missing_classes
+            (
+                ok
+                and summary["fatalCount"] == 0
+                and loading_proof_complete
+            )
+            if frontend_loading_proof else
+            (
+                ok
+                and summary["fatalCount"] == 0
+                and summary["activeMapLastTick"] >= required_tick
+                and lighting_proof_complete
+                and not lighting_capture_failures
+                and summary["steadyAverageFps"] is not None
+                and summary["steadyAverageFps"] >= args.min_steady_fps
+                and summary["steadyMaxTextureUploads"] is not None
+                and summary["steadyMaxTextureUploads"] <= args.max_steady_texture_uploads
+            )
+            if lighting_proof else
+            (
+                ok
+                and summary["fatalCount"] == 0
+                and summary["activeMapMaxBots"] >= case["bots"]
+                and summary["activeMapLastTick"] >= required_tick
+                and summary["characterCount"] >= case["bots"]
+                and camera_coverage_complete
+                and state_coverage_complete
+                and not state_capture_failures
+                and summary["steadyAverageFps"] is not None
+                and summary["steadyAverageFps"] >= args.min_steady_fps
+                and summary["steadyMaxTextureUploads"] is not None
+                and summary["steadyMaxTextureUploads"] <= args.max_steady_texture_uploads
+                and summary["skeletalFlickerAlertCount"] == 0
+                and not unexpected_classes
+                and not missing_classes
+            )
         ),
     })
     with open(os.path.join(run_dir, "summary.json"), "w") as handle:
@@ -672,6 +1274,10 @@ def main(argv):
     parser = argparse.ArgumentParser()
     parser.add_argument("--build-dir", default=DEFAULT_BUILD)
     parser.add_argument("--runtime-source", default=DEFAULT_RUNTIME)
+    parser.add_argument(
+        "--stage-dir",
+        default=os.path.join(XBOX_DIR, "build_cli", "xemu_deep_soak_stage"),
+    )
     parser.add_argument("--xemu-root", default=DEFAULT_XEMU_ROOT)
     parser.add_argument("--xemu-instance", default=DEFAULT_XEMU_INSTANCE)
     parser.add_argument("--hdd", default=DEFAULT_HDD)
@@ -681,6 +1287,7 @@ def main(argv):
     parser.add_argument("--poll-timeout", type=float, default=8.0)
     parser.add_argument("--stall-seconds", type=float, default=150.0)
     parser.add_argument("--boot-timeout", type=float, default=240.0)
+    parser.add_argument("--mute-audio", action="store_true", help="Launch Xemu with QEMU audio disabled.")
     parser.add_argument("--minimum-tick", type=int, default=300)
     parser.add_argument("--min-steady-fps", type=float, default=15.0)
     parser.add_argument("--max-steady-texture-uploads", type=int, default=32)
@@ -691,8 +1298,24 @@ def main(argv):
         help="Additional wall time allowed for rendered cases to reach --minimum-tick",
     )
     parser.add_argument("--cases", nargs="*", help="Optional map names from the built-in matrix")
+    parser.add_argument(
+        "--map-override",
+        help="Run the selected matrix case on this staged map while retaining its game type",
+    )
     parser.add_argument("--seconds-override", type=int, help="Override each selected live-soak duration")
     parser.add_argument("--bots-override", type=int, help="Override bot count for each selected case")
+    parser.add_argument(
+        "--mutator",
+        help="Append one mutator class to each rendered case URL",
+    )
+    parser.add_argument(
+        "--player-class",
+        help="Override the local observer class (useful when isolating a skeletal bot under test)",
+    )
+    parser.add_argument(
+        "--bot-class",
+        help="Override every staged bot slot with one exact bot class",
+    )
     parser.add_argument(
         "--roster-span",
         type=int,
@@ -704,9 +1327,72 @@ def main(argv):
         help="Start the controlled custom roster at this zero-based class index",
     )
     parser.add_argument(
+        "--isolate-roster-count",
+        type=int,
+        help=(
+            "Repeat one selected map as one-bot cases for this many consecutive "
+            "roster entries, starting at --roster-offset"
+        ),
+    )
+    parser.add_argument(
         "--capture-loading-animation",
         action="store_true",
         help="Capture up to four loading-wheel frames when XLOADANIM advances",
+    )
+    parser.add_argument(
+        "--frontend-loading-proof",
+        choices=("issue", "soak", "instant-dm"),
+        help="Boot the frontend, use a menu smoke marker to launch a map, and pass/fail on loading-wheel captures.",
+    )
+    parser.add_argument(
+        "--loading-proof-screenshots",
+        type=int,
+        default=4,
+        help="Number of loading animation screenshots required in --frontend-loading-proof mode.",
+    )
+    parser.add_argument(
+        "--camera-burst-limit",
+        type=int,
+        default=1,
+        help="Require in-game camera evidence for this many distinct bot classes per case",
+    )
+    parser.add_argument(
+        "--camera-frames",
+        type=int,
+        default=3,
+        help="Capture this many consecutive in-game frames for each distinct camera target",
+    )
+    parser.add_argument(
+        "--skip-general-screenshots",
+        action="store_true",
+        help="Skip redundant live-start, midpoint, and final overview captures",
+    )
+    parser.add_argument(
+        "--lighting-proof",
+        action="store_true",
+        help="Use deterministic first-person map-lighting viewpoints instead of character camera proof",
+    )
+    parser.add_argument(
+        "--lighting-proof-screenshots",
+        type=int,
+        default=8,
+        help="Number of distinct lighting-proof viewpoints required per map",
+    )
+    parser.add_argument(
+        "--skeletal-state-proof",
+        action="store_true",
+        help="Require deterministic rendered coverage for all ten skeletal animation states",
+    )
+    parser.add_argument(
+        "--skaarj-skin-proof",
+        action="store_true",
+        help="Apply repeated harmless hits to the viewed Skaarj for blood/material proof",
+    )
+    parser.add_argument(
+        "--state-frames",
+        type=int,
+        default=2,
+        help="Capture this many consecutive in-game frames for each deterministic state",
     )
     parser.add_argument("--evidence-dir")
     args = parser.parse_args(argv)
@@ -721,13 +1407,25 @@ def main(argv):
     args.bootrom = os.path.join(args.xemu_root, "MCPX", "mcpx_1.0.bin")
     args.flashrom = os.path.join(args.xemu_root, "BIOS", "xbox-4627_debug.bin")
     args.iso_path = os.path.join(args.xemu_instance, "ut99_deep_soak_current.iso")
-    args.stage_dir = os.path.join(XBOX_DIR, "build_cli", "xemu_deep_soak_stage")
+    args.stage_dir = os.path.abspath(args.stage_dir)
     stamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     args.evidence_dir = os.path.abspath(
         args.evidence_dir or os.path.join(XBOX_DIR, "build_cli", "xemu_deep_soak_" + stamp)
     )
     args.screenshot_dir = os.path.join(args.evidence_dir, "xemu_internal_screenshots")
     args.display_backend = ""
+    if args.frontend_loading_proof:
+        args.capture_loading_animation = True
+        if args.loading_proof_screenshots <= 0 or args.loading_proof_screenshots > 12:
+            raise RuntimeError("--loading-proof-screenshots must be between 1 and 12")
+    if args.lighting_proof_screenshots <= 0 or args.lighting_proof_screenshots > 16:
+        raise RuntimeError("--lighting-proof-screenshots must be between 1 and 16")
+    if args.camera_burst_limit <= 0 or args.camera_burst_limit > len(ROSTER):
+        raise RuntimeError("--camera-burst-limit must be between 1 and %d" % len(ROSTER))
+    if args.camera_frames <= 0 or args.camera_frames > 12:
+        raise RuntimeError("--camera-frames must be between 1 and 12")
+    if args.state_frames <= 0 or args.state_frames > 6:
+        raise RuntimeError("--state-frames must be between 1 and 6")
 
     for path, label in (
         (os.path.join(args.build_dir, "default.xbe"), "default.xbe"),
@@ -753,11 +1451,26 @@ def main(argv):
             raise RuntimeError("--seconds-override must be positive")
         for case in selected:
             case["seconds"] = args.seconds_override
+    if args.map_override:
+        for case in selected:
+            case["map"] = args.map_override
     if args.bots_override is not None:
-        if args.bots_override <= 0 or args.bots_override > 15:
+        min_bots = 0 if args.lighting_proof else 1
+        if args.bots_override < min_bots or args.bots_override > 15:
+            if args.lighting_proof:
+                raise RuntimeError("--bots-override must be between 0 and 15 in --lighting-proof mode")
             raise RuntimeError("--bots-override must be between 1 and 15")
         for case in selected:
             case["bots"] = args.bots_override
+    if args.player_class:
+        for case in selected:
+            case["player"] = args.player_class
+    if args.bot_class:
+        for case in selected:
+            case["bot_class"] = args.bot_class
+    if args.mutator:
+        for case in selected:
+            case["mutator"] = args.mutator
     if args.roster_span is not None:
         if args.roster_span <= 0 or args.roster_span > len(ROSTER):
             raise RuntimeError("--roster-span must be between 1 and %d" % len(ROSTER))
@@ -768,6 +1481,24 @@ def main(argv):
             raise RuntimeError("--roster-offset must be between 0 and %d" % (len(ROSTER) - 1))
         for case in selected:
             case["roster_offset"] = args.roster_offset
+    if args.isolate_roster_count is not None:
+        if len(selected) != 1:
+            raise RuntimeError("--isolate-roster-count requires exactly one selected map")
+        start = args.roster_offset if args.roster_offset is not None else 0
+        if args.isolate_roster_count <= 0 or start + args.isolate_roster_count > len(ROSTER):
+            raise RuntimeError(
+                "--isolate-roster-count must cover roster indices %d through %d"
+                % (start, len(ROSTER) - 1)
+            )
+        base_case = selected[0]
+        selected = []
+        for roster_index in range(start, start + args.isolate_roster_count):
+            case = dict(base_case)
+            case["bots"] = 1
+            case["roster_offset"] = roster_index
+            case["roster_span"] = 1
+            case["reason"] = "isolated rendered fidelity: %s" % ROSTER[roster_index][0]
+            selected.append(case)
 
     stage, copied = prepare_base(args)
     xiso_tool = xemu_soak.find_xiso_tool(os.path.dirname(args.build_dir))
@@ -778,19 +1509,35 @@ def main(argv):
             print("[%d/%d] %s: %s" % (index, len(selected), case["map"], case["reason"]))
             summary, config_path = run_case(args, stage, case, index, xiso_tool, config_path)
             summaries.append(summary)
-            print(
-                "  ok=%s bots=%s minAvailKB=%s lastTick=%s fpsMin=%s steadyFps=%s steadyTexUp=%s marker=%s"
-                % (
-                    summary["ok"],
-                    summary["activeMapMaxBots"],
-                    summary["minAvailKB"],
-                    summary["activeMapLastTick"],
-                    summary["minFps"],
-                    summary["steadyAverageFps"],
-                    summary["steadyMaxTextureUploads"],
-                    summary["marker"],
+            if args.lighting_proof:
+                print(
+                    "  ok=%s lightSlots=%d/%d minAvailKB=%s lastTick=%s fpsMin=%s steadyFps=%s steadyTexUp=%s marker=%s"
+                    % (
+                        summary["ok"],
+                        len(summary["capturedLightingSlots"]),
+                        summary["lightingProofRequiredScreenshots"],
+                        summary["minAvailKB"],
+                        summary["activeMapLastTick"],
+                        summary["minFps"],
+                        summary["steadyAverageFps"],
+                        summary["steadyMaxTextureUploads"],
+                        summary["marker"],
+                    )
                 )
-            )
+            else:
+                print(
+                    "  ok=%s bots=%s minAvailKB=%s lastTick=%s fpsMin=%s steadyFps=%s steadyTexUp=%s marker=%s"
+                    % (
+                        summary["ok"],
+                        summary["activeMapMaxBots"],
+                        summary["minAvailKB"],
+                        summary["activeMapLastTick"],
+                        summary["minFps"],
+                        summary["steadyAverageFps"],
+                        summary["steadyMaxTextureUploads"],
+                        summary["marker"],
+                    )
+                )
     finally:
         xemu_soak.stop_xemu_for_config(config_path)
 

@@ -39,9 +39,11 @@ struct FSkeletalRenderAuditState
 	INT WindowMaxVisibleFaces;
 	INT WindowMinLod;
 	INT WindowMaxLod;
+	INT LastFullyRejected;
 	DWORD PreviousTextureHash;
 	DWORD LastTextureHash;
 	INT LastMissingTextures;
+	INT TextureSlotsLogged;
 };
 
 static FSkeletalRenderAuditState GSkeletalRenderAudit[SKELETAL_RENDER_AUDIT_SLOTS];
@@ -63,6 +65,7 @@ static FSkeletalRenderAuditState* GetSkeletalRenderAuditState( AActor* Owner, UL
 	GSkeletalRenderAudit[SlotIndex].Owner = Owner;
 	GSkeletalRenderAudit[SlotIndex].Mesh = Mesh;
 	GSkeletalRenderAudit[SlotIndex].LastFrame = -1;
+	GSkeletalRenderAudit[SlotIndex].LastFullyRejected = -1;
 	return &GSkeletalRenderAudit[SlotIndex];
 }
 
@@ -73,24 +76,72 @@ static void AuditSkeletalRenderGeometry
 	ULodMesh* Mesh,
 	INT VertexSubset,
 	INT VisibleFaces,
-	DWORD MeshOutcode
+	DWORD MeshOutcode,
+	const FTransTexture* Samples,
+	const FCoords& Coords
 )
 {
+	if( !XboxSkeletalRenderAuditEnabled() )
+		return;
 	if( !Mesh->IsA(USkeletalMesh::StaticClass()) )
+		return;
+	// Portal, mirror, and sky-zone child frames legitimately reject actors
+	// outside their sub-view. Track only the master view for flicker evidence.
+	if( Frame->Parent != NULL )
 		return;
 	FSkeletalRenderAuditState* State = GetSkeletalRenderAuditState( Owner, Mesh );
 	const INT FrameNumber = Frame->Viewport->FrameCount;
 	if( FrameNumber <= State->LastFrame )
 		return;
 
-	const UBOOL SameLod = State->GeometrySamples > 0 && VertexSubset == State->LastLod;
-	const UBOOL FaceCollapse = SameLod && MeshOutcode == 0 && State->LastVisibleFaces > 0 && VisibleFaces == 0;
-	const INT FaceTolerance = Max( 2, State->PreviousVisibleFaces/10 );
-	const UBOOL FaceOscillation
-		= State->GeometrySamples > 1
-		&& SameLod
-		&& Abs(VisibleFaces-State->PreviousVisibleFaces) <= FaceTolerance
-		&& Max(VisibleFaces,State->LastVisibleFaces) > Min(VisibleFaces,State->LastVisibleFaces)*2 + 8;
+	const INT FullyRejected = VisibleFaces == 0;
+	if( State->LastFullyRejected != FullyRejected && VertexSubset > 0 )
+	{
+		FVector SampleMin = Samples[0].Point;
+		FVector SampleMax = Samples[0].Point;
+		for( INT VertexIndex=1; VertexIndex<VertexSubset; VertexIndex++ )
+		{
+			SampleMin.X = Min( SampleMin.X, Samples[VertexIndex].Point.X );
+			SampleMin.Y = Min( SampleMin.Y, Samples[VertexIndex].Point.Y );
+			SampleMin.Z = Min( SampleMin.Z, Samples[VertexIndex].Point.Z );
+			SampleMax.X = Max( SampleMax.X, Samples[VertexIndex].Point.X );
+			SampleMax.Y = Max( SampleMax.Y, Samples[VertexIndex].Point.Y );
+			SampleMax.Z = Max( SampleMax.Z, Samples[VertexIndex].Point.Z );
+		}
+		const FVector OwnerView = Owner
+			? Owner->Location.TransformPointBy( Coords )
+			: FVector(0,0,0);
+		debugf
+		(
+			FullyRejected ? NAME_Warning : NAME_Log,
+			TEXT("XSKELVIS state=%s owner=%s mesh=%s frame=%i faces=%i outcode=0x%08x ownerloc=(%.2f,%.2f,%.2f) ownerview=(%.2f,%.2f,%.2f) samplebounds=(%.2f,%.2f,%.2f)-(%.2f,%.2f,%.2f) rot=(%i,%i,%i) seq=%s animframe=%.4f"),
+			FullyRejected ? TEXT("rejected") : TEXT("visible"),
+			Owner ? Owner->GetFullName() : TEXT("None"),
+			Mesh->GetFullName(),
+			FrameNumber,
+			VisibleFaces,
+			MeshOutcode,
+			Owner ? Owner->Location.X : 0.0f,
+			Owner ? Owner->Location.Y : 0.0f,
+			Owner ? Owner->Location.Z : 0.0f,
+			OwnerView.X,
+			OwnerView.Y,
+			OwnerView.Z,
+			SampleMin.X,
+			SampleMin.Y,
+			SampleMin.Z,
+			SampleMax.X,
+			SampleMax.Y,
+			SampleMax.Z,
+			Owner ? Owner->Rotation.Pitch : 0,
+			Owner ? Owner->Rotation.Yaw : 0,
+			Owner ? Owner->Rotation.Roll : 0,
+			Owner ? *Owner->AnimSequence : TEXT("None"),
+			Owner ? Owner->AnimFrame : 0.0f
+		);
+		State->LastFullyRejected = FullyRejected;
+	}
+
 	const UBOOL LodOscillation
 		= State->GeometrySamples > 1
 		&& VertexSubset == State->PreviousLod
@@ -109,11 +160,7 @@ static void AuditSkeletalRenderGeometry
 		State->WindowMinLod = Min( State->WindowMinLod, VertexSubset );
 		State->WindowMaxLod = Max( State->WindowMaxLod, VertexSubset );
 	}
-	const UBOOL FaceRangeCollapse
-		= State->GeometrySamples%120 == 119
-		&& State->WindowMaxVisibleFaces > State->WindowMinVisibleFaces*4 + 8;
-
-	if( FaceCollapse || FaceOscillation || LodOscillation || FaceRangeCollapse )
+	if( LodOscillation )
 	{
 		debugf
 		(
@@ -133,10 +180,10 @@ static void AuditSkeletalRenderGeometry
 			State->WindowMinLod,
 			State->WindowMaxLod,
 			MeshOutcode,
-			FaceCollapse,
-			FaceOscillation,
+			0,
+			0,
 			LodOscillation,
-			FaceRangeCollapse
+			0
 		);
 	}
 	else if( State->GeometrySamples && State->GeometrySamples%120 == 0 )
@@ -169,16 +216,110 @@ static void AuditSkeletalRenderGeometry
 
 static void AuditSkeletalRenderTextures( AActor* Owner, ULodMesh* Mesh, UTexture** ResolvedTextures )
 {
+	if( !XboxSkeletalRenderAuditEnabled() )
+		return;
 	if( !Mesh->IsA(USkeletalMesh::StaticClass()) )
 		return;
 	FSkeletalRenderAuditState* State = GetSkeletalRenderAuditState( Owner, Mesh );
+	if
+	(
+		!State->TextureSlotsLogged
+	&&	appStrstr( Mesh->GetName(), TEXT("SkaarjHybrid") )
+	&&	State->GeometrySamples >= 120
+	)
+	{
+		State->TextureSlotsLogged = 1;
+		debugf
+		(
+			NAME_Log,
+			TEXT("XSKELSKIN owner=%s mesh=%s skin=%s texture=%s texcount=%i materials=%i faces=%i"),
+			Owner ? Owner->GetFullName() : TEXT("None"),
+			Mesh->GetFullName(),
+			Owner && Owner->Skin ? Owner->Skin->GetFullName() : TEXT("None"),
+			Owner && Owner->Texture ? Owner->Texture->GetFullName() : TEXT("None"),
+			Mesh->Textures.Num(),
+			Mesh->Materials.Num(),
+			Mesh->Faces.Num()
+		);
+		for( INT TextureIndex=0; TextureIndex<Mesh->Textures.Num(); TextureIndex++ )
+		{
+			UTexture* ActorTexture = Owner ? Owner->GetSkin(TextureIndex) : NULL;
+			debugf
+			(
+				NAME_Log,
+				TEXT("XSKELSKIN slot=%i actor=%s mesh=%s resolved=%s"),
+				TextureIndex,
+				ActorTexture ? ActorTexture->GetFullName() : TEXT("None"),
+				Mesh->Textures(TextureIndex) ? Mesh->Textures(TextureIndex)->GetFullName() : TEXT("None"),
+				ResolvedTextures[TextureIndex] ? ResolvedTextures[TextureIndex]->GetFullName() : TEXT("None")
+			);
+		}
+		for( INT MaterialIndex=0; MaterialIndex<Mesh->Materials.Num(); MaterialIndex++ )
+		{
+			INT FaceCount = 0;
+			INT MinU = 255;
+			INT MinV = 255;
+			INT MaxU = 0;
+			INT MaxV = 0;
+			for( INT FaceIndex=0; FaceIndex<Mesh->Faces.Num(); FaceIndex++ )
+			{
+				const FMeshFace& Face = Mesh->Faces(FaceIndex);
+				if( Face.MaterialIndex != MaterialIndex )
+					continue;
+				FaceCount++;
+				for( INT Corner=0; Corner<3; Corner++ )
+				{
+					if( Face.iWedge[Corner] >= Mesh->Wedges.Num() )
+						continue;
+					const FMeshUV& UV = Mesh->Wedges(Face.iWedge[Corner]).TexUV;
+					MinU = Min( MinU, (INT)UV.U );
+					MinV = Min( MinV, (INT)UV.V );
+					MaxU = Max( MaxU, (INT)UV.U );
+					MaxV = Max( MaxV, (INT)UV.V );
+				}
+			}
+			debugf
+			(
+				NAME_Log,
+				TEXT("XSKELSKIN material=%i texslot=%i flags=0x%08x faces=%i uv=(%i,%i)-(%i,%i)"),
+				MaterialIndex,
+				Mesh->Materials(MaterialIndex).TextureIndex,
+				Mesh->Materials(MaterialIndex).PolyFlags,
+				FaceCount,
+				MinU,
+				MinV,
+				MaxU,
+				MaxV
+			);
+		}
+	}
 	DWORD TextureHash = 2166136261u;
 	INT MissingTextures = 0;
+	INT UsedTextures = 0;
+	BYTE* UsedTextureSlots = (BYTE*)appAlloca( Max(1,Mesh->Textures.Num()) );
+	appMemzero( UsedTextureSlots, Max(1,Mesh->Textures.Num()) );
+	for( INT MaterialIndex=0; MaterialIndex<Mesh->Materials.Num(); MaterialIndex++ )
+	{
+		const INT TextureIndex = Mesh->Materials(MaterialIndex).TextureIndex;
+		if
+		(
+			TextureIndex >= 0
+		&&	TextureIndex < Mesh->Textures.Num()
+		&&	!UsedTextureSlots[TextureIndex]
+		)
+		{
+			UsedTextureSlots[TextureIndex] = 1;
+			UsedTextures++;
+		}
+	}
 	for( INT Index=0; Index<Mesh->Textures.Num(); Index++ )
 	{
+		if( !UsedTextureSlots[Index] )
+			continue;
 		const DWORD TextureId = ResolvedTextures[Index]
 			? (DWORD)(ResolvedTextures[Index]->GetIndex()+1)
 			: 0;
+		TextureHash = (TextureHash ^ (DWORD)(Index+1)) * 16777619u;
 		TextureHash = (TextureHash ^ TextureId) * 16777619u;
 		if( !ResolvedTextures[Index] )
 			MissingTextures++;
@@ -192,7 +333,7 @@ static void AuditSkeletalRenderTextures( AActor* Owner, ULodMesh* Mesh, UTexture
 		debugf
 		(
 			NAME_Warning,
-			TEXT("XSKELFLICKER kind=texture owner=%s mesh=%s texhash=0x%08x,0x%08x,0x%08x missing=%i previousmissing=%i texcount=%i oscillation=%i"),
+			TEXT("XSKELFLICKER kind=texture owner=%s mesh=%s texhash=0x%08x,0x%08x,0x%08x missing=%i previousmissing=%i used=%i texcount=%i oscillation=%i"),
 			Owner ? Owner->GetFullName() : TEXT("None"),
 			Mesh->GetFullName(),
 			State->PreviousTextureHash,
@@ -200,6 +341,7 @@ static void AuditSkeletalRenderTextures( AActor* Owner, ULodMesh* Mesh, UTexture
 			TextureHash,
 			MissingTextures,
 			State->LastMissingTextures,
+			UsedTextures,
 			Mesh->Textures.Num(),
 			TextureOscillation
 		);
@@ -255,6 +397,14 @@ void URender::DrawLodMesh
 
 	UBOOL DoMorph = false;
 	UBOOL DoLOD =( ( *(DWORD*)&Mesh->LODStrength != 0 ) && (Mesh->CollapsePointThus.Num() != 0) );
+	if( Mesh->IsA(USkeletalMesh::StaticClass()) )
+	{
+		// Skeletal skinning needs a stable vertex set. Distance-driven subset
+		// changes can alternate every frame and expose incompatible collapse data.
+		DoLOD = false;
+		TargetSubset = Mesh->ModelVerts;
+		VertexSubset = Mesh->ModelVerts;
+	}
 
 	if( DoLOD )
 	{
@@ -372,7 +522,20 @@ void URender::DrawLodMesh
 
 	// Special coordinates setup.
 	HasSpecialCoords = 0;
-	if ( WeaponOutcode == 0 ) // ( Mesh->SpecialFaces.Num() )
+	USkeletalMesh* SkeletalMesh = Mesh->IsA(USkeletalMesh::StaticClass())
+		? (USkeletalMesh*)Mesh
+		: NULL;
+	if
+	(
+		SkeletalMesh
+	&&	SkeletalMesh->WeaponBoneIndex >= 0
+	&&	SkeletalMesh->WeaponBoneIndex < SkeletalMesh->RefSkeleton.Num()
+	)
+	{
+		SpecialCoords = SkeletalMesh->ClassicWeaponCoords;
+		HasSpecialCoords = 1;
+	}
+	else if ( WeaponOutcode == 0 ) // ( Mesh->SpecialFaces.Num() )
 	{
 		// Only the first SpecialFace is used - for now.
 		FMeshFace& Face = Mesh->SpecialFaces(0);  
@@ -732,7 +895,57 @@ void URender::DrawLodMesh
 	}
 
 #if TARGET_XBOX
-	AuditSkeletalRenderGeometry( Frame, Owner, Mesh, VertexSubset, FacePool.Num(), MeshOutcode );
+	AuditSkeletalRenderGeometry
+	(
+		Frame,
+		Owner,
+		Mesh,
+		VertexSubset,
+		FacePool.Num(),
+		MeshOutcode,
+		Samples,
+		Coords
+	);
+	APawn* XboxWeaponPawn = Owner->Owner && Owner->Owner->IsA(APawn::StaticClass())
+		? (APawn*)Owner->Owner
+		: NULL;
+	if
+	(
+		XboxSkeletalRenderAuditEnabled()
+	&&	XboxWeaponPawn
+	&&	XboxWeaponPawn->bViewTarget
+	&&	VertexSubset > 0
+	&&	Frame->Viewport->FrameCount%120 == 0
+	)
+	{
+		FVector XboxWeaponMin = Samples[0].Point;
+		FVector XboxWeaponMax = Samples[0].Point;
+		for( INT XboxWeaponVertex=1; XboxWeaponVertex<VertexSubset; XboxWeaponVertex++ )
+		{
+			XboxWeaponMin.X = Min( XboxWeaponMin.X, Samples[XboxWeaponVertex].Point.X );
+			XboxWeaponMin.Y = Min( XboxWeaponMin.Y, Samples[XboxWeaponVertex].Point.Y );
+			XboxWeaponMin.Z = Min( XboxWeaponMin.Z, Samples[XboxWeaponVertex].Point.Z );
+			XboxWeaponMax.X = Max( XboxWeaponMax.X, Samples[XboxWeaponVertex].Point.X );
+			XboxWeaponMax.Y = Max( XboxWeaponMax.Y, Samples[XboxWeaponVertex].Point.Y );
+			XboxWeaponMax.Z = Max( XboxWeaponMax.Z, Samples[XboxWeaponVertex].Point.Z );
+		}
+		debugf
+		(
+			NAME_Log,
+			TEXT("XSKELWEAPONMESH actor=%s mesh=%s verts=%i faces=%i outcode=0x%08x mirror=%.1f drawscale=%.3f meshscale=(%.3f,%.3f,%.3f) coords=(%.2f,%.2f,%.2f) bounds=(%.2f,%.2f,%.2f)-(%.2f,%.2f,%.2f)"),
+			Owner->GetFullName(),
+			Mesh->GetFullName(),
+			VertexSubset,
+			FacePool.Num(),
+			MeshOutcode,
+			Frame->Mirror,
+			Owner->DrawScale,
+			Mesh->Scale.X, Mesh->Scale.Y, Mesh->Scale.Z,
+			Coords.Origin.X, Coords.Origin.Y, Coords.Origin.Z,
+			XboxWeaponMin.X, XboxWeaponMin.Y, XboxWeaponMin.Z,
+			XboxWeaponMax.X, XboxWeaponMax.Y, XboxWeaponMax.Z
+		);
+	}
 #endif
 
 	//

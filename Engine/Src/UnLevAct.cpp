@@ -14,24 +14,6 @@ Revision history:
 -----------------------------------------------------------------------------*/
 
 #if TARGET_XBOX
-static UMesh* XboxResolveBakedPS2Mesh( UMesh* SourceMesh )
-{
-	if( !SourceMesh )
-		return NULL;
-
-	TCHAR SourcePath[256];
-	SourceMesh->GetPathName( NULL, SourcePath );
-	if( appStrnicmp( SourcePath, TEXT("UTPS2Characters."), 16 ) != 0 )
-		return NULL;
-
-	FString TargetPath = FString::Printf( TEXT("UTPS2Baked.%s"), SourceMesh->GetName() );
-	UMesh* BakedMesh = Cast<UMesh>( UObject::StaticLoadObject(
-		UMesh::StaticClass(), NULL, *TargetPath, NULL, LOAD_NoWarn | LOAD_Quiet, NULL ) );
-	debugf( NAME_Log, TEXT("XSKELBAKE source=%s target=%s result=%s"),
-		SourcePath, *TargetPath, BakedMesh ? TEXT("loaded") : TEXT("fallback") );
-	return BakedMesh;
-}
-
 static UBOOL XboxClassNameContains( UClass* Class, const TCHAR* Fragment )
 {
 	for( UClass* Test = Class; Test; Test = Test->GetSuperClass() )
@@ -47,6 +29,35 @@ static UBOOL XboxIsSmokePuffClass( UClass* Class )
 		|| XboxClassNameContains( Class, TEXT("BlackSmoke") )
 		|| XboxClassNameContains( Class, TEXT("BloodPuff") )
 		|| XboxClassNameContains( Class, TEXT("GreenGelPuff") );
+}
+
+static void XboxFixSkaarjHybridBloodColor( AActor* Actor )
+{
+	if
+	(
+		!Actor
+	||	!Actor->GetClass()
+	||	!XboxClassNameContains( Actor->GetClass(), TEXT("SkaarjHybrid") )
+	)
+		return;
+
+	UBoolProperty* GreenBloodProperty
+		= FindField<UBoolProperty>( Actor->GetClass(), TEXT("bGreenBlood") );
+	if( !GreenBloodProperty )
+		return;
+
+	BITFIELD* Value = (BITFIELD*)((BYTE*)Actor + GreenBloodProperty->Offset);
+	if( (*Value & GreenBloodProperty->BitMask) == 0 )
+	{
+		*Value |= GreenBloodProperty->BitMask;
+		debugf
+		(
+			NAME_Log,
+			TEXT("XSKAARJBLOOD actor=%s class=%s green=1"),
+			Actor->GetFullName(),
+			Actor->GetClass()->GetFullName()
+		);
+	}
 }
 
 static INT XboxCountSmokePuffs( ULevel* Level )
@@ -146,14 +157,6 @@ AActor* ULevel::SpawnActor
 		Template = Class->GetDefaultActor();
 	check(Template!=NULL);
 
-#if TARGET_XBOX
-	// Native vertex-animation replacements are baked offline from UE Viewer's
-	// validated UE1 skeletal decode. Patch the class default before object
-	// construction so script resets continue to use the replacement mesh.
-	if( UMesh* BakedMesh = XboxResolveBakedPS2Mesh( Template->Mesh ) )
-		Template->Mesh = BakedMesh;
-#endif
-
 	// Make sure actor will fit at desired location, and adjust location if necessary.
 	if( (Template->bCollideWorld || (Template->bCollideWhenPlacing && (GetLevelInfo()->NetMode != NM_Client))) && !bNoCollisionFail )
 		if( !FindSpot( Template->GetCylinderExtent(), Location, 0, 1 ) )
@@ -214,16 +217,10 @@ AActor* ULevel::SpawnActor
 	Actor->eventPostBeginPlay();
 
 #if TARGET_XBOX
-	// Some imported player classes assign their mesh during the script spawn
-	// lifecycle. Resolve once more after PostBeginPlay, then update both the
-	// live actor and its class default so later ResetMesh calls stay baked.
-	if( UMesh* BakedMesh = XboxResolveBakedPS2Mesh( Actor->Mesh ) )
-	{
-		Actor->Mesh = BakedMesh;
-		AActor* ClassDefault = Actor->GetClass()->GetDefaultActor();
-		if( ClassDefault )
-			ClassDefault->Mesh = BakedMesh;
-	}
+	// Both imported Skaarj Hybrid families derive from human player/bot bases.
+	// Preserve their species behavior explicitly so combat spawns green blood
+	// instead of red billboard bursts that appear to corrupt the body skin.
+	XboxFixSkaarjHybridBloodColor( Actor );
 #endif
 
 	// Check for encroachment.

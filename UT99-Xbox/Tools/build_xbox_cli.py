@@ -59,6 +59,13 @@ KNOWN_GOOD_SYSTEM_FILES = (
     "BossSkins.int",
     "Botpack.int",
     "Botpack.u",
+    "ChaosUT.int",
+    "ChaosUT.u",
+    "ChaosUTMedia1.u",
+    "ChaosUTMedia2.u",
+    "ChaosUTMiscMuts.int",
+    "ChaosUTMiscMuts.u",
+    "ChaosUTRHUD.u",
     "CommandoSkins.int",
     "Core.int",
     "Core.u",
@@ -87,6 +94,10 @@ KNOWN_GOOD_SYSTEM_FILES = (
     "relics.u",
     "relicsbindings.int",
     "relicsbindings.u",
+    "RocketArena.int",
+    "RocketArena.u",
+    "RocketArenaMedia.u",
+    "RocketArenaMultiMesh.u",
     "SGirlSkins.int",
     "SkeletalChars.u",
     "SoldierSkins.int",
@@ -104,6 +115,7 @@ KNOWN_GOOD_SYSTEM_FILES = (
     "UnrealShare.u",
     "UnrealTournament.int",
     "UTBrowser.u",
+    "UTChaosMap.u",
     "UTDMT.u",
     "UTDMT.utx",
     "UTMenu.int",
@@ -701,6 +713,15 @@ def copy_runtime_assets(build_root):
                 for name in filenames:
                     shutil.copy2(os.path.join(dirpath, name), os.path.join(dst_dir, name))
                     copied += 1
+
+        # These packages belonged to retired experiments and must not survive
+        # incremental builds merely because an older output directory has them.
+        for name in ("UTPS2Baked.u",):
+            source_path = os.path.join(runtime_src, "System", name)
+            stale_path = os.path.join(system_dst, name)
+            if not os.path.isfile(source_path) and os.path.isfile(stale_path):
+                os.remove(stale_path)
+                print("Removed retired runtime asset " + stale_path)
 
         credits = os.path.join(runtime_src, "CONTENT_CREDITS.txt")
         if os.path.isfile(credits):

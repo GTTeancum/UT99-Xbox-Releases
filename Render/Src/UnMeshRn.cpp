@@ -20,6 +20,22 @@ static FTextureInfo TextureInfo[16];
 static FTextureInfo EnvironmentInfo;
 static FVector      GUnlitColor;
 
+#if TARGET_XBOX
+static UBOOL XboxSkeletalRenderAuditEnabled()
+{
+	static UBOOL Initialized = 0;
+	static UBOOL Enabled = 0;
+	if( !Initialized )
+	{
+		Enabled
+			= GetFileAttributesA( "D:\\XboxCharacterSoak.ini" ) != 0xFFFFFFFF
+			|| GetFileAttributesA( "D:\\XboxSkeletalAudit.ini" ) != 0xFFFFFFFF;
+		Initialized = 1;
+	}
+	return Enabled;
+}
+#endif
+
 /*------------------------------------------------------------------------------
 	Environment mapping.
 ------------------------------------------------------------------------------*/

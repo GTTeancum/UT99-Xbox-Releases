@@ -4543,6 +4543,8 @@ static void XboxMenuLoadDiscoveredLists()
     XboxMenuAddFallbackMutator( TEXT("LOW GRAVITY"), TEXT("Botpack.LowGrav") );
     XboxMenuAddFallbackMutator( TEXT("INSTAGIB"), TEXT("Botpack.InstaGibDM") );
     XboxMenuAddFallbackMutator( TEXT("NO POWERUPS"), TEXT("Botpack.NoPowerups") );
+    if( XboxMenuPackageFileExists( TEXT("OLweapons.u") ) )
+        XboxMenuAddFallbackMutator( TEXT("OLDSKOOL WEAPONS"), TEXT("olweapons.oldskool") );
 
     GXboxLog.Write( "XMENU using fixed Xbox discovery list gameTypes=%d mutators=%d",
         GXboxDiscoveredGameTypes.Num(), GXboxDiscoveredMutators.Num() );
@@ -4822,7 +4824,30 @@ static void XboxMenuToggleCurrentMutator()
     DWORD Bit = 1 << (Index & 31);
     INT Word = Index >> 5;
     if( Word >= 0 && Word < ARRAY_COUNT(GXboxMenu.InstantMutatorMask) )
+    {
         GXboxMenu.InstantMutatorMask[Word] ^= Bit;
+        if( GXboxMenu.InstantMutatorMask[Word] & Bit )
+        {
+            const TCHAR* SelectedClass = *GXboxDiscoveredMutators(Index).URLValue;
+            const UBOOL bSelectedArena
+                = appStricmp( SelectedClass, TEXT("Botpack.InstaGibDM") ) == 0
+                || appStricmp( SelectedClass, TEXT("olweapons.oldskool") ) == 0;
+            if( bSelectedArena )
+            {
+                for( INT i=0; i<GXboxDiscoveredMutators.Num(); i++ )
+                {
+                    if( i == Index )
+                        continue;
+                    const TCHAR* OtherClass = *GXboxDiscoveredMutators(i).URLValue;
+                    const UBOOL bOtherArena
+                        = appStricmp( OtherClass, TEXT("Botpack.InstaGibDM") ) == 0
+                        || appStricmp( OtherClass, TEXT("olweapons.oldskool") ) == 0;
+                    if( bOtherArena )
+                        GXboxMenu.InstantMutatorMask[i >> 5] &= ~(1 << (i & 31));
+                }
+            }
+        }
+    }
     GXboxLog.Write( "XMENU mutator toggle choice=%d word=%d mask=0x%08X", Index, Word, GXboxMenu.InstantMutatorMask[Word] );
 }
 

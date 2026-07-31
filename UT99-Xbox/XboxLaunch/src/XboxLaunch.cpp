@@ -277,7 +277,6 @@ static void XboxHardwareTraceDeploymentManifest()
         "D:\\Maps\\AS-HiSpeed.unr",
         "D:\\Maps\\JB-Alcatraz.unr",
         "D:\\System\\UTPS2Characters.u",
-        "D:\\System\\UTPS2Baked.u",
         "D:\\System\\UTPS2CharactersSkins.utx",
         "D:\\System\\HaloMasterChief.u",
         "D:\\System\\HaloMasterChiefSkins.utx",

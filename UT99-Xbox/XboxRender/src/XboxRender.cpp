@@ -105,6 +105,12 @@ static IDirect3DTexture8* GRD_DisplaySourceTexture = NULL;
 static DWORD  GRD_DisplayPixelShader = 0;
 static UINT   GRD_DisplaySourceW = 0;
 static UINT   GRD_DisplaySourceH = 0;
+static IDirect3DTexture8* GRD_LoadingBackgroundTexture = NULL;
+static UINT   GRD_LoadingBackgroundW = 0;
+static UINT   GRD_LoadingBackgroundH = 0;
+static UBOOL  GRD_LoadingBackgroundReady = 0;
+static UBOOL  GRD_LoadingBackgroundCaptureRequested = 0;
+static INT    GRD_LoadingBackgroundCaptureSerial = 0;
 static UBOOL  GRD_HasPendingLockViewport = 0;
 static INT    GRD_PendingLockX = 0;
 static INT    GRD_PendingLockY = 0;
@@ -417,6 +423,101 @@ static HRESULT XboxRenderApplyViewport( IDirect3DDevice8* InDevice, INT X, INT Y
     return InDevice->SetViewport( &vp );
 }
 
+static void XboxRenderReleaseLoadingBackgroundResources()
+{
+    if( GRD_LoadingBackgroundTexture )
+    {
+        GRD_LoadingBackgroundTexture->BlockUntilNotBusy();
+        GRD_LoadingBackgroundTexture->Release();
+        GRD_LoadingBackgroundTexture = NULL;
+    }
+    GRD_LoadingBackgroundW = 0;
+    GRD_LoadingBackgroundH = 0;
+    GRD_LoadingBackgroundReady = 0;
+}
+
+static UBOOL XboxRenderEnsureLoadingBackgroundTexture( UXboxRenderDevice* Ren )
+{
+    if( !Ren || !Ren->Device )
+        return 0;
+
+    UINT W = Ren->ActualBackBufferW ? Ren->ActualBackBufferW : 640;
+    UINT H = Ren->ActualBackBufferH ? Ren->ActualBackBufferH : 480;
+    if( GRD_LoadingBackgroundTexture && GRD_LoadingBackgroundW == W && GRD_LoadingBackgroundH == H )
+        return 1;
+
+    XboxRenderReleaseLoadingBackgroundResources();
+    HRESULT hr = Ren->Device->CreateTexture( W, H, 1, 0, D3DFMT_LIN_X8R8G8B8, D3DPOOL_DEFAULT, &GRD_LoadingBackgroundTexture );
+    if( FAILED(hr) || !GRD_LoadingBackgroundTexture )
+    {
+        GXboxLog.Write( "RLOADBG texture create failed size=%ux%u hr=0x%08X", (unsigned)W, (unsigned)H, (DWORD)hr );
+        XboxRenderReleaseLoadingBackgroundResources();
+        return 0;
+    }
+
+    GRD_LoadingBackgroundW = W;
+    GRD_LoadingBackgroundH = H;
+    GRD_LoadingBackgroundReady = 0;
+    GXboxLog.Write( "RLOADBG texture ready size=%ux%u", (unsigned)W, (unsigned)H );
+    return 1;
+}
+
+static void XboxRenderCaptureLoadingBackgroundNow( UXboxRenderDevice* Ren )
+{
+    GRD_LoadingBackgroundCaptureRequested = 0;
+    GRD_LoadingBackgroundReady = 0;
+    if( !XboxRenderEnsureLoadingBackgroundTexture( Ren ) )
+        return;
+
+    IDirect3DSurface8* BackSurface = NULL;
+    IDirect3DSurface8* DestSurface = NULL;
+    HRESULT BackResult = Ren->Device->GetBackBuffer( 0, D3DBACKBUFFER_TYPE_MONO, &BackSurface );
+    HRESULT SurfaceResult = GRD_LoadingBackgroundTexture->GetSurfaceLevel( 0, &DestSurface );
+    HRESULT CopyResult = E_FAIL;
+    if( SUCCEEDED(BackResult) && BackSurface && SUCCEEDED(SurfaceResult) && DestSurface )
+    {
+        RECT SourceRect;
+        SourceRect.left = 0;
+        SourceRect.top = 0;
+        SourceRect.right = (LONG)GRD_LoadingBackgroundW;
+        SourceRect.bottom = (LONG)GRD_LoadingBackgroundH;
+        POINT DestPoint;
+        DestPoint.x = 0;
+        DestPoint.y = 0;
+        CopyResult = Ren->Device->CopyRects( BackSurface, &SourceRect, 1, DestSurface, &DestPoint );
+    }
+    if( DestSurface ) DestSurface->Release();
+    if( BackSurface ) BackSurface->Release();
+
+    if( SUCCEEDED(CopyResult) )
+    {
+        GRD_LoadingBackgroundReady = 1;
+        GRD_LoadingBackgroundCaptureSerial++;
+        GXboxLog.Write( "RLOADBG capture ok serial=%d size=%ux%u", GRD_LoadingBackgroundCaptureSerial,
+            (unsigned)GRD_LoadingBackgroundW, (unsigned)GRD_LoadingBackgroundH );
+    }
+    else
+    {
+        GXboxLog.Write( "RLOADBG capture failed back=0x%08X surface=0x%08X copy=0x%08X",
+            (DWORD)BackResult, (DWORD)SurfaceResult, (DWORD)CopyResult );
+    }
+}
+
+extern "C" void XboxRenderRequestLoadingFrameBackground( URenderDevice* RenderDevice )
+{
+    UXboxRenderDevice* Ren = Cast<UXboxRenderDevice>( RenderDevice );
+    if( !Ren || !Ren->Device )
+        return;
+    GRD_LoadingBackgroundReady = 0;
+    GRD_LoadingBackgroundCaptureRequested = 1;
+}
+
+extern "C" void XboxRenderReleaseLoadingFrameBackground( URenderDevice* RenderDevice )
+{
+    GRD_LoadingBackgroundCaptureRequested = 0;
+    XboxRenderReleaseLoadingBackgroundResources();
+}
+
 extern "C" void XboxRenderSetPendingViewRegion( INT X, INT Y, INT W, INT H, UBOOL ClearFullTarget )
 {
     GRD_PendingLockX = X;
@@ -442,6 +543,206 @@ extern "C" void XboxRenderClearRegion( URenderDevice* RenderDevice, INT X, INT Y
         GXboxLog.Write( "RCLR region=%d,%d %dx%d viewport=0x%08X clear=0x%08X",
             X, Y, W, H, (DWORD)hrViewport, (DWORD)hrClear );
     }
+}
+
+static void XboxRenderLoadingRect( UXboxRenderDevice* Ren, FLOAT X1, FLOAT Y1, FLOAT X2, FLOAT Y2, DWORD Color )
+{
+    if( !Ren || !Ren->Device )
+        return;
+
+    const FLOAT RHW = 1.0f;
+    const FLOAT SZ  = Ren->ProjZRatio + Ren->ProjZOffset * RHW;
+    FXboxTLVertex Verts[6];
+
+    Verts[0].x = X1 - 0.5f; Verts[0].y = Y1 - 0.5f; Verts[0].rhw = RHW; Verts[0].z = SZ; Verts[0].color = Color; Verts[0].u = 0; Verts[0].v = 0;
+    Verts[1].x = X2 - 0.5f; Verts[1].y = Y1 - 0.5f; Verts[1].rhw = RHW; Verts[1].z = SZ; Verts[1].color = Color; Verts[1].u = 0; Verts[1].v = 0;
+    Verts[2].x = X2 - 0.5f; Verts[2].y = Y2 - 0.5f; Verts[2].rhw = RHW; Verts[2].z = SZ; Verts[2].color = Color; Verts[2].u = 0; Verts[2].v = 0;
+    Verts[3] = Verts[0];
+    Verts[4] = Verts[2];
+    Verts[5].x = X1 - 0.5f; Verts[5].y = Y2 - 0.5f; Verts[5].rhw = RHW; Verts[5].z = SZ; Verts[5].color = Color; Verts[5].u = 0; Verts[5].v = 0;
+
+    Ren->DrawPrimitiveVB( D3DPT_TRIANGLELIST, 2, Verts, sizeof(FXboxTLVertex), "loading-rect" );
+}
+
+static UBOOL XboxRenderDrawLoadingBackground( UXboxRenderDevice* Ren, FLOAT W, FLOAT H )
+{
+    if( !Ren || !Ren->Device || !GRD_LoadingBackgroundReady || !GRD_LoadingBackgroundTexture )
+        return 0;
+
+    const FLOAT RHW = 1.0f;
+    const FLOAT SZ  = Ren->ProjZRatio + Ren->ProjZOffset * RHW;
+    const FLOAT UMax = (FLOAT)GRD_LoadingBackgroundW;
+    const FLOAT VMax = (FLOAT)GRD_LoadingBackgroundH;
+    FXboxTLVertex Verts[4];
+
+    Verts[0].x = -0.5f;     Verts[0].y = -0.5f;     Verts[0].z = SZ; Verts[0].rhw = RHW; Verts[0].color = 0xFFFFFFFF; Verts[0].u = 0.0f; Verts[0].v = 0.0f;
+    Verts[1].x = W - 0.5f;  Verts[1].y = -0.5f;     Verts[1].z = SZ; Verts[1].rhw = RHW; Verts[1].color = 0xFFFFFFFF; Verts[1].u = UMax;  Verts[1].v = 0.0f;
+    Verts[2].x = W - 0.5f;  Verts[2].y = H - 0.5f;  Verts[2].z = SZ; Verts[2].rhw = RHW; Verts[2].color = 0xFFFFFFFF; Verts[2].u = UMax;  Verts[2].v = VMax;
+    Verts[3].x = -0.5f;     Verts[3].y = H - 0.5f;  Verts[3].z = SZ; Verts[3].rhw = RHW; Verts[3].color = 0xFFFFFFFF; Verts[3].u = 0.0f; Verts[3].v = VMax;
+
+    Ren->SetCachedRenderState( D3DRS_ALPHABLENDENABLE, FALSE );
+    Ren->SetCachedRenderState( D3DRS_ALPHATESTENABLE, FALSE );
+    Ren->SetCachedRenderState( D3DRS_ZENABLE, D3DZB_FALSE );
+    Ren->SetCachedRenderState( D3DRS_ZWRITEENABLE, FALSE );
+    Ren->SetCachedRenderState( D3DRS_ZFUNC, D3DCMP_ALWAYS );
+    Ren->SetCachedTextureStageState( 0, D3DTSS_COLOROP, D3DTOP_SELECTARG1 );
+    Ren->SetCachedTextureStageState( 0, D3DTSS_COLORARG1, D3DTA_TEXTURE );
+    Ren->SetCachedTextureStageState( 0, D3DTSS_ALPHAOP, D3DTOP_SELECTARG1 );
+    Ren->SetCachedTextureStageState( 0, D3DTSS_ALPHAARG1, D3DTA_TEXTURE );
+    Ren->SetCachedTextureStageState( 0, D3DTSS_ADDRESSU, D3DTADDRESS_CLAMP );
+    Ren->SetCachedTextureStageState( 0, D3DTSS_ADDRESSV, D3DTADDRESS_CLAMP );
+    Ren->SetCachedTextureStageState( 0, D3DTSS_TEXTURETRANSFORMFLAGS, D3DTTFF_DISABLE );
+    Ren->SetCachedTextureStageState( 0, D3DTSS_MINFILTER, D3DTEXF_POINT );
+    Ren->SetCachedTextureStageState( 0, D3DTSS_MAGFILTER, D3DTEXF_POINT );
+    Ren->SetCachedTextureStageState( 0, D3DTSS_MIPFILTER, D3DTEXF_NONE );
+    Ren->Device->SetTexture( 0, GRD_LoadingBackgroundTexture );
+    Ren->BoundCacheID[0] = 0;
+    Ren->SetCachedVertexShader( XBOX_FVF_TLVERTEX );
+    HRESULT hrDraw = Ren->DrawPrimitiveVB( D3DPT_TRIANGLEFAN, 2, Verts, sizeof(FXboxTLVertex), "loading-bg" );
+    Ren->Device->SetTexture( 0, NULL );
+    Ren->BoundCacheID[0] = 0;
+    return SUCCEEDED(hrDraw);
+}
+
+extern "C" UBOOL XboxRenderDrawLoadingFrame( URenderDevice* RenderDevice, INT Step, INT DrawCount )
+{
+    guard(XboxRenderDrawLoadingFrame);
+
+    UXboxRenderDevice* Ren = Cast<UXboxRenderDevice>( RenderDevice );
+    if( !Ren || !Ren->Device || Ren->SceneOpen || !GRD_LoadingBackgroundReady || !GRD_LoadingBackgroundTexture )
+        return 0;
+
+    Ren->FrameCounter++;
+    GRD_FrameDCS        = 0;
+    GRD_FrameDGP        = 0;
+    GRD_FrameDT         = 0;
+    GRD_FramePrims      = 0;
+    GRD_FrameVerts      = 0;
+    GRD_FrameTexBinds   = 0;
+    GRD_FrameTexUploads = 0;
+    GRD_FrameTexCreates = 0;
+    GRD_FrameTexSkipped = 0;
+    GRD_FrameTexUploadSeq = 0;
+    GRD_FrameBadDraws   = 0;
+    GRD_FrameBadVerts   = 0;
+    GRD_FrameSceneSplits = 0;
+    GRD_FrameVBLocks    = 0;
+    GRD_FrameVBWraps    = 0;
+    GRD_FrameVBBytes    = 0;
+    GRD_FrameUPDraws    = 0;
+    GRD_FrameUPFails    = 0;
+    GRD_FrameDGPBatches = 0;
+    GRD_FrameDGPBatchedPolys = 0;
+    GRD_FrameDTBatches  = 0;
+    GRD_FrameDTBatchedTiles = 0;
+    GRD_FrameTexDeferred = 0;
+    GRD_FrameStateSets  = 0;
+    GRD_FrameStateSkips = 0;
+    GRD_DGPBatchActive  = 0;
+    GRD_DGPBatchVerts   = 0;
+    GRD_DGPBatchPolys   = 0;
+    GRD_DTBatchActive   = 0;
+    GRD_DTBatchVerts    = 0;
+    GRD_DTBatchTiles    = 0;
+    GRD_HotTraceBudget  = 0;
+    GRD_MaxPolyVerts    = 0;
+    GRD_LastOp          = "LoadingFrame";
+    GRD_FrameStartSeconds = appSeconds();
+
+    const UINT BackW = Ren->ActualBackBufferW ? Ren->ActualBackBufferW : 640;
+    const UINT BackH = Ren->ActualBackBufferH ? Ren->ActualBackBufferH : 480;
+    HRESULT hrViewport = XboxRenderApplyViewport( Ren->Device, 0, 0, BackW, BackH, BackW, BackH );
+    HRESULT hrBegin = SUCCEEDED(hrViewport) ? Ren->Device->BeginScene() : E_FAIL;
+    if( FAILED(hrViewport) || FAILED(hrBegin) )
+    {
+        GXboxLog.Write( "RLOAD failed frame=%d step=%d draw=%d viewport=0x%08X begin=0x%08X",
+            Ren->FrameCounter, Step, DrawCount, (DWORD)hrViewport, (DWORD)hrBegin );
+        return 0;
+    }
+
+    Ren->SceneOpen = 1;
+    const FLOAT W = (FLOAT)BackW;
+    const FLOAT H = (FLOAT)BackH;
+    Ren->FlushDGPBatch( "loading-frame" );
+    Ren->FlushDTBatch( "loading-frame" );
+    Ren->DisableStage1();
+    Ren->RestoreDefaultTextureStages();
+    if( !XboxRenderDrawLoadingBackground( Ren, W, H ) )
+    {
+        HRESULT hrEnd = Ren->Device->EndScene();
+        Ren->SceneOpen = 0;
+        Ren->Device->SetStreamSource( 0, NULL, 0 );
+        GRD_DrawVBStreamBound = 0;
+        GRD_DrawVBStreamStride = 0;
+        GXboxLog.Write( "RLOAD failed frame=%d step=%d draw=%d background=0 end=0x%08X",
+            Ren->FrameCounter, Step, DrawCount, (DWORD)hrEnd );
+        return 0;
+    }
+    Ren->RestoreDefaultTextureStages();
+    Ren->Device->SetTexture( 0, NULL );
+    Ren->BoundCacheID[0] = 0;
+    Ren->SetCachedRenderState( D3DRS_ZENABLE, D3DZB_FALSE );
+    Ren->SetCachedRenderState( D3DRS_ZWRITEENABLE, FALSE );
+    Ren->SetCachedRenderState( D3DRS_ZFUNC, D3DCMP_ALWAYS );
+    Ren->SetCachedRenderState( D3DRS_SHADEMODE, D3DSHADE_FLAT );
+    Ren->SetCachedRenderState( D3DRS_ALPHATESTENABLE, FALSE );
+    Ren->SetCachedRenderState( D3DRS_ALPHABLENDENABLE, TRUE );
+    Ren->SetCachedRenderState( D3DRS_SRCBLEND, D3DBLEND_SRCALPHA );
+    Ren->SetCachedRenderState( D3DRS_DESTBLEND, D3DBLEND_INVSRCALPHA );
+    Ren->SetCachedTextureStageState( 0, D3DTSS_COLOROP, D3DTOP_SELECTARG1 );
+    Ren->SetCachedTextureStageState( 0, D3DTSS_COLORARG1, D3DTA_DIFFUSE );
+    Ren->SetCachedTextureStageState( 0, D3DTSS_ALPHAOP, D3DTOP_SELECTARG1 );
+    Ren->SetCachedTextureStageState( 0, D3DTSS_ALPHAARG1, D3DTA_DIFFUSE );
+    Ren->SetCachedVertexShader( XBOX_FVF_TLVERTEX );
+
+    const FLOAT Scale = H / 480.0f;
+    const FLOAT CX = W * 0.5f;
+    const FLOAT CY = H - 30.0f * Scale;
+    const FLOAT Radius = 13.0f * Scale;
+    const FLOAT Dot = Max<FLOAT>( 2.5f, 3.5f * Scale );
+    static const FLOAT Offsets[8][2] =
+    {
+        {  0.0f,-1.0f }, {  0.707f,-0.707f }, {  1.0f, 0.0f }, {  0.707f, 0.707f },
+        {  0.0f, 1.0f }, { -0.707f, 0.707f }, { -1.0f, 0.0f }, { -0.707f,-0.707f }
+    };
+
+    for( INT i=0; i<8; i++ )
+    {
+        const INT Age = (i - (Step & 7) + 8) & 7;
+        const BYTE A = (BYTE)(70 + (7 - Age) * 22);
+        const BYTE R = (BYTE)(18 + (7 - Age) * 4);
+        const BYTE G = (BYTE)(80 + (7 - Age) * 18);
+        const BYTE B = (BYTE)(135 + (7 - Age) * 14);
+        const FLOAT X = CX + Offsets[i][0] * Radius;
+        const FLOAT Y = CY + Offsets[i][1] * Radius;
+        const DWORD Color = ((DWORD)A << 24) | ((DWORD)R << 16) | ((DWORD)G << 8) | (DWORD)B;
+        XboxRenderLoadingRect( Ren, X - Dot, Y - Dot, X + Dot, Y + Dot, Color );
+    }
+
+    Ren->RestoreDefaultTextureStages();
+    Ren->SetCachedRenderState( D3DRS_ZENABLE, D3DZB_TRUE );
+    Ren->SetCachedRenderState( D3DRS_ZWRITEENABLE, TRUE );
+    Ren->SetCachedRenderState( D3DRS_ZFUNC, D3DCMP_LESSEQUAL );
+    Ren->SetCachedRenderState( D3DRS_ALPHABLENDENABLE, FALSE );
+    Ren->SetCachedRenderState( D3DRS_ALPHATESTENABLE, FALSE );
+    Ren->SetCachedRenderState( D3DRS_SHADEMODE, D3DSHADE_GOURAUD );
+    Ren->CurrentPolyFlags = 0xFFFFFFFF;
+
+    HRESULT hrEnd = Ren->Device->EndScene();
+    Ren->SceneOpen = 0;
+    Ren->Device->SetStreamSource( 0, NULL, 0 );
+    GRD_DrawVBStreamBound = 0;
+    GRD_DrawVBStreamStride = 0;
+    HRESULT hrPresent = SUCCEEDED(hrEnd) ? Ren->Device->Present( NULL, NULL, NULL, NULL ) : E_FAIL;
+
+    if( DrawCount <= 16 || (DrawCount & 7) == 0 || FAILED(hrEnd) || FAILED(hrPresent) )
+    {
+        GXboxLog.Write( "RLOAD frame=%d step=%d draw=%d end=0x%08X present=0x%08X",
+            Ren->FrameCounter, Step, DrawCount, (DWORD)hrEnd, (DWORD)hrPresent );
+    }
+
+    return SUCCEEDED(hrEnd) && SUCCEEDED(hrPresent);
+    unguard;
 }
 
 static HRESULT XboxRenderCreateDeviceChecked( IDirect3D8* InDirect3D, DWORD BehaviorFlags, D3DPRESENT_PARAMETERS* PP, IDirect3DDevice8** OutDevice, const char* Label )
@@ -948,6 +1249,7 @@ void UXboxRenderDevice::Exit()
 
     ReleaseDrawVertexBuffer();
     XboxRenderReleaseDisplayCalibrationResources();
+    XboxRenderReleaseLoadingBackgroundResources();
     if( DepthBuffer )  { DepthBuffer->Release();  DepthBuffer  = NULL; }
     if( BackBuffer )   { BackBuffer->Release();    BackBuffer   = NULL; }
     if( Device )       { Device->Release();        Device       = NULL; }
@@ -1640,6 +1942,8 @@ void UXboxRenderDevice::Unlock( UBOOL Blit )
     GRD_LastRenderMS = (FLOAT)((BeforePresentSeconds - GRD_FrameStartSeconds) * 1000.0);
 
     XboxRenderApplyDisplayPostProcess( this );
+    if( GRD_LoadingBackgroundCaptureRequested )
+        XboxRenderCaptureLoadingBackgroundNow( this );
 
     // Present(NULL,NULL,NULL,NULL) ??? exact call used by xQuake gl_fakegl.cpp:2567
     // and MS XDK samples. The retail Xbox D3D8 lib equates this to swap-chain

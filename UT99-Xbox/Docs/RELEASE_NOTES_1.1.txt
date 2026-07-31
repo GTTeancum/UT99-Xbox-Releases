@@ -1,0 +1,68 @@
+Unreal Tournament Xbox 1.1
+==========================
+
+Version 1.1 is a complete release package, not a patch.
+
+General
+-------
+
+- System files are now staged in the download. Users only need to copy their
+  owned game assets. This prevents installation with the wrong System version.
+- Updated credits for all included community and third-party assets.
+- Players must create or load a profile before entering the main menu. Profiles
+  save player name, character choice, preferred team, controller mapping, and
+  Tournament progress. Profiles are also required for multiplayer.
+- Added profile loading and switching for local multiplayer without allowing
+  one profile to occupy more than one active player slot.
+- Added a working Xbox dashboard game icon and save image.
+
+Content
+-------
+
+- Added missing credits for community-made content.
+- Added CTF-Titania.
+- Added the Master Chief character.
+- Added DM-HangEmHigh and DM-Halo-Derelict.
+- Updated the PlayStation 2 character pack to version 3.0.
+- Added the OldSkool Amp'd Weapons mutator.
+
+Fixes
+-----
+
+- Fixed skeletal-model crashes affecting the PlayStation 2 models.
+- Restored skeletal animation, stable model rendering, correct face winding,
+  weapon attachments, and Skaarj blood effects.
+- Fixed a potential crash while loading CTF-Darji16 with mixed custom bots.
+- Fixed weapon selection, weapon wheel, and per-player command dispatch bugs.
+- Fixed delayed or missing weapon sounds.
+- Fixed Instant Action game rules, bot count, score limit, and time limit.
+- Fixed crashes on DM-CanyonFear, DM-Halberd, DM-Hood, and DM-Pantheon.
+- Fixed Tournament post-match flow and profile-owned progress saving for every
+  ladder.
+- Fixed lighting on DOM-Coagulate and DM-Morpheus.
+- Animated the loading wheel during synchronous map and package loading.
+
+Menus
+-----
+
+- Cleaned up the full menu set and aligned its layout, highlights, sliders,
+  footer prompts, and safe areas.
+- Added an advanced Controls menu with controller presets, per-button mapping,
+  controller imagery, contextual scrolling, and independent split-screen
+  controls.
+- Added monitor and TV safe-zone size and position settings.
+- Added brightness, contrast, and gamma correction options.
+- Tightened split-screen and System Link plus split-screen controls per
+  viewport.
+- Added profile creation, loading, switching, player naming, and alphabetized
+  character selection with matching portraits.
+- Gave Tournament mode its own UI and post-match presentation while preserving
+  the established menu theme.
+- Added a confirmation dialog before returning to the main menu from pause.
+
+Known follow-up work
+--------------------
+
+- Co-op Tournament integration is planned for a later 1.2 release.
+- Hardware System Link, extended long-play memory testing, and broader
+  multi-controller hardware qualification remain ongoing.

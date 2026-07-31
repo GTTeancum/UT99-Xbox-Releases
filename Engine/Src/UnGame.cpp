@@ -23,7 +23,11 @@ extern "C" UBOOL XboxViewportShouldPostRenderPlayer( UViewport* Viewport );
 extern "C" UBOOL XboxViewportShouldUpdateAudio( UViewport* Viewport );
 extern "C" void XboxMenuPreClientTravelCleanup();
 extern "C" void XboxSystemLinkAbortTravelCleanup( const char* Reason );
+extern "C" void XboxDebugMirrorWriteAnsi( const char* Line );
 extern "C" void XboxRenderDrawMenuRect( FSceneNode* Frame, FLOAT X1, FLOAT Y1, FLOAT X2, FLOAT Y2, BYTE R, BYTE G, BYTE B, BYTE A );
+extern "C" void XboxRenderRequestLoadingFrameBackground( URenderDevice* RenderDevice );
+extern "C" void XboxRenderReleaseLoadingFrameBackground( URenderDevice* RenderDevice );
+extern "C" UBOOL XboxRenderDrawLoadingFrame( URenderDevice* RenderDevice, INT Step, INT DrawCount );
 extern DWORD GXboxMallocLiveBytes;
 extern DWORD GXboxMallocPeakBytes;
 extern DWORD GXboxMallocTotalBytes;
@@ -38,6 +42,248 @@ static INT GXboxLoadActivityStep = 0;
 static INT GXboxLoadActivityDrawCount = 0;
 static DOUBLE GXboxLoadActivityStartTime = 0.0;
 static DOUBLE GXboxLoadActivityLastDrawTime = 0.0;
+static UBOOL GXboxSuppressLoadActivityDraw = 0;
+static UBOOL GXboxLightingProofInitialized = 0;
+static UBOOL GXboxLightingProofEnabled = 0;
+static ULevel* GXboxLightingProofLevel = NULL;
+static TArray<AActor*> GXboxLightingProofSlots;
+static FVector GXboxLightingProofCenter(0,0,0);
+static INT GXboxLightingProofStartDraw = 0;
+static INT GXboxLightingProofLastSlot = INDEX_NONE;
+
+static void XboxMirrorLoadActivityLine( const char* Line )
+{
+	if( !Line )
+		return;
+	OutputDebugStringA( Line );
+	XboxDebugMirrorWriteAnsi( Line );
+}
+
+struct FXboxSkeletalProofState
+{
+	const TCHAR* Label;
+	const TCHAR* Candidates[7];
+};
+
+static const FXboxSkeletalProofState GXboxSkeletalProofStates[] =
+{
+	{ TEXT("idle"),   { TEXT("Breath1"),   TEXT("Breath2"),   TEXT("Breath3"),   TEXT("StillFrRp"), TEXT("StillLgFr"), NULL, NULL } },
+	{ TEXT("walk"),   { TEXT("WalkLg"),    TEXT("WalkSm"),    TEXT("Walk"),      NULL, NULL, NULL, NULL } },
+	{ TEXT("run"),    { TEXT("RunLg"),     TEXT("RunSm"),     TEXT("Jog"),       TEXT("Run"), NULL, NULL, NULL } },
+	{ TEXT("jump"),   { TEXT("JumpLgFr"),  TEXT("JumpSmFr"),  TEXT("InAir"),     NULL, NULL, NULL, NULL } },
+	{ TEXT("attack"), { TEXT("StillFrRp"), TEXT("StillSmFr"), TEXT("Firing"),    TEXT("Fire"), NULL, NULL, NULL } },
+	{ TEXT("hit"),    { TEXT("GutHit"),    TEXT("HeadHit"),   TEXT("LeftHit"),   TEXT("RightHit"), NULL, NULL, NULL } },
+	{ TEXT("dodge"),  { TEXT("DodgeL"),    TEXT("RollLeft"),  TEXT("LeftDodge"), TEXT("DodgeF"), NULL, NULL, NULL } },
+	{ TEXT("swim"),   { TEXT("SwimLg"),    TEXT("SwimSm"),    TEXT("Swim"),      TEXT("TreadLg"), TEXT("TreadSm"), NULL, NULL } },
+	{ TEXT("crouch"), { TEXT("DuckWlkL"),  TEXT("DuckWlkS"),  TEXT("DuckStill"), TEXT("Duck"), NULL, NULL, NULL } },
+	{ TEXT("death"),  { TEXT("Dead4"),     TEXT("Dead1"),     TEXT("Death"),     TEXT("Death2"), TEXT("Dead2"), NULL, NULL } },
+};
+
+static UBOOL XboxSkeletalStateProofEnabled()
+{
+	static UBOOL Initialized = 0;
+	static UBOOL Enabled = 0;
+	if( !Initialized )
+	{
+		Enabled = GetFileAttributesA( "D:\\XboxSkeletalStateProof.ini" ) != 0xFFFFFFFF;
+		Initialized = 1;
+	}
+	return Enabled;
+}
+
+static UBOOL XboxSkaarjSkinProofEnabled()
+{
+	static UBOOL Initialized = 0;
+	static UBOOL Enabled = 0;
+	if( !Initialized )
+	{
+		Enabled = GetFileAttributesA( "D:\\XboxSkaarjSkinProof.ini" ) != 0xFFFFFFFF;
+		Initialized = 1;
+	}
+	return Enabled;
+}
+
+static void XboxApplySkaarjSkinProof( ULevel* Level )
+{
+	if( !XboxSkaarjSkinProofEnabled() || !Level || !Level->GetLevelInfo() )
+		return;
+
+	APawn* Target = NULL;
+	for( APawn* Pawn=Level->GetLevelInfo()->PawnList; Pawn; Pawn=Pawn->nextPawn )
+	{
+		if
+		(
+			Pawn->bViewTarget
+		&&	Pawn->Health > 0
+		&&	Pawn->GetClass()
+		&&	appStrstr( Pawn->GetClass()->GetName(), TEXT("SkaarjHybrid") )
+		)
+		{
+			Target = Pawn;
+			break;
+		}
+	}
+	if( !Target )
+		return;
+
+	static APawn* LastTarget = NULL;
+	static INT ProofTick = 0;
+	if( Target != LastTarget )
+	{
+		LastTarget = Target;
+		ProofTick = 0;
+	}
+
+	if( (ProofTick % 15) == 0 )
+	{
+		UBoolProperty* GreenBloodProperty
+			= FindField<UBoolProperty>( Target->GetClass(), TEXT("bGreenBlood") );
+		const BITFIELD* Value = GreenBloodProperty
+			? (const BITFIELD*)((BYTE*)Target + GreenBloodProperty->Offset)
+			: NULL;
+		const UBOOL GreenBlood = Value
+			? ((*Value & GreenBloodProperty->BitMask) != 0)
+			: 0;
+		const INT SavedHealth = Target->Health;
+		const FVector HitLocation
+			= Target->Location + FVector(0,0,Target->CollisionHeight * 0.55f);
+		Target->eventTakeDamage
+		(
+			1,
+			Target,
+			HitLocation,
+			FVector(30,0,0),
+			FName(TEXT("shot"))
+		);
+		Target->Health = SavedHealth;
+		if( (ProofTick % 60) == 0 )
+		{
+			debugf
+			(
+				NAME_Log,
+				TEXT("XSKAARJSKINPROOF tick=%i class=%s greenblood=%i health=%i"),
+				(INT)GTicks,
+				Target->GetClass()->GetFullName(),
+				GreenBlood,
+				Target->Health
+			);
+		}
+	}
+	ProofTick++;
+}
+
+static const FMeshAnimSeq* XboxFindSkeletalProofSequence
+(
+	UMesh* Mesh,
+	const FXboxSkeletalProofState& State,
+	FName& SequenceName
+)
+{
+	if( !Mesh )
+		return NULL;
+
+	for( INT CandidateIndex=0; CandidateIndex<ARRAY_COUNT(State.Candidates); CandidateIndex++ )
+	{
+		if( !State.Candidates[CandidateIndex] )
+			break;
+		FName Candidate( State.Candidates[CandidateIndex] );
+		const FMeshAnimSeq* Sequence = Mesh->GetAnimSeq( Candidate );
+		if( Sequence )
+		{
+			SequenceName = Candidate;
+			return Sequence;
+		}
+	}
+	return NULL;
+}
+
+static void XboxApplySkeletalStateProof( ULevel* Level )
+{
+	if( !XboxSkeletalStateProofEnabled() || !Level || !Level->GetLevelInfo() )
+		return;
+
+	APawn* Target = NULL;
+	for( APawn* Pawn=Level->GetLevelInfo()->PawnList; Pawn; Pawn=Pawn->nextPawn )
+	{
+		if
+		(
+			Pawn->bViewTarget
+		&&	Pawn->Health > 0
+		&&	Pawn->Mesh
+		&&	Pawn->Mesh->IsA(USkeletalMesh::StaticClass())
+		)
+		{
+			Target = Pawn;
+			break;
+		}
+	}
+	if( !Target )
+		return;
+
+	enum { STATE_TICKS = 120, STATE_LOG_INTERVAL = 15 };
+	static APawn* LastTarget = NULL;
+	static INT ProofTick = 0;
+	static INT LastStateIndex = INDEX_NONE;
+	static FRotator ProofRotation(0,0,0);
+	if( Target != LastTarget )
+	{
+		LastTarget = Target;
+		ProofTick = 0;
+		LastStateIndex = INDEX_NONE;
+		ProofRotation = Target->Rotation;
+	}
+
+	const INT StateIndex = (ProofTick / STATE_TICKS) % ARRAY_COUNT(GXboxSkeletalProofStates);
+	const INT StateTick = ProofTick % STATE_TICKS;
+	const FXboxSkeletalProofState& State = GXboxSkeletalProofStates[StateIndex];
+	FName SequenceName = NAME_None;
+	const FString TargetClassName = Target->GetClass() ? Target->GetClass()->GetFullName() : FString(TEXT("None"));
+	const FString TargetMeshName = Target->Mesh ? Target->Mesh->GetFullName() : FString(TEXT("None"));
+	if( ProofTick == 0 )
+		debugf( NAME_Log, TEXT("XSKELSTATE stage=sequence-begin class=%s"), *TargetClassName );
+	const FMeshAnimSeq* Sequence = XboxFindSkeletalProofSequence( Target->Mesh, State, SequenceName );
+	if( ProofTick == 0 )
+		debugf( NAME_Log, TEXT("XSKELSTATE stage=sequence-end found=%i"), Sequence ? 1 : 0 );
+
+	Target->Rotation = ProofRotation;
+	Target->Velocity = FVector(0,0,0);
+	Target->Acceleration = FVector(0,0,0);
+	// This is a render-only proof. Calling setPhysics(PHYS_None) performs floor
+	// discovery and base changes that are unrelated to the pose being qualified.
+	Target->Physics = PHYS_None;
+	if( ProofTick == 0 )
+		debugf( NAME_Log, TEXT("XSKELSTATE stage=pose-begin") );
+	if( Sequence )
+	{
+		Target->AnimSequence = SequenceName;
+		Target->AnimFrame = Min( (StateTick + 1.0f) / STATE_TICKS, 0.98f );
+		Target->AnimRate = 0.0f;
+		Target->TweenRate = 0.0f;
+		Target->bAnimLoop = StateIndex != ARRAY_COUNT(GXboxSkeletalProofStates)-1;
+	}
+	if( ProofTick == 0 )
+		debugf( NAME_Log, TEXT("XSKELSTATE stage=pose-end") );
+
+	if( StateIndex != LastStateIndex || (StateTick % STATE_LOG_INTERVAL) == 0 )
+	{
+		debugf
+		(
+			NAME_Log,
+			TEXT("XSKELSTATE tick=%i class=%s mesh=%s state=%s seq=%s frame=%.4f numframes=%i rate=%.2f found=%i"),
+			(INT)GTicks,
+			*TargetClassName,
+			*TargetMeshName,
+			State.Label,
+			Sequence ? *SequenceName : TEXT("None"),
+			Sequence ? Target->AnimFrame : 0.0f,
+			Sequence ? Sequence->NumFrames : 0,
+			Sequence ? Sequence->Rate : 0.0f,
+			Sequence ? 1 : 0
+		);
+		LastStateIndex = StateIndex;
+	}
+	ProofTick++;
+}
 
 static void XboxMemMark( const TCHAR* Label )
 {
@@ -344,11 +590,22 @@ static void XboxSetLoadActivity( UGameEngine* GameEngine, UBOOL bShow )
 		GXboxLoadActivityStartTime = appSeconds();
 		GXboxLoadActivityLastDrawTime = 0.0;
 		debugf( NAME_Init, TEXT("XLOADANIM begin") );
+		XboxMirrorLoadActivityLine( "XLOADANIM begin" );
 	}
 	else if( !bShow && GXboxShowLoadActivity )
 	{
 		DWORD ElapsedMS = (DWORD)Max<DOUBLE>( 0.0, (appSeconds() - GXboxLoadActivityStartTime) * 1000.0 );
 		debugf( NAME_Init, TEXT("XLOADANIM end frames=%i elapsedMS=%u"), GXboxLoadActivityDrawCount, (unsigned)ElapsedMS );
+		char Line[128];
+		_snprintf( Line, sizeof(Line)-1, "XLOADANIM end frames=%i elapsedMS=%u", GXboxLoadActivityDrawCount, (unsigned)ElapsedMS );
+		Line[sizeof(Line)-1] = 0;
+		XboxMirrorLoadActivityLine( Line );
+		if( GXboxLoadActivityEngine && GXboxLoadActivityEngine->Client && GXboxLoadActivityEngine->Client->Viewports.Num() )
+		{
+			UViewport* Viewport = GXboxLoadActivityEngine->Client->Viewports(0);
+			if( Viewport )
+				XboxRenderReleaseLoadingFrameBackground( Viewport->RenDev );
+		}
 	}
 	GXboxShowLoadActivity = bShow;
 	GXboxLoadActivityEngine = bShow ? GameEngine : NULL;
@@ -364,40 +621,50 @@ extern "C" void XboxPulseLoadingActivity()
 		return;
 
 	UViewport* Viewport = GameEngine->Client->Viewports(0);
-	if( !Viewport || !Viewport->Actor || !Viewport->Canvas )
+	if( !Viewport || !Viewport->RenDev )
 		return;
 
 	DOUBLE Now = appSeconds();
 	if( GXboxLoadActivityLastDrawTime > 0.0 && Now - GXboxLoadActivityLastDrawTime < 0.10 )
 		return;
 
-	ULevel* ViewLevel = Viewport->Actor->GetLevel();
-	ALevelInfo* LevelInfo = ViewLevel ? ViewLevel->GetLevelInfo() : NULL;
-	if( !LevelInfo )
-		return;
-
 	GXboxLoadActivityLastDrawTime = Now;
 	GXboxLoadActivityStep = (GXboxLoadActivityStep + 1) & 7;
 	GXboxLoadActivityDrawCount++;
-	BYTE SavedAction = LevelInfo->LevelAction;
-	LevelInfo->LevelAction = LEVACT_Loading;
-	GXboxDrawingLoadActivity = 1;
-	GameEngine->PaintProgress();
-	GXboxDrawingLoadActivity = 0;
-	LevelInfo->LevelAction = SavedAction;
+	UBOOL bDrew = XboxRenderDrawLoadingFrame( Viewport->RenDev, GXboxLoadActivityStep, GXboxLoadActivityDrawCount );
+	if( !bDrew && Viewport->Actor && Viewport->Canvas )
+	{
+		ULevel* ViewLevel = Viewport->Actor->GetLevel();
+		ALevelInfo* LevelInfo = ViewLevel ? ViewLevel->GetLevelInfo() : NULL;
+		if( LevelInfo )
+		{
+			BYTE SavedAction = LevelInfo->LevelAction;
+			LevelInfo->LevelAction = LEVACT_Loading;
+			GXboxDrawingLoadActivity = 1;
+			GameEngine->PaintProgress();
+			GXboxDrawingLoadActivity = 0;
+			LevelInfo->LevelAction = SavedAction;
+			bDrew = 1;
+		}
+	}
 
-	if( GXboxLoadActivityDrawCount == 1 || (GXboxLoadActivityDrawCount & 7) == 0 )
+	if( GXboxLoadActivityDrawCount <= 16 || (GXboxLoadActivityDrawCount & 7) == 0 )
 	{
 		DWORD ElapsedMS = (DWORD)Max<DOUBLE>( 0.0, (appSeconds() - GXboxLoadActivityStartTime) * 1000.0 );
-		debugf( NAME_Init, TEXT("XLOADANIM frame=%i step=%i elapsedMS=%u"),
-			GXboxLoadActivityDrawCount, GXboxLoadActivityStep, (unsigned)ElapsedMS );
+		debugf( NAME_Init, TEXT("XLOADANIM frame=%i step=%i elapsedMS=%u drew=%i"),
+			GXboxLoadActivityDrawCount, GXboxLoadActivityStep, (unsigned)ElapsedMS, bDrew ? 1 : 0 );
+		char Line[128];
+		_snprintf( Line, sizeof(Line)-1, "XLOADANIM frame=%i step=%i elapsedMS=%u drew=%i",
+			GXboxLoadActivityDrawCount, GXboxLoadActivityStep, (unsigned)ElapsedMS, bDrew ? 1 : 0 );
+		Line[sizeof(Line)-1] = 0;
+		XboxMirrorLoadActivityLine( Line );
 	}
 }
 
 static void XboxDrawLoadingActivity( UViewport* Viewport )
 {
 	guard(XboxDrawLoadingActivity);
-	if( !GXboxShowLoadActivity || !Viewport || !Viewport->Canvas || !Viewport->Canvas->Frame )
+	if( !GXboxShowLoadActivity || GXboxSuppressLoadActivityDraw || !Viewport || !Viewport->Canvas || !Viewport->Canvas->Frame )
 		return;
 
 	FSceneNode* Frame = Viewport->Canvas->Frame;
@@ -420,6 +687,229 @@ static void XboxDrawLoadingActivity( UViewport* Viewport )
 		FLOAT X = CX + Offsets[i][0];
 		FLOAT Y = CY + Offsets[i][1];
 		XboxRenderDrawMenuRect( Frame, X - 3.0f, Y - 3.0f, X + 3.0f, Y + 3.0f, R, G, B, A );
+	}
+	unguard;
+}
+
+static UBOOL XboxLightingProofIsEnabled()
+{
+	if( !GXboxLightingProofInitialized )
+	{
+		GXboxLightingProofEnabled = GetFileAttributesA( "D:\\XboxLightingProof.ini" ) != 0xFFFFFFFF;
+		GXboxLightingProofInitialized = 1;
+	}
+	return GXboxLightingProofEnabled;
+}
+
+static UBOOL XboxLightingProofSlotContains( AActor* Actor )
+{
+	for( INT i=0; i<GXboxLightingProofSlots.Num(); i++ )
+		if( GXboxLightingProofSlots(i) == Actor )
+			return 1;
+	return 0;
+}
+
+static FLOAT XboxLightingProofMinDistSq( AActor* Actor )
+{
+	if( !Actor || !GXboxLightingProofSlots.Num() )
+		return 0.0f;
+
+	FLOAT Best = 1.0e30f;
+	for( INT i=0; i<GXboxLightingProofSlots.Num(); i++ )
+	{
+		AActor* Other = GXboxLightingProofSlots(i);
+		if( Other )
+			Best = Min( Best, (Actor->Location - Other->Location).SizeSquared() );
+	}
+	return Best;
+}
+
+static void XboxLightingProofBuildSlots( ULevel* Level, INT DrawCount )
+{
+	guard(XboxLightingProofBuildSlots);
+	GXboxLightingProofLevel = Level;
+	GXboxLightingProofSlots.Empty();
+	GXboxLightingProofCenter = FVector(0,0,0);
+	GXboxLightingProofStartDraw = DrawCount;
+	GXboxLightingProofLastSlot = INDEX_NONE;
+	if( !Level || !Level->GetLevelInfo() )
+		return;
+
+	TArray<AActor*> Candidates;
+	TArray<AActor*> Priority;
+	FVector Center(0,0,0);
+	for( INT i=0; i<Level->Actors.Num(); i++ )
+	{
+		AActor* Actor = Level->Actors(i);
+		if( !Actor || Actor->bDeleteMe || !Actor->IsA(ANavigationPoint::StaticClass()) )
+			continue;
+
+		Candidates.AddItem( Actor );
+		Center += Actor->Location;
+		const TCHAR* ClassName = Actor->GetClass() ? Actor->GetClass()->GetName() : TEXT("");
+		if( Actor->IsA(APlayerStart::StaticClass()) || appStrstr(ClassName, TEXT("Control")) )
+			Priority.AddItem( Actor );
+	}
+	if( Candidates.Num() )
+		Center /= Candidates.Num();
+	GXboxLightingProofCenter = Center;
+
+	enum { DesiredSlots = 8 };
+	for( INT p=0; p<Priority.Num() && GXboxLightingProofSlots.Num()<DesiredSlots; p++ )
+	{
+		AActor* Actor = Priority(p);
+		if( !XboxLightingProofSlotContains(Actor) )
+			GXboxLightingProofSlots.AddItem( Actor );
+	}
+
+	while( Candidates.Num() && GXboxLightingProofSlots.Num()<DesiredSlots )
+	{
+		AActor* BestActor = NULL;
+		FLOAT BestScore = -1.0f;
+		for( INT c=0; c<Candidates.Num(); c++ )
+		{
+			AActor* Actor = Candidates(c);
+			if( !Actor || XboxLightingProofSlotContains(Actor) )
+				continue;
+			const FLOAT Score = GXboxLightingProofSlots.Num()
+				? XboxLightingProofMinDistSq( Actor )
+				: (Actor->Location - Center).SizeSquared();
+			if( Score > BestScore )
+			{
+				BestScore = Score;
+				BestActor = Actor;
+			}
+		}
+		if( !BestActor )
+			break;
+		GXboxLightingProofSlots.AddItem( BestActor );
+	}
+
+	char Line[256];
+	_snprintf
+	(
+		Line,
+		sizeof(Line)-1,
+		"XLIGHTSETUP draw=%d map=%s slots=%d candidates=%d center=(%.1f,%.1f,%.1f)",
+		DrawCount,
+		Level->URL.Map.Len() ? TCHAR_TO_ANSI(*Level->URL.Map) : "(none)",
+		GXboxLightingProofSlots.Num(),
+		Candidates.Num(),
+		GXboxLightingProofCenter.X,
+		GXboxLightingProofCenter.Y,
+		GXboxLightingProofCenter.Z
+	);
+	Line[sizeof(Line)-1] = 0;
+	XboxMirrorLoadActivityLine( Line );
+	unguard;
+}
+
+static void XboxLightingProofApplyView
+(
+	UViewport* Viewport,
+	INT DrawCount,
+	AActor*& ViewActor,
+	FVector& ViewLocation,
+	FRotator& ViewRotation
+)
+{
+	guard(XboxLightingProofApplyView);
+	if( !XboxLightingProofIsEnabled() || !Viewport || !Viewport->Actor )
+		return;
+
+	ULevel* Level = Viewport->Actor->GetLevel();
+	if( !Level )
+		return;
+	if( GXboxLightingProofLevel != Level || !GXboxLightingProofSlots.Num() )
+		XboxLightingProofBuildSlots( Level, DrawCount );
+	if( !GXboxLightingProofSlots.Num() )
+		return;
+
+	enum { SlotFrames = 90 };
+	INT Slot = ((DrawCount - GXboxLightingProofStartDraw) / SlotFrames) % GXboxLightingProofSlots.Num();
+	if( Slot < 0 )
+		Slot = 0;
+	AActor* Anchor = GXboxLightingProofSlots(Slot);
+	if( !Anchor )
+		return;
+
+	APlayerPawn* Player = Cast<APlayerPawn>( Viewport->Actor );
+	if( Player )
+	{
+		Player->ViewTarget = NULL;
+		Player->bBehindView = 0;
+		Player->DesiredFOV = 90.0f;
+		Player->FovAngle = 90.0f;
+		Player->bShowScores = 0;
+		Player->bShowMenu = 0;
+		Player->bSpecialMenu = 0;
+		Player->Health = Max( Player->Health, 100 );
+		Player->ReducedDamageType = FName(TEXT("All"));
+	}
+
+	FVector Focus = GXboxLightingProofCenter;
+	if( (Focus - Anchor->Location).SizeSquared() < 4096.0f )
+	{
+		const INT OtherSlot = (Slot + 1) % GXboxLightingProofSlots.Num();
+		if( GXboxLightingProofSlots(OtherSlot) )
+			Focus = GXboxLightingProofSlots(OtherSlot)->Location;
+	}
+	const FLOAT ProofEyeHeight = Player ? Max( Player->BaseEyeHeight, 1.0f ) : 48.0f;
+	FVector CameraLocation = Anchor->Location + FVector(0,0,ProofEyeHeight);
+	FVector Aim = Focus - CameraLocation;
+	if( Aim.SizeSquared() < 4096.0f )
+		Aim = Anchor->Rotation.Vector();
+	ViewActor = Viewport->Actor;
+	ViewLocation = CameraLocation;
+	ViewRotation = Aim.Rotation();
+	if( Player )
+	{
+		Player->Velocity = FVector(0,0,0);
+		Player->Acceleration = FVector(0,0,0);
+		Player->MoveTimer = -1.0f;
+		Level->FarMoveActor( Player, Anchor->Location, 0, 1 );
+		ViewLocation = Player->Location + FVector(0,0,ProofEyeHeight);
+		Aim = Focus - ViewLocation;
+		if( Aim.SizeSquared() < 4096.0f )
+			Aim = Anchor->Rotation.Vector();
+		ViewRotation = Aim.Rotation();
+		FCheckResult MoveHit(1.0f);
+		Level->MoveActor( Player, FVector(0,0,0), ViewRotation, MoveHit, 0, 1, 0, 1 );
+		Player->ViewRotation = ViewRotation;
+		Player->DesiredFOV = 90.0f;
+		Player->FovAngle = 90.0f;
+		Player->EyeHeight = ProofEyeHeight;
+	}
+
+	if( Slot != GXboxLightingProofLastSlot || (DrawCount % 60) == 0 )
+	{
+		FCheckResult PointHit;
+		const UBOOL bWouldClear = (Level && Level->Model)
+			? !Level->Model->PointCheck( PointHit, NULL, ViewLocation, FVector(0,0,0), 0 )
+			: 1;
+		char Line[512];
+		_snprintf
+		(
+			Line,
+			sizeof(Line)-1,
+			"XLIGHTCAM draw=%d slot=%d count=%d map=%s anchor=%s class=%s loc=(%.1f,%.1f,%.1f) rot=(%d,%d,%d) wouldClear=%d",
+			DrawCount,
+			Slot,
+			GXboxLightingProofSlots.Num(),
+			Level->URL.Map.Len() ? TCHAR_TO_ANSI(*Level->URL.Map) : "(none)",
+			Anchor->GetName() ? TCHAR_TO_ANSI(Anchor->GetName()) : "(none)",
+			Anchor->GetClass() ? TCHAR_TO_ANSI(Anchor->GetClass()->GetFullName()) : "(none)",
+			ViewLocation.X,
+			ViewLocation.Y,
+			ViewLocation.Z,
+			ViewRotation.Pitch,
+			ViewRotation.Yaw,
+			ViewRotation.Roll,
+			bWouldClear ? 1 : 0
+		);
+		Line[sizeof(Line)-1] = 0;
+		XboxMirrorLoadActivityLine( Line );
+		GXboxLightingProofLastSlot = Slot;
 	}
 	unguard;
 }
@@ -1300,7 +1790,18 @@ ULevel* UGameEngine::LoadMap( const FURL& URL, UPendingLevel* Pending, const TMa
 		APlayerPawn* PP = Client->Viewports(0)->Actor;
 		if( PP )
 			PP->bShowMenu = 0;
+#if TARGET_XBOX
+		UViewport* XboxLoadingViewport = Client->Viewports(0);
+		if( GXboxShowLoadActivity && XboxLoadingViewport && XboxLoadingViewport->RenDev )
+		{
+			GXboxSuppressLoadActivityDraw = 1;
+			XboxRenderRequestLoadingFrameBackground( XboxLoadingViewport->RenDev );
+		}
+#endif
 		PaintProgress();
+#if TARGET_XBOX
+		GXboxSuppressLoadActivityDraw = 0;
+#endif
 		if( Audio )
 			Audio->SetViewport( Audio->GetViewport() );
 		GLevel->GetLevelInfo()->LevelAction = LEVACT_None;
@@ -1925,8 +2426,140 @@ void UGameEngine::Draw( UViewport* Viewport, UBOOL Blit, BYTE* HitData, INT* Hit
 	AActor*      ViewActor    = Viewport->Actor;
 	FVector      ViewLocation = ViewActor->Location;
 	FRotator     ViewRotation = ViewActor->Rotation;
+#if TARGET_XBOX
+	APawn* XboxCharacterProofTarget = NULL;
+	APlayerPawn* XboxCharacterProofViewer = NULL;
+	static FName XboxCharacterProofTargetName = NAME_None;
+	if( GetFileAttributesA( "D:\\XboxCharacterSoak.ini" ) != 0xFFFFFFFF )
+	{
+		XboxCharacterProofViewer = Cast<APlayerPawn>( Viewport->Actor );
+		ULevel* ProofLevel = XboxCharacterProofViewer ? XboxCharacterProofViewer->GetLevel() : NULL;
+		if( XboxCharacterProofViewer && ProofLevel && ProofLevel->GetLevelInfo() )
+		{
+			for
+			(
+				APawn* Pawn = ProofLevel->GetLevelInfo()->PawnList;
+				!XboxCharacterProofTarget && Pawn;
+				Pawn = Pawn->nextPawn
+			)
+			{
+				if
+				(
+					Pawn != XboxCharacterProofViewer
+				&&	Pawn->bViewTarget
+				&&	Pawn->Health > 0
+				)
+				{
+					XboxCharacterProofTarget = Pawn;
+					XboxCharacterProofTargetName = Pawn->GetFName();
+					break;
+				}
+			}
+			APawn* AssignedTarget = Cast<APawn>( XboxCharacterProofViewer->ViewTarget );
+			if
+			(
+				!XboxCharacterProofTarget
+			&&	AssignedTarget
+			&&	AssignedTarget != XboxCharacterProofViewer
+			&&	AssignedTarget->Health > 0
+			)
+			{
+				XboxCharacterProofTarget = AssignedTarget;
+				XboxCharacterProofTargetName = AssignedTarget->GetFName();
+			}
+			for
+			(
+				APawn* Pawn = ProofLevel->GetLevelInfo()->PawnList;
+				!XboxCharacterProofTarget && Pawn;
+				Pawn = Pawn->nextPawn
+			)
+			{
+				if
+				(
+					Pawn != XboxCharacterProofViewer
+				&&	Pawn->GetFName() == XboxCharacterProofTargetName
+				&&	Pawn->Health > 0
+				)
+				{
+					XboxCharacterProofTarget = Pawn;
+					break;
+				}
+			}
+			if( XboxCharacterProofTarget )
+			{
+				XboxCharacterProofViewer->ViewTarget = NULL;
+				XboxCharacterProofViewer->bBehindView = 0;
+				XboxCharacterProofViewer->DesiredFOV = 75.0f;
+				XboxCharacterProofViewer->FovAngle = 75.0f;
+			}
+		}
+	}
+#endif
 	Viewport->Actor->eventPlayerCalcView( ViewActor, ViewLocation, ViewRotation );
 	check(ViewActor);
+#if TARGET_XBOX
+	if( XboxCharacterProofTarget && XboxCharacterProofViewer )
+	{
+		// PlayerCalcView may restore a gameplay ViewTarget. The proof camera is
+		// calculated below and must not make the observed pawn owner-invisible.
+		XboxCharacterProofViewer->ViewTarget = NULL;
+		XboxCharacterProofViewer->bBehindView = 0;
+		const FLOAT DesiredDistance = 72.0f;
+		FVector TargetFocus = XboxCharacterProofTarget->Location;
+		TargetFocus.Z += Max( XboxCharacterProofTarget->EyeHeight * 0.55f, 12.0f );
+		FRotator TargetRotation = XboxCharacterProofTarget->Rotation;
+		FVector Forward = TargetRotation.Vector();
+		Forward.Z = 0.0f;
+		Forward = Forward.SafeNormal();
+		const FVector Right(-Forward.Y,Forward.X,0.0f);
+		const FVector CameraCandidates[4] =
+		{
+			TargetFocus + Forward * DesiredDistance + FVector(0,0,6),
+			TargetFocus + Right * DesiredDistance + FVector(0,0,6),
+			TargetFocus - Right * DesiredDistance + FVector(0,0,6),
+			TargetFocus - Forward * DesiredDistance + FVector(0,0,6)
+		};
+		INT CameraCandidate = 0;
+		FLOAT BestCameraTime = -1.0f;
+		FCheckResult CameraHit;
+		for( INT CandidateIndex=0; CandidateIndex<4; CandidateIndex++ )
+		{
+			XboxCharacterProofTarget->GetLevel()->SingleLineCheck
+			(
+				CameraHit,
+				XboxCharacterProofTarget,
+				CameraCandidates[CandidateIndex],
+				TargetFocus,
+				TRACE_VisBlocking
+			);
+			if( CameraHit.Time > BestCameraTime )
+			{
+				CameraCandidate = CandidateIndex;
+				BestCameraTime = CameraHit.Time;
+			}
+			if( CameraHit.Time >= 0.98f )
+			{
+				CameraCandidate = CandidateIndex;
+				BestCameraTime = 1.0f;
+				break;
+			}
+		}
+		const FLOAT CameraFraction = BestCameraTime >= 0.98f
+			? 1.0f
+			: Clamp( BestCameraTime - 0.08f, 0.30f, 0.90f );
+		ViewActor = XboxCharacterProofViewer;
+		ViewLocation = TargetFocus
+			+ (CameraCandidates[CameraCandidate] - TargetFocus) * CameraFraction;
+		ViewRotation = (TargetFocus-ViewLocation).Rotation();
+		if( DrawDiagCount == 1 || (DrawDiagCount % 300) == 0 )
+			debugf( NAME_Log, TEXT("XSKELCAMVIEW draw=%d target=%s dist=%.1f fov=%.1f source=manual candidate=%i fraction=%.2f"),
+				DrawDiagCount, XboxCharacterProofTarget->GetFullName(), DesiredDistance,
+				Viewport->Actor->FovAngle, CameraCandidate, CameraFraction );
+	}
+#endif
+#if TARGET_XBOX
+	XboxLightingProofApplyView( Viewport, DrawDiagCount, ViewActor, ViewLocation, ViewRotation );
+#endif
 	if( bDrawDiag )
 		debugf( NAME_Log, TEXT("XDRAW draw=%d after-calc-view loc=(%.1f,%.1f,%.1f)"), DrawDiagCount, ViewLocation.X, ViewLocation.Y, ViewLocation.Z );
 
@@ -2445,6 +3078,13 @@ void UGameEngine::Tick( FLOAT DeltaSeconds )
 	if( bTickDiag )
 		debugf( NAME_Log, TEXT("XTICK tick=%d pending-end"), EngineTickDiagCount );
 	unguard;
+
+#if TARGET_XBOX
+	// Proof-only deterministic animation selection happens after game simulation
+	// so bot AI cannot replace the requested state before the frame is rendered.
+	XboxApplySkeletalStateProof( GLevel );
+	XboxApplySkaarjSkinProof( GLevel );
+#endif
 
 	// Render everything.
 	guard(ClientTick);

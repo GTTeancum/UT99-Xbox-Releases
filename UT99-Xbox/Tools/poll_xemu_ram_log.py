@@ -51,17 +51,23 @@ def connect_monitor(port, timeout):
 
 def monitor_cmd(sock, command, wait=0.25):
     sock.sendall((command + "\r\n").encode("ascii"))
-    time.sleep(wait)
+    time.sleep(min(wait, 0.05))
     data = b""
-    sock.settimeout(0.8)
-    try:
-        while True:
+    deadline = time.time() + max(1.0, wait + 0.5)
+    sock.settimeout(0.15)
+    while time.time() < deadline:
+        try:
             chunk = sock.recv(65536)
             if not chunk:
                 break
             data += chunk
-    except Exception:
-        pass
+            if b"(qemu)" in data:
+                break
+        except socket.timeout:
+            if data:
+                break
+        except Exception:
+            break
     return strip_ansi(data.decode("utf-8", errors="replace"))
 
 
@@ -98,7 +104,7 @@ def read_bytes(sock, va, byte_count, phys_delta):
     raw = bytearray()
     offset = 0
     while offset < byte_count:
-        chunk = min(2048, byte_count - offset)
+        chunk = min(4096, byte_count - offset)
         words = read_words(sock, va + offset, (chunk + 3) // 4, phys_delta)
         if not words:
             break
@@ -111,6 +117,22 @@ def read_bytes(sock, va, byte_count, phys_delta):
             ))
         offset += chunk
     return bytes(raw[:byte_count])
+
+
+def read_mirror_tail(sock, va, offset, wrapped, byte_count, phys_delta):
+    byte_count = max(1, min(int(byte_count), MIRROR_BYTES))
+    offset = max(0, min(int(offset or 0), MIRROR_BYTES - 1))
+    if not wrapped:
+        start = max(0, offset - byte_count)
+        return read_bytes(sock, va + start, offset - start, phys_delta)
+
+    start = (offset - byte_count) % MIRROR_BYTES
+    if start < offset:
+        return read_bytes(sock, va + start, offset - start, phys_delta)
+    return (
+        read_bytes(sock, va + start, MIRROR_BYTES - start, phys_delta)
+        + read_bytes(sock, va, offset, phys_delta)
+    )
 
 
 def read_xbe_sections(xbe_path):
@@ -255,18 +277,42 @@ def poll_port(port, symbols, args):
     sock = connect_monitor(port, args.timeout)
     try:
         phys_delta = choose_phys_delta(sock, symbols, args.phys_delta)
+        magic_words = read_words(
+            sock,
+            symbols["g_XboxDebugMirrorMagic0"],
+            2,
+            phys_delta,
+        )
+        counter_words = read_words(
+            sock,
+            symbols["g_XboxBootPhase"],
+            6,
+            phys_delta,
+        )
         values = {
-            "boot_phase": read_u32(sock, symbols["g_XboxBootPhase"], phys_delta),
-            "writes": read_u32(sock, symbols["g_XboxLogWriteCount"], phys_delta),
-            "heartbeats": read_u32(sock, symbols["g_XboxHeartbeatCount"], phys_delta),
-            "last_tick": read_u32(sock, symbols["g_XboxLastLogTick"], phys_delta),
-            "offset": read_u32(sock, symbols["g_XboxLogMirrorWriteOffset"], phys_delta),
-            "wrapped": read_u32(sock, symbols["g_XboxLogMirrorWrapped"], phys_delta),
-            "magic0": read_u32(sock, symbols["g_XboxDebugMirrorMagic0"], phys_delta),
-            "magic1": read_u32(sock, symbols["g_XboxDebugMirrorMagic1"], phys_delta),
+            "boot_phase": counter_words[0] if len(counter_words) > 0 else None,
+            "writes": counter_words[1] if len(counter_words) > 1 else None,
+            "heartbeats": counter_words[2] if len(counter_words) > 2 else None,
+            "last_tick": counter_words[3] if len(counter_words) > 3 else None,
+            "offset": counter_words[4] if len(counter_words) > 4 else None,
+            "wrapped": counter_words[5] if len(counter_words) > 5 else None,
+            "magic0": magic_words[0] if len(magic_words) > 0 else None,
+            "magic1": magic_words[1] if len(magic_words) > 1 else None,
         }
-        raw = read_bytes(sock, symbols["g_XboxLogMirror"], MIRROR_BYTES, phys_delta)
-        text = decode_mirror(raw, values.get("offset") or 0, values.get("wrapped") or 0)
+        tail_bytes = getattr(args, "tail_bytes", 0)
+        if tail_bytes:
+            raw = read_mirror_tail(
+                sock,
+                symbols["g_XboxLogMirror"],
+                values.get("offset") or 0,
+                values.get("wrapped") or 0,
+                tail_bytes,
+                phys_delta,
+            )
+            text = raw.replace(b"\x00", b"").decode("ascii", errors="replace")
+        else:
+            raw = read_bytes(sock, symbols["g_XboxLogMirror"], MIRROR_BYTES, phys_delta)
+            text = decode_mirror(raw, values.get("offset") or 0, values.get("wrapped") or 0)
         return phys_delta, values, text
     finally:
         sock.close()

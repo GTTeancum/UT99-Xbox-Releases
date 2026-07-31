@@ -1,6 +1,6 @@
 # UT99 Xbox Open Items
 
-Last updated: 2026-07-22
+Last updated: 2026-07-26
 
 This is the quick-access tracker for active UT99 Xbox work. It preserves the
 older project backlog and adds the current visual-signoff queue so the project
@@ -9,57 +9,6 @@ does not depend on scattered chat context.
 ## Open Items
 
 ### Current Queue
-
-19. Skeletal-model fidelity and animation
-   - Blocking defect discovered during the rendered 2026-07-22 soak.
-   - PS2 characters and Master Chief load and participate in matches, but remain
-     in their bind-pose T-pose because the Xbox compatibility path discards the
-     loaded bone tracks and forces every sequence to one frame.
-   - Retain the package animation data, evaluate the active sequence per bone,
-     and skin each weighted mesh point before the existing mesh transform.
-   - Live Xemu inspection on 2026-07-22 confirmed that the first implementation
-     restored motion, but the posed models flicker and their textures/surfaces
-     render incorrectly. Motion alone is not a pass; deformation, LOD behavior,
-     and material mapping must remain stable throughout animation.
-   - Treat this as a major fidelity pass across the complete skeletal-model
-     path: reference pose and bone hierarchy, influence weights, sequence and
-     track selection, interpolation and tweening, LOD transitions, bounds and
-     culling, texture/material/team-skin assignment, menu previews, gameplay,
-     hit/death/carcass states, and 64 MB memory/performance.
-   - Qualify every playable skeletal character rather than assuming one fixed
-     package proves the rest. Compare representative poses and skins against a
-     known-correct PC/reference render and investigate every visual duplicate,
-     mismatch, pop, flicker, deformation, or missing surface.
-   - The earlier character soak did not qualify animation and is not accepted as
-     proof for this item.
-   - The 2026-07-22 rendered qualification exposed a global orientation defect:
-     animated skeletal characters face 180 degrees away from their actor aim
-     and movement direction. Correct the root/basis handling rather than hiding
-     the defect with a presentation-only rotation.
-   - Requires in-game visual proof showing stable idle, walk/run, jump, attack,
-     hit, dodge, swim, crouch, and death animation across the complete custom
-     roster, plus correct menu previews and team skins, followed by rendered
-     bot-heavy multi-map and memory-heavy soaks and Steve's signoff.
-
-20. `DOM-Coagulate` black/clipped world rendering
-   - Reopened by Steve on 2026-07-22 after a rendered Xemu frame showed the HUD
-     and actors while nearly all world geometry appeared black.
-   - The deployed map still matches the previously signed-off rebuilt SHA-256
-     `6537E014FCCF782AFEAD235ACBD59DC0379A1CEE29B10C318E8071FB7B7D00B6`;
-     do not replace or reconvert it without new evidence.
-   - Determine whether the current symptom is the known behind-view diagnostic
-     camera clipping outside the converted BSP or a genuine base/lightmap
-     residency regression. Re-qualify normal first-person gameplay and safe
-     third-person captures before closing it again.
-
-18. Animated loading wheel
-   - Added by Steve on 2026-07-22.
-   - The existing loading wheel is currently drawn only once before synchronous
-     map loading blocks the main thread, so it appears frozen.
-   - Keep the current visual and animate it independently of percentage
-     complete. The animation must remain responsive during real map/package
-     loading and must not introduce re-entrant rendering or loading failures.
-   - Requires in-game visual proof and Steve's signoff.
 
 1.2. Co-op Tournament in existing multiplayer flows
    - Added by Steve on 2026-07-22 as a 1.2 ask.
@@ -115,6 +64,62 @@ does not depend on scattered chat context.
    - Include multiple DM, CTF, and AS maps.
 
 ## Completed And Signed-Off Items
+
+18. Animated loading wheel
+   - Completed and signed off by Steve on 2026-07-26.
+   - The loading screen now keeps the normal background while the spinner
+     animates independently during synchronous map/package loading.
+   - The old static spinner is suppressed during the background prepaint; the
+     Xbox renderer captures that clean loading frame, replays it during blocking
+     load pulses, and draws exactly one animated spinner over it.
+   - Xemu-only frontend travel proof:
+     `UT99-Xbox/build_cli/xemu_item18_loading_spinner_clean_20260725`.
+     The proof captured four clean loading-frame PNGs and 103 successful
+     rendered loading frames during `DM-Pantheon.unr`, with no fatal errors.
+   - Multi-frame rotation proof:
+     `UT99-Xbox/build_cli/xemu_item18_loading_spinner_multiframe_20260725`.
+   - Post-load gameplay handoff smoke passed on `DM-Deck16][` with 1 bot,
+     300 ticks, and steady FPS around 58.6.
+
+19. Skeletal-model fidelity and animation
+   - Completed and signed off by Steve on 2026-07-23.
+   - Restored loaded bone-track evaluation, stable skeletal bounds, package face
+     winding, and the stock PC render basis across the custom character roster.
+   - Steve approved animation, orientation, face winding, model stability, and
+     the corrected Skaarj Hybrid combat visual.
+   - The Skaarj defect was traced to red human blood billboards intersecting the
+     otherwise-correct model. Skaarj Hybrid actors now enable green blood after
+     `PostBeginPlay`.
+   - Rendered qualification covered all 17 custom character classes in isolated
+     matches with 102 captured frames, complete camera coverage, zero
+     skeletal-flicker alerts, and no fatal or capture failures.
+   - An additional eight-bot custom-roster soak ran 709.7 seconds with zero
+     flicker alerts and 15,384 KB minimum free memory. Final WarMachine proof ran
+     at 58.35 steady FPS with zero texture uploads after warmup.
+   - Expensive pose, render, material, and weapon diagnostics remain gated by
+     explicit qualification markers and do not run during normal gameplay.
+
+20. `DOM-Coagulate` lighting investigation
+   - Resolved and signed off by Steve on 2026-07-26.
+   - The deployed map still matches the previously signed-off rebuilt SHA-256
+     `6537E014FCCF782AFEAD235ACBD59DC0379A1CEE29B10C318E8071FB7B7D00B6`.
+   - Xemu lighting proof used first-person map-lighting anchors, skipped
+     pre-game/logo frames, and physically moved the local pawn through
+     `FarMoveActor`/`MoveActor` so the actor hash and zone were updated before
+     rendering. All eight viewpoints were inside BSP (`wouldClear=0`), with no
+     fatal errors or capture failures.
+   - Evidence:
+     `C:\Programming\GitHub\UnrealTournament_1.40\UT99-Xbox\build_cli\xemu_items20_21_lighting_proof_20260726_0003_pawnmove\02_DOM-Coagulate\lighting_contact_sheet.png`.
+
+21. `DM-Morpheus` lighting investigation
+   - Resolved and signed off by Steve on 2026-07-26.
+   - Xemu lighting proof rendered eight pawn-moved first-person viewpoints with
+     recognizable stock-map lighting, signs, sky, and weapon/world contrast.
+   - The run had no fatal errors, no lighting capture failures, no texture
+     upload churn during steady state, and all viewpoints were inside BSP
+     (`wouldClear=0`).
+   - Evidence:
+     `C:\Programming\GitHub\UnrealTournament_1.40\UT99-Xbox\build_cli\xemu_items20_21_lighting_proof_20260726_0003_pawnmove\01_DM-Morpheus\lighting_contact_sheet.png`.
 
 1. Controls menu
    - Signed off by Steve.

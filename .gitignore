@@ -6,6 +6,7 @@
 UT99-Xbox/build_cli/
 UT99-Xbox/build/
 build/
+release_work/
 
 # Migration backup directories (transient, regenerated on demand)
 _v400_backup/

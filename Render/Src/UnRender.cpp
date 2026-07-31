@@ -2859,6 +2859,62 @@ void URender::OccludeFrame( FSceneNode* Frame )
 	// Perform occlusion checking.
 	SetupDynamics( Frame, (Viewport->Actor->bBehindView || Frame->Parent!=NULL) ? NULL : Viewport->Actor->ViewTarget ?  Viewport->Actor->ViewTarget : Viewport->Actor );
 	OccludeBsp( Frame );
+#if TARGET_XBOX
+	if( Frame->Parent == NULL && GetFileAttributesA( "D:\\XboxCharacterSoak.ini" ) != 0xFFFFFFFF )
+	{
+		static AActor* LastXboxQueuedActor = NULL;
+		static UBOOL LastXboxQueued = 0;
+		static UBOOL HasXboxQueuedState = 0;
+		for( INT XboxActorIndex=0; XboxActorIndex<Frame->Level->Actors.Num(); XboxActorIndex++ )
+		{
+			AActor* XboxActor = Frame->Level->Actors(XboxActorIndex);
+			APawn* XboxPawn = Cast<APawn>( XboxActor );
+			if
+			(
+				!XboxPawn
+				|| !XboxPawn->bViewTarget
+				|| !XboxActor->Mesh
+				|| !XboxActor->Mesh->IsA(USkeletalMesh::StaticClass())
+			)
+				continue;
+			UBOOL XboxQueued = 0;
+			for( FDynamicSprite* XboxSprite=Frame->Sprite; XboxSprite; XboxSprite=XboxSprite->RenderNext )
+			{
+				if( XboxSprite->Actor == XboxActor )
+				{
+					XboxQueued = 1;
+					break;
+				}
+			}
+			if
+			(
+				!HasXboxQueuedState
+				|| XboxActor != LastXboxQueuedActor
+				|| XboxQueued != LastXboxQueued
+			)
+			{
+				debugf
+				(
+					XboxQueued ? NAME_Log : NAME_Warning,
+					TEXT("XSKELQUEUE state=%s actor=%s frame=%i sprite=%08X loc=(%.2f,%.2f,%.2f) zone=%i leaf=%i"),
+					XboxQueued ? TEXT("queued") : TEXT("occluded"),
+					XboxActor->GetFullName(),
+					Frame->Viewport->FrameCount,
+					(DWORD)Frame->Sprite,
+					XboxActor->Location.X,
+					XboxActor->Location.Y,
+					XboxActor->Location.Z,
+					XboxActor->Region.ZoneNumber,
+					XboxActor->Region.iLeaf
+				);
+				LastXboxQueuedActor = XboxActor;
+				LastXboxQueued = XboxQueued;
+				HasXboxQueuedState = 1;
+			}
+			break;
+		}
+	}
+#endif
 
 	// Remember surface lights.
 	for( INT i=0; i<3; i++ )

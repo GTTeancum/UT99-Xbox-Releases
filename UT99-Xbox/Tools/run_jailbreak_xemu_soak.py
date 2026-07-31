@@ -336,6 +336,8 @@ def launch_xemu(args, config_path, run_dir):
 def build_xemu_command(args, config_path):
     monitor = "tcp:127.0.0.1:%d,server,nowait" % args.monitor_port
     command = [args.xemu, "-config_path", config_path]
+    if getattr(args, "mute_audio", False):
+        command.extend(["-audio", "none"])
     if args.display_backend:
         command.extend(["-display", args.display_backend])
     command.extend(["-monitor", monitor])
@@ -707,6 +709,7 @@ def main(argv):
     parser.add_argument("--poll-timeout", type=float, default=5.0)
     parser.add_argument("--phys-delta", default="auto")
     parser.add_argument("--display-backend", default="", help="Optional QEMU display backend. Empty uses Xemu's default display path.")
+    parser.add_argument("--mute-audio", action="store_true", help="Launch Xemu with QEMU audio disabled.")
     parser.add_argument("--setup-only", action="store_true", help="Stage the selected map list, write the Xemu config, and build the ISO without launching Xemu.")
     parser.add_argument("--launch", action="store_true", help="Actually launch Xemu. Omit this to only stage configs/ISOs.")
     parser.add_argument("--separate-instances", action="store_true", help="Run each map in a fresh Xemu process. Default launch mode is one continuous Xemu process.")

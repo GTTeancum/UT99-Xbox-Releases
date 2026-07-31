@@ -1,0 +1,40 @@
+Unreal Tournament Xbox 1.1 - Installation
+==========================================
+
+Requirements
+------------
+
+- A modded original Xbox capable of launching unsigned XBE files.
+- A legally owned Unreal Tournament Game of the Year PC installation.
+
+Installation
+------------
+
+1. Create an `UnrealTournament` folder on the Xbox.
+2. Copy every file and folder from this release into that folder.
+3. From your PC GOTY installation, copy these four asset folders into the same
+   Xbox folder and merge them with the release folders:
+   - Maps
+   - Music
+   - Sounds
+   - Textures
+4. Launch `default.xbe`.
+
+Do not copy the PC `System` folder. Version 1.1 includes the tested Xbox System
+set, configuration, community packages, menus, and executable. Replacing those
+files with another PC or Xbox build can cause package mismatches or startup
+failures.
+
+The first press of Start after the intro flyby opens profile selection. Create
+or load a profile to enter the main menu.
+
+Upgrade from 1.0 RC1
+--------------------
+
+Install 1.1 into a clean folder, then copy the four owned PC asset folders
+listed above. Do not copy the old RC1 System folder over 1.1.
+
+Support
+-------
+
+https://github.com/GTTeancum/UT99-Xbox-Releases/issues

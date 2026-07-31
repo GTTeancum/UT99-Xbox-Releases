@@ -470,21 +470,29 @@ class ENGINE_API USkeletalMesh : public ULodMesh
 	TArray<FSkeletalBone>               RefSkeleton;
 	TArray<FSkeletalBoneInfluenceIndex> BoneInfluenceIndices;
 	TArray<FSkeletalBoneInfluence>      BoneInfluences;
+	TArray<FVector>                     LocalPoints;
 	TArray<FCoords>                     InvRefBases;
 	TArray<INT>                         AnimBoneMap;
 	FVector                             SkeletalBindMin;
 	FVector                             SkeletalBindMax;
 	INT                                 SkeletalDepth;
 	UAnimation*                         Animation;
+	INT                                 WeaponBoneIndex;
+	FCoords                             WeaponAdjust;
+	FCoords                             ClassicWeaponCoords;
 
 	USkeletalMesh()
 	: SkeletalBindMin(0,0,0)
 	, SkeletalBindMax(0,0,0)
 	, SkeletalDepth(0)
 	, Animation(NULL)
+	, WeaponBoneIndex(-1)
+	, WeaponAdjust(FVector(0,0,0))
+	, ClassicWeaponCoords(FVector(0,0,0))
 	{}
 
 	void Serialize( FArchive& Ar );
+	virtual FBox GetRenderBoundingBox( const AActor* Owner, UBOOL Exact );
 	virtual void GetFrame( FVector* Verts, INT Size, FCoords Coords, AActor* Owner );
 	virtual void GetFrame( FVector* Verts, INT Size, FCoords Coords, AActor* Owner, INT& LODRequest );
 };

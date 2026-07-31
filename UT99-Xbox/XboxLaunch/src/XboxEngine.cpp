@@ -317,9 +317,13 @@ void MainLoop( UEngine* Engine )
 	UBOOL bXboxSoakTravelScheduled = 0;
 	UBOOL bXboxStartSmokeEnabled = bXboxSoakEnabled || (GetFileAttributesA( "D:\\XboxStartURL.ini" ) != 0xFFFFFFFF);
 	UBOOL bXboxCharacterSoakEnabled = GetFileAttributesA( "D:\\XboxCharacterSoak.ini" ) != 0xFFFFFFFF;
+	UBOOL bXboxSkeletalStateProofEnabled = GetFileAttributesA( "D:\\XboxSkeletalStateProof.ini" ) != 0xFFFFFFFF;
 	UBOOL bXboxSmokeMatchEndLogged = 0;
 	DWORD XboxSoakCameraNextTime = 0;
+	INT XboxSoakCameraNextTick = 0;
 	INT XboxSoakCameraIndex = 0;
+	INT XboxSoakCameraActiveIndex = -1;
+	FString XboxSoakCameraActiveClass;
 
 	GXboxLog.Write( "MainLoop: entering game loop (Engine=0x%08X)", (DWORD)Engine );
 	GXboxLog.Write( "MainLoop: Xbox frame limiter active max=%.1f Hz", XboxMaxTickRate );
@@ -373,15 +377,28 @@ void MainLoop( UEngine* Engine )
 				SoakActor->ReducedDamageType = FName(TEXT("All"));
 				SoakActor->Health = Max( SoakActor->Health, 100 );
 				SoakActor->bBehindView = 1;
-				SoakActor->DesiredFOV = 40.0f;
+				SoakActor->DesiredFOV = 75.0f;
 				SoakActor->bShowScores = 0;
 				SoakActor->bShowMenu = 0;
 				SoakActor->bSpecialMenu = 0;
 
 				DWORD CameraNow = GetTickCount();
 				ULevel* SoakLevel = SoakActor->GetLevel();
-				if( TickCount >= 30 && SoakLevel && SoakLevel->GetLevelInfo()
-				&& (!XboxSoakCameraNextTime || (INT)(CameraNow-XboxSoakCameraNextTime) >= 0) )
+				if( SoakLevel && SoakLevel->GetLevelInfo() )
+				{
+					for( APawn* Bot = SoakLevel->GetLevelInfo()->PawnList; Bot; Bot = Bot->nextPawn )
+					{
+						if( Bot->PlayerReplicationInfo && Bot->PlayerReplicationInfo->bIsABot && Bot->Health > 0 )
+						{
+							Bot->ReducedDamageType = FName(TEXT("All"));
+							Bot->Health = Max( Bot->Health, 100000 );
+						}
+					}
+				}
+				const UBOOL bCameraHandoffReady = bXboxSkeletalStateProofEnabled
+					? (!XboxSoakCameraNextTick || TickCount >= XboxSoakCameraNextTick)
+					: (!XboxSoakCameraNextTime || (INT)(CameraNow-XboxSoakCameraNextTime) >= 0);
+				if( TickCount >= 300 && SoakLevel && SoakLevel->GetLevelInfo() && bCameraHandoffReady )
 				{
 					INT LiveBotCount = 0;
 					for( APawn* Bot = SoakLevel->GetLevelInfo()->PawnList; Bot; Bot = Bot->nextPawn )
@@ -400,10 +417,11 @@ void MainLoop( UEngine* Engine )
 								continue;
 							if( BotIndex++ == WantedBot )
 							{
-								Bot->ReducedDamageType = FName(TEXT("All"));
-								Bot->Health = Max( Bot->Health, 100 );
-								SoakActor->ViewTarget = Bot;
 								Bot->bViewTarget = 1;
+								XboxSoakCameraActiveIndex = WantedBot;
+								XboxSoakCameraActiveClass = Bot->GetClass()
+									? Bot->GetClass()->GetFullName()
+									: TEXT("");
 								GXboxLog.Write( "XSKELCAM tick=%d index=%d class=%s",
 									TickCount,
 									WantedBot,
@@ -412,8 +430,18 @@ void MainLoop( UEngine* Engine )
 							}
 						}
 						XboxSoakCameraIndex++;
-						XboxSoakCameraNextTime = CameraNow + 300000;
+						if( bXboxSkeletalStateProofEnabled )
+							XboxSoakCameraNextTick = TickCount + 1500;
+						else
+							XboxSoakCameraNextTime = CameraNow + 20000;
 					}
+				}
+				if( XboxSoakCameraActiveIndex >= 0 && XboxSoakCameraActiveClass.Len() && (TickCount % 60) == 0 )
+				{
+					GXboxLog.Write( "XSKELCAM tick=%d index=%d class=%s",
+						TickCount,
+						XboxSoakCameraActiveIndex,
+						TCHAR_TO_ANSI(*XboxSoakCameraActiveClass) );
 				}
 			}
 		}

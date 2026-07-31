@@ -57,16 +57,13 @@ void UAnimation::Serialize( FArchive& Ar )
 						}
 				}
 
-				// UE1 skeletal packages carry unreliable time tracks. Preserve their
-				// native basis; this engine consumes UE1 data directly.
-				Track.KeyTime.Empty();
 			}
 		}
 
 		debugf
 		(
 			NAME_Log,
-			TEXT("XSKELAUDIT animation=%s bones=%i moves=%i seqs=%i tracks=%i timed=%i nonmonotonic=%i mismatched=%i emptyrot=%i emptypos=%i timing=uniform basis=ue1-native"),
+			TEXT("XSKELAUDIT animation=%s bones=%i moves=%i seqs=%i tracks=%i timed=%i nonmonotonic=%i mismatched=%i emptyrot=%i emptypos=%i timing=keytime basis=ue1-native"),
 			GetFullName(),
 			RefBones.Num(),
 			Moves.Num(),

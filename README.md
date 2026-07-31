@@ -8,11 +8,12 @@ Release-only page for the original Xbox port of *Unreal Tournament: Game of the 
 
 ## Feature Highlights
 
-- Unreal Tournament GOTY support, including GOTY-provided ChaosUT and Rocket Arena content
-- PlayStation 2 and Dreamcast maps added
-- PlayStation 2 characters added
-- Jailbreak III Gold included
-- Experimental support for split-screen, System Link, and split-screen over System Link
+- Full Unreal Tournament GOTY gameplay on original Xbox
+- Tournament, Instant Action, Jailbreak III Gold, split-screen, and System Link
+- 39 converted PlayStation 2 and Dreamcast arena maps
+- PlayStation 2 character pack 3.0 and Master Chief
+- Per-player profiles for names, characters, team preference, controls, and Tournament progress
+- Xbox-focused menus, controller presets, safe-zone controls, video adjustment, and dashboard artwork
 
 ## Screenshots
 
@@ -25,20 +26,23 @@ Release-only page for the original Xbox port of *Unreal Tournament: Game of the 
   <img src="screenshots/ctf-phalanx.png" alt="CTF-Phalanx console map preview" width="280">
 </p>
 
-## 1.0RC1 Includes
+## Version 1.1 Includes
 
-- Original Xbox `default.xbe`
-- Xbox menu assets, controller icons, PS2 character portraits, and converted Xbox music files
-- PlayStation 2 character support packages and skins
-- Jailbreak III Gold runtime files
-- UT99 Console Map Pack PS2/DC 2026-05-29, with 39 converted console arena maps
+- Original Xbox `default.xbe`, dashboard icon, save image, and tested System files
+- Xbox menu assets, controller icons, character portraits, and converted Xbox music
+- PlayStation 2 character pack 3.0, Master Chief, and matching skins
+- Jailbreak III Gold runtime files and original documentation
+- UT99 Console Map Pack PS2/DC 2026-05-29 with 39 converted console arena maps
+- CTF-Titania, DM-HangEmHigh, and DM-Halo-Derelict
+- OldSkool Amp'd Weapons 2.39 mutator
 
 ## Installation
 
-This package is for owners of *Unreal Tournament: Game of the Year Edition* on PC. It does not include the base PC game data.
+This package is for owners of *Unreal Tournament: Game of the Year Edition* on PC. It does not include the base PC game assets.
 
 1. Create a folder on your Xbox hard drive, for example `E:\Games\UnrealTournament\`.
-2. From your own Unreal Tournament GOTY PC install, copy only these base game folders AND file types:
+2. Copy everything from the 1.1 release into that folder.
+3. From your own Unreal Tournament GOTY PC installation, copy only these asset folders and merge them with the release:
 
 ```text
 UnrealTournament\
@@ -50,35 +54,41 @@ UnrealTournament\
     *.uax
   Music\
     *.umx
-  System\
-    *.u
-    *.int
-    *.ini
 ```
 
-3. Do not copy PC executables, DLLs, editor files, logs, cache files, compressed downloads, Help, Web, or other desktop-only files.
-4. Copy everything from this RC package into the same Xbox folder after the GOTY files. Allow this package to overwrite files when asked.
-5. Launch `default.xbe` from your dashboard.
+4. Do **not** copy the PC `System` folder. Version 1.1 includes the tested Xbox System set and configuration.
+5. Launch `default.xbe`.
 
-The final Xbox folder should contain `default.xbe` plus `System`, `Maps`, `Textures`, `Sounds`, `Music`, `MusicXbox`, and `MenuAssets` folders. `Voice` is optional if your source install has it.
+The first press of Start after the intro flyby opens profile selection. Create or load a profile to enter the main menu.
+
+For an upgrade from 1.0 RC1, install 1.1 into a clean folder and then copy the four owned PC asset folders above. Do not merge the old RC1 System folder into 1.1.
 
 ## Notes
 
 - Jailbreak is available from Instant Action as `JAILBREAK`.
-- The console maps appear under their normal DM, CTF, and DOM map prefixes.
-- The PS2 characters are available from the player and bot character lists.
-- Keep this package's `Default.ini` and `UnrealTournament.ini` in `System`; they are required for Xbox play, menus, controls, audio, and bundled content.
-- Beyond GOTY-provided ChaosUT and Rocket Arena plus the included Jailbreak package, other mods are not currently supported. Try other mods at your own risk.
+- Console and community maps appear under their normal DM, CTF, DOM, and JB prefixes.
+- Keep the release's `Default.ini` and `UnrealTournament.ini`; both are required for Xbox menus, controls, audio, profiles, and bundled content.
+- Hardware System Link and extended long-play qualification remain ongoing.
 
 ## Credits
 
 *Unreal Tournament* was created by Epic Games and Digital Extremes. Original PC publishing was by GT Interactive, with later console publishing by Infogrames. Original music credits include Straylight Productions and Michiel van den Bos.
 
-Original console releases and content are credited to their respective Unreal Tournament PlayStation 2 and Dreamcast teams. The Dreamcast release credits Secret Level Games, Infogrames, Epic Games, and Digital Extremes. Console map author details are preserved in the release archive under `Docs\Console_Map_Pack_README.txt`.
+The converted PlayStation 2 and Dreamcast map set preserves work by Cliff Bleszinski, Dave Ewing, Eric "Ebolt" Boltjes, Cedric "Inoxx" Fiorentino, Juan Pancho "XceptOne" Eekels, Rich "Akuma" Eastwood, Alan "Talisman" Willard, and Warren Marshall. Per-map details are retained in `Docs/Console_Map_Pack_README.txt`.
 
-Jailbreak III Gold is credited to Team Jailbreak. Public history credits Daikiki, Mychaeel, and ElBundee as the core Jailbreak III team. Bundled Jailbreak map and content credits include David Munnich, Daniel "MClane" Pflugbeil, Cory Spooner "TheSpoonDog", Emil "Hyperion" Attlid, Eric "SnowDog" Ettes, Alexander "lehmi" Lehmann, Sjoerd "Hourences" De Jong, NYGrrrl, ElBundee, and the other contributors recorded with the mod.
+[Jailbreak III Gold](https://unrealarchive.org/unreal-tournament/gametypes/J/jailbreak-iii/index.html) is credited to Daikiki, ElBundee, Mychaeel, its original and Gold map-pack teams, Sioux "NYGrrrl" Blue, its mutator/interface authors, testers, and all additional contributors retained in the original documentation.
 
-Advanced Model Support is credited in its package metadata to Psychic_313. PS2 character models, skins, and voices are derived from the original Unreal Tournament console content and remain property of their respective owners.
+Community content:
+
+- CTF-Titania: Squacky; UTDMT by Patrick Cyr (GorGor); Quake III-derived art by id Software
+- [DM-HangEmHigh](https://unrealarchive.org/unreal-tournament/maps/deathmatch/H/dm-hangemhigh_3b0fe14d.html): jkcrmptn
+- [DM-Halo-Derelict](https://unrealarchive.org/unreal-tournament/maps/deathmatch/H/dm-halo-derelict_0ea4e9f6.html): [^..^]APOCALYPSE (Cirion UT 2K4 / Perfect Chaos), with additional credits retained from its readme
+- PlayStation 2 Character Pack 3.0: AlCapowned; original PS2 models by James Green and Epic Games
+- Advanced Model Support: Psychic_313
+- Master Chief conversion: author not identified in the supplied package metadata; Unreal Archive also lists it as Unknown
+- [OldSkool Amp'd Weapons 2.39](https://unrealarchive.org/unreal-tournament/mutators/O/oldskool-ampd-v239_f1f653ad.html): UsAaR33
+
+Halo, Master Chief, and related content are credited to Bungie and Microsoft; the Derelict map lineage also credits Gearbox. Full attribution, source references, map authors, and original Jailbreak documentation are included in every release.
 
 Xbox port, integration, validation, and release package: GTRemyLebeau and OpenAI Codex.
 

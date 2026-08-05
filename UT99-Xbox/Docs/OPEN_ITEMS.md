@@ -1,6 +1,6 @@
 # UT99 Xbox Open Items
 
-Last updated: 2026-07-26
+Last updated: 2026-08-03
 
 This is the quick-access tracker for active UT99 Xbox work. It preserves the
 older project backlog and adds the current visual-signoff queue so the project
@@ -9,6 +9,46 @@ does not depend on scattered chat context.
 ## Open Items
 
 ### Current Queue
+
+1. Texture/light flickering in maps
+   - Added by Steve on 2026-08-03 after reports from several users.
+   - Root cause found 2026-08-04: display calibration post-process leaked
+     texture address CLAMP into world rendering.
+     - `XboxRenderApplyDisplayPostProcess` runs from `Unlock` every frame once
+       brightness/contrast/gamma are off neutral, and sets stages 0-2 to
+       `D3DTADDRESS_CLAMP` with raw `SetTextureStageState` calls.
+     - The only code that programs `D3DTADDRESS_WRAP` for stages 0/1 is the
+       one-shot `bStateInit` block in `Lock`, which runs on frame 1 only.
+       `RestoreDefaultTextureStages` also restores WRAP but is reachable only
+       from menus, loading screens, `Draw2DLine`/`Draw2DPoint`, the perf
+       overlay, and `EndFlash` - none of which run during ordinary gameplay
+       with the forced Xbox defaults (`ScreenFlashes=0`, no overlay).
+     - BSP UVs tile far outside 0..1, so under CLAMP every world surface smears
+       its edge texel across the whole polygon. This is the "extremely
+       stretched textures" in issue 6, and it persists for the rest of the
+       session.
+     - Explains why only some users see it (neutral calibration early-outs at
+       the `Neutral` check), why it appeared in 1.1 (calibration shipped in
+       0dfeb25), and why toggling menus can appear to fix it temporarily.
+   - Fix applied: `XboxRenderApplyDisplayPostProcess` now calls
+     `RestoreDefaultTextureStages()` after invalidating the state caches.
+   - Verified on Xemu 2026-08-04 via `run_xemu_stress_matrix.py --lighting-proof`
+     on DM-Deck16][ with `Brightness=0.75 Contrast=1.30 Gamma=1.25`. Two builds
+     differing only by that one line, compared at the same deterministic
+     viewpoint (`slot1_draw120`):
+     - Pre-fix: `ADDRTRACE s0u=3 s0v=3 s1u=3` (CLAMP) sustained, and the frame
+       is entirely horizontal smear bands with no recoverable geometry detail.
+     - Fixed: `ADDRTRACE s0u=1 s0v=1 s1u=1` (WRAP), and the frame renders
+       correctly - ceiling light strips, wall panels, floor tiles, pickups.
+     - Detail-free pixel fraction falls 59.1% -> 42.9% and 79.9% -> 53.2% on
+       the two matched viewpoints.
+   - Test procedure note: `build_xbox_cli.py` re-copies the repo System inis
+     into `build/System` on every build, so calibration overrides must be
+     applied AFTER building or the run silently reverts to neutral and the
+     post-process early-outs without reproducing anything.
+   - Still untested on real hardware.
+   - Permanent diagnostics added: `ADDRTRACE` (sampler address mode every 60th
+     frame), `CLAMPTRACE`, and `clampBad`/`clampOk`/`nobase` counters on `PERF`.
 
 1.2. Co-op Tournament in existing multiplayer flows
    - Added by Steve on 2026-07-22 as a 1.2 ask.

@@ -52,12 +52,16 @@ REQUIRED_FILES = (
     "Sounds/JBAudio.uax",
     "System/AdvancedModelSupport.u",
     "System/ChaosUT.u",
+    "System/Default.ini",
+    "System/DefUser.ini",
     "System/HaloMasterChief.u",
     "System/HaloMasterChief.int",
     "System/HaloMasterChiefSkins.utx",
     "System/JailBreak.u",
     "System/OLweapons.u",
     "System/RocketArena.u",
+    "System/UnrealTournament.ini",
+    "System/User.ini",
     "System/UTPS2Characters.u",
     "Textures/ScriptedScreen.utx",
 )
@@ -187,6 +191,22 @@ def validate_package(package_root):
     if forbidden:
         fail("Development artifacts are present: " + ", ".join(forbidden))
 
+    relative_paths = [
+        os.path.relpath(path, package_root).replace(os.sep, "/")
+        for path in iter_files(package_root)
+    ]
+    casefolded_paths = {}
+    for relative in relative_paths:
+        folded = relative.lower()
+        if folded in casefolded_paths:
+            fail(
+                "Case-colliding release paths: {} and {}".format(
+                    casefolded_paths[folded],
+                    relative,
+                )
+            )
+        casefolded_paths[folded] = relative
+
     for name in ("lib", "obj", "Help", "Web"):
         if os.path.exists(os.path.join(package_root, name)):
             fail("Forbidden release-root directory is present: " + name)
@@ -207,6 +227,21 @@ def validate_package(package_root):
     for package in ("jailbreak", "jbarena", "jbspecials", "screen", "jailfight"):
         if "serverpackages=" + package not in config:
             fail("Default.ini is missing ServerPackages={}".format(package))
+
+    ini_pairs = (
+        ("Default.ini", "UnrealTournament.ini"),
+        ("DefUser.ini", "User.ini"),
+    )
+    for template_name, runtime_name in ini_pairs:
+        template_path = os.path.join(package_root, "System", template_name)
+        runtime_path = os.path.join(package_root, "System", runtime_name)
+        if sha256_file(template_path) != sha256_file(runtime_path):
+            fail(
+                "Fresh runtime ini does not match its template: {} != {}".format(
+                    runtime_name,
+                    template_name,
+                )
+            )
 
     return map_count
 
@@ -240,6 +275,117 @@ def write_zip(package_root, archive_path):
         for path in iter_files(package_root):
             relative = os.path.relpath(path, package_root).replace(os.sep, "/")
             archive.write(path, prefix + "/" + relative)
+
+
+def validate_manifest(package_root):
+    manifest_relative = "Docs/FILE_MANIFEST_SHA256.txt"
+    manifest_path = os.path.join(
+        package_root,
+        manifest_relative.replace("/", os.sep),
+    )
+    expected = {}
+    for path in iter_files(package_root):
+        relative = os.path.relpath(path, package_root).replace(os.sep, "/")
+        if relative == manifest_relative:
+            continue
+        expected[relative] = path
+
+    recorded = {}
+    with open(manifest_path, "r") as stream:
+        header = stream.readline().rstrip("\r\n")
+        if header != "SHA256  BYTES  PATH":
+            fail("Invalid release manifest header")
+        for line_number, raw_line in enumerate(stream, 2):
+            fields = raw_line.rstrip("\r\n").split(None, 2)
+            if len(fields) != 3:
+                fail("Invalid release manifest row {}".format(line_number))
+            digest, size_text, relative = fields
+            if relative in recorded:
+                fail("Duplicate release manifest path: " + relative)
+            try:
+                size = int(size_text)
+            except ValueError:
+                fail("Invalid release manifest size for " + relative)
+            recorded[relative] = (digest.upper(), size)
+
+    if set(recorded) != set(expected):
+        missing = sorted(set(expected) - set(recorded))
+        extra = sorted(set(recorded) - set(expected))
+        fail(
+            "Release manifest coverage mismatch; missing={} extra={}".format(
+                ", ".join(missing),
+                ", ".join(extra),
+            )
+        )
+
+    verified = {}
+    for relative, path in expected.items():
+        actual_size = os.path.getsize(path)
+        actual_digest = sha256_file(path)
+        expected_digest, expected_size = recorded[relative]
+        if actual_size != expected_size or actual_digest != expected_digest:
+            fail("Release manifest mismatch for " + relative)
+        verified[relative] = actual_digest
+    return verified
+
+
+def validate_archive(package_root, archive_path, payload_hashes):
+    prefix = os.path.basename(package_root) + "/"
+    manifest_relative = "Docs/FILE_MANIFEST_SHA256.txt"
+    expected = dict(payload_hashes)
+    expected[manifest_relative] = sha256_file(
+        os.path.join(package_root, manifest_relative.replace("/", os.sep))
+    )
+
+    with zipfile.ZipFile(archive_path, "r") as archive:
+        infos = [info for info in archive.infolist() if not info.filename.endswith("/")]
+        archived = {}
+        casefolded = {}
+        for info in infos:
+            if not info.filename.startswith(prefix):
+                fail("Archive entry is outside the release root: " + info.filename)
+            relative = info.filename[len(prefix):]
+            if (
+                not relative
+                or "\\" in relative
+                or relative.startswith("/")
+                or ".." in relative.split("/")
+            ):
+                fail("Unsafe archive entry path: " + info.filename)
+            if relative in archived:
+                fail("Duplicate archive entry: " + info.filename)
+            folded = relative.lower()
+            if folded in casefolded:
+                fail(
+                    "Case-colliding archive entries: {} and {}".format(
+                        casefolded[folded],
+                        relative,
+                    )
+                )
+            archived[relative] = info
+            casefolded[folded] = relative
+
+        if set(archived) != set(expected):
+            missing = sorted(set(expected) - set(archived))
+            extra = sorted(set(archived) - set(expected))
+            fail(
+                "Archive payload mismatch; missing={} extra={}".format(
+                    ", ".join(missing),
+                    ", ".join(extra),
+                )
+            )
+
+        for relative, expected_digest in expected.items():
+            digest = hashlib.sha256()
+            with archive.open(archived[relative], "r") as stream:
+                while True:
+                    chunk = stream.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    digest.update(chunk)
+            if digest.hexdigest().upper() != expected_digest:
+                fail("Archive content mismatch for " + relative)
+    return len(expected)
 
 
 def main():
@@ -286,11 +432,14 @@ def main():
     copy_jailbreak_docs(args.jailbreak_archive, docs_root)
     map_count = validate_package(package_root)
     manifest_count = write_manifest(package_root)
+    payload_hashes = validate_manifest(package_root)
     write_zip(package_root, archive_path)
+    archive_count = validate_archive(package_root, archive_path, payload_hashes)
 
     print("Release package: " + package_root)
     print("Bundled maps: {}".format(map_count))
     print("Manifest entries: {}".format(manifest_count))
+    print("Verified archive files: {}".format(archive_count))
     print("Archive: " + archive_path)
     print("Archive bytes: {}".format(os.path.getsize(archive_path)))
     print("Archive SHA256: " + sha256_file(archive_path))

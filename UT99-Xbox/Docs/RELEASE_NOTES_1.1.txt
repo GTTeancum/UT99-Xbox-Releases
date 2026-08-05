@@ -3,6 +3,13 @@ Unreal Tournament Xbox 1.1
 
 Version 1.1 is a complete release package, not a patch.
 
+Package correction — July 31, 2026
+----------------------------------
+
+- Replaced the original 1.1 archive less than 24 hours after release to include
+  System\DefUser.ini and System\User.ini, which are required for clean startup.
+- This is a corrected 1.1 package, not a new release or version.
+
 General
 -------
 

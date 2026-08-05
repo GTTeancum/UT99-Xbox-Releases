@@ -638,7 +638,7 @@ def copy_known_good_system_files(system_dst):
 
     print("Copied {} known-good v436/GOTY System files to {}".format(copied, system_dst))
     if missing:
-        print("WARNING: missing known-good System files: " + ", ".join(missing))
+        fail("Missing known-good System files: " + ", ".join(missing))
 
 
 def copy_runtime_assets(build_root):
@@ -659,16 +659,19 @@ def copy_runtime_assets(build_root):
     system_dst = os.path.join(build_root, "System")
     copy_known_good_system_files(system_dst)
 
-    default_ini = os.path.join(system_src, "Default.ini")
-    if os.path.isfile(default_ini):
-        if not os.path.isdir(system_dst):
-            os.makedirs(system_dst)
-        runtime_ini = os.path.join(system_dst, "UnrealTournament.ini")
-        if os.path.isfile(runtime_ini):
-            os.remove(runtime_ini)
-        shutil.copy2(default_ini, os.path.join(system_dst, "Default.ini"))
-        shutil.copy2(default_ini, runtime_ini)
-        print("Copied Xbox System ini files to " + system_dst)
+    ini_templates = (
+        ("Default.ini", ("Default.ini", "UnrealTournament.ini")),
+        ("DefUser.ini", ("DefUser.ini", "User.ini")),
+    )
+    if not os.path.isdir(system_dst):
+        os.makedirs(system_dst)
+    for source_name, target_names in ini_templates:
+        source_path = os.path.join(system_src, source_name)
+        if not os.path.isfile(source_path):
+            fail("Missing Xbox System ini template: " + source_path)
+        for target_name in target_names:
+            shutil.copy2(source_path, os.path.join(system_dst, target_name))
+    print("Copied Xbox System ini files to " + system_dst)
 
     menu_src = os.path.join(XBOX_DIR, "MenuAssets")
     menu_dst = os.path.join(build_root, "MenuAssets")

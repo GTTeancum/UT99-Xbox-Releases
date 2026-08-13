@@ -77,6 +77,16 @@ CASES = [
         "reason": "well-lit stock arena for close skeletal, winding, material, and weapon inspection",
     },
     {
+        "map": "DM-Oblivion",
+        "game": "Botpack.DeathMatchPlus",
+        "player": "Botpack.TMale1",
+        "bots": 1,
+        "roster_offset": 2,
+        "roster_span": 1,
+        "seconds": 60,
+        "reason": "first Deathmatch Tournament arena from the user flicker report",
+    },
+    {
         "map": "DM-Morpheus",
         "game": "Botpack.DeathMatchPlus",
         "player": "Botpack.TMale1",
@@ -155,6 +165,15 @@ XSKELCAM_RE = re.compile(
 )
 XLIGHTCAM_RE = re.compile(
     r"XLIGHTCAM draw=(\d+) slot=(\d+) count=(\d+) map=([^\s]+).*?wouldClear=(\d+)"
+)
+XFLICKER_MOVE_RE = re.compile(
+    r"XFLICKER MOVE ms=(\d+) map=([^\s]+).*?segment=([0-9.]+) total=([0-9.]+) phase=(\d+)"
+)
+XFLICKER_CALIBRATION_RE = re.compile(
+    r"XFLICKER CALIBRATION phase=(\d+) brightness=([0-9.]+) contrast=([0-9.]+) gamma=([0-9.]+)"
+)
+ADDRTRACE_RE = re.compile(
+    r"ADDRTRACE f=(\d+) s0u=(\d+) s0v=(\d+) s1u=(\d+)"
 )
 PERF_RE = re.compile(r"\bPERF fps=([0-9.]+)")
 PERF_DETAIL_RE = re.compile(
@@ -281,6 +300,7 @@ def prepare_base(args):
         "XboxStartURL.ini",
         "XboxCharacterSoak.ini",
         "XboxLightingProof.ini",
+        "XboxFlickerTraversal.ini",
         "XboxSkeletalStateProof.ini",
         "XboxSkaarjSkinProof.ini",
         "XboxIssueMapSmoke.ini",
@@ -295,7 +315,10 @@ def prepare_base(args):
         path = os.path.join(stage, marker)
         if os.path.isfile(path):
             os.remove(path)
-    if args.lighting_proof:
+    if args.traversal_proof:
+        with open(os.path.join(stage, "XboxFlickerTraversal.ini"), "w") as handle:
+            handle.write("; Continuous movement and temporal flicker qualification\n")
+    elif args.lighting_proof:
         with open(os.path.join(stage, "XboxLightingProof.ini"), "w") as handle:
             handle.write("; Deterministic map-lighting viewpoint qualification\n")
     else:
@@ -338,7 +361,9 @@ def prepare_case(args, stage, case, run_dir):
             handle.write("; Frontend-driven loading-spinner proof\n")
         url = "frontend-proof:" + marker_name
         proof_markers = [marker_name]
-        if args.lighting_proof:
+        if args.traversal_proof:
+            proof_markers.append("XboxFlickerTraversal.ini")
+        elif args.lighting_proof:
             proof_markers.append("XboxLightingProof.ini")
         else:
             proof_markers.append("XboxCharacterSoak.ini")
@@ -349,7 +374,9 @@ def prepare_case(args, stage, case, run_dir):
             ["; Isolated rendered Xemu stress case", "StartURL=" + url],
         )
         proof_markers = ["XboxStartURL.ini"]
-        if args.lighting_proof:
+        if args.traversal_proof:
+            proof_markers.append("XboxFlickerTraversal.ini")
+        elif args.lighting_proof:
             proof_markers.append("XboxLightingProof.ini")
         else:
             proof_markers.append("XboxCharacterSoak.ini")
@@ -536,6 +563,34 @@ def parse_case_evidence(text, case):
     ordered_perf = [perf_by_time[key] for key in sorted(perf_by_time)]
     steady_perf = ordered_perf[-min(8, len(ordered_perf)):]
     skeletal_flicker_lines = XSKEL_FLICKER_RE.findall(text)
+    traversal_moves = [
+        {
+            "milliseconds": int(match.group(1)),
+            "map": match.group(2),
+            "segmentDistance": float(match.group(3)),
+            "distanceFromStart": float(match.group(4)),
+            "phase": int(match.group(5)),
+        }
+        for match in XFLICKER_MOVE_RE.finditer(text)
+    ]
+    calibration_changes = [
+        {
+            "phase": int(match.group(1)),
+            "brightness": float(match.group(2)),
+            "contrast": float(match.group(3)),
+            "gamma": float(match.group(4)),
+        }
+        for match in XFLICKER_CALIBRATION_RE.finditer(text)
+    ]
+    address_traces = [
+        {
+            "frame": int(match.group(1)),
+            "stage0AddressU": int(match.group(2)),
+            "stage0AddressV": int(match.group(3)),
+            "stage1AddressU": int(match.group(4)),
+        }
+        for match in ADDRTRACE_RE.finditer(text)
+    ]
     summary.update({
         "activeMapSamples": len(map_samples),
         "activeMapLastTick": max([item[0] for item in map_samples] or [0]),
@@ -561,6 +616,27 @@ def parse_case_evidence(text, case):
         ),
         "skeletalFlickerAlertCount": len(skeletal_flicker_lines),
         "skeletalFlickerAlerts": skeletal_flicker_lines,
+        "traversalMovementSamples": len(traversal_moves),
+        "traversalDistanceTravelled": sum(
+            item["segmentDistance"] for item in traversal_moves
+        ),
+        "traversalMaxDistanceFromStart": max(
+            (item["distanceFromStart"] for item in traversal_moves), default=0.0
+        ),
+        "traversalMoves": traversal_moves,
+        "calibrationChangeCount": len(calibration_changes),
+        "calibrationPhases": sorted({item["phase"] for item in calibration_changes}),
+        "calibrationChanges": calibration_changes,
+        "addressTraceCount": len(address_traces),
+        "nonWrapAddressTraceCount": sum(
+            1 for item in address_traces
+            if item["stage0AddressU"] != 1 or item["stage0AddressV"] != 1
+        ),
+        "addressTraces": address_traces,
+        "missingBaseTextureCount": text.count("RTEX nobase"),
+        "displayPostFailureCount": text.count("RCOLOR post draw failure")
+            + text.count("RCOLOR post copy failure")
+            + text.count("RCOLOR post resource failure"),
     })
     return summary
 
@@ -575,7 +651,8 @@ def run_case(args, stage, case, index, xiso_tool, config_path):
     expected_classes = expected_case_classes(case)
     frontend_loading_proof = bool(args.frontend_loading_proof)
     lighting_proof = bool(args.lighting_proof)
-    required_camera_bursts = 0 if (frontend_loading_proof or lighting_proof) else min(
+    traversal_proof = bool(args.traversal_proof)
+    required_camera_bursts = 0 if (frontend_loading_proof or lighting_proof or traversal_proof) else min(
         max(1, case.get("camera_burst_limit", args.camera_burst_limit)),
         len(expected_classes),
     )
@@ -602,6 +679,9 @@ def run_case(args, stage, case, index, xiso_tool, config_path):
     screenshots = []
     camera_screenshots = []
     lighting_screenshots = []
+    traversal_screenshots = []
+    traversal_capture_failures = []
+    completed_traversal_bursts = 0
     loading_screenshots = []
     last_loading_frame = 0
     captured_lighting_slots = set()
@@ -1096,6 +1176,39 @@ def run_case(args, stage, case, index, xiso_tool, config_path):
                 elapsed = time.time() - live_started
                 halfway = case["seconds"] / 2.0
                 if (
+                    traversal_proof
+                    and completed_traversal_bursts < args.traversal_bursts
+                ):
+                    burst_spacing = case["seconds"] / float(args.traversal_bursts + 1)
+                    burst_target = burst_spacing * (completed_traversal_bursts + 1)
+                    if elapsed >= burst_target:
+                        burst_number = completed_traversal_bursts + 1
+                        captured_paths = []
+                        for frame_number in range(1, args.traversal_frames + 1):
+                            if frame_number > 1:
+                                time.sleep(0.12)
+                            path = os.path.join(
+                                screenshot_dir,
+                                "traversal_b%02d_f%02d.png"
+                                % (burst_number, frame_number),
+                            )
+                            reply = capture_screen(
+                                proc.pid,
+                                args.screenshot_dir,
+                                path,
+                                args.monitor_port,
+                            )
+                            if not os.path.isfile(path):
+                                traversal_capture_failures.append(
+                                    "burst=%d frame=%d elapsed=%.1f: %s"
+                                    % (burst_number, frame_number, elapsed, reply)
+                                )
+                                break
+                            captured_paths.append(path)
+                        traversal_screenshots.extend(captured_paths)
+                        if len(captured_paths) == args.traversal_frames:
+                            completed_traversal_bursts += 1
+                if (
                     not args.skip_general_screenshots
                     and elapsed >= halfway
                     and len(screenshots) < 2
@@ -1115,6 +1228,10 @@ def run_case(args, stage, case, index, xiso_tool, config_path):
                         or len(captured_lighting_slots) >= args.lighting_proof_screenshots
                     )
                     and completed_camera_bursts >= required_camera_bursts
+                    and (
+                        not traversal_proof
+                        or completed_traversal_bursts >= args.traversal_bursts
+                    )
                     and camera_burst_remaining == 0
                     and required_state_keys.issubset(captured_state_keys)
                 ):
@@ -1195,6 +1312,12 @@ def run_case(args, stage, case, index, xiso_tool, config_path):
         "lightingScreenshots": lighting_screenshots,
         "capturedLightingSlots": sorted(captured_lighting_slots),
         "lightingCaptureFailures": lighting_capture_failures,
+        "traversalProofEnabled": traversal_proof,
+        "traversalScreenshots": traversal_screenshots,
+        "traversalRequiredBursts": args.traversal_bursts if traversal_proof else 0,
+        "traversalFramesPerBurst": args.traversal_frames if traversal_proof else 0,
+        "completedTraversalBursts": completed_traversal_bursts,
+        "traversalCaptureFailures": traversal_capture_failures,
         "completedCameraBursts": completed_camera_bursts,
         "requiredCameraBursts": required_camera_bursts,
         "cameraFramesPerBurst": camera_frames_per_burst,
@@ -1234,6 +1357,24 @@ def run_case(args, stage, case, index, xiso_tool, config_path):
                 and loading_proof_complete
             )
             if frontend_loading_proof else
+            (
+                ok
+                and summary["fatalCount"] == 0
+                and summary["activeMapLastTick"] >= required_tick
+                and completed_traversal_bursts >= args.traversal_bursts
+                and not traversal_capture_failures
+                and summary["traversalMovementSamples"] >= 5
+                and summary["traversalDistanceTravelled"] >= 512.0
+                and len(summary["calibrationPhases"]) >= 4
+                and summary["addressTraceCount"] >= 1
+                and summary["nonWrapAddressTraceCount"] == 0
+                and summary["missingBaseTextureCount"] == 0
+                and summary["displayPostFailureCount"] == 0
+                and summary["steadyAverageFps"] is not None
+                and summary["steadyMaxTextureUploads"] is not None
+                and summary["steadyMaxTextureUploads"] <= args.max_steady_texture_uploads
+            )
+            if traversal_proof else
             (
                 ok
                 and summary["fatalCount"] == 0
@@ -1379,6 +1520,23 @@ def main(argv):
         help="Number of distinct lighting-proof viewpoints required per map",
     )
     parser.add_argument(
+        "--traversal-proof",
+        action="store_true",
+        help="Spectate a navigating bot and capture temporal frame bursts while moving",
+    )
+    parser.add_argument(
+        "--traversal-bursts",
+        type=int,
+        default=3,
+        help="Number of moving frame bursts required per map",
+    )
+    parser.add_argument(
+        "--traversal-frames",
+        type=int,
+        default=8,
+        help="Consecutive moving frames captured in each traversal burst",
+    )
+    parser.add_argument(
         "--skeletal-state-proof",
         action="store_true",
         help="Require deterministic rendered coverage for all ten skeletal animation states",
@@ -1420,6 +1578,12 @@ def main(argv):
             raise RuntimeError("--loading-proof-screenshots must be between 1 and 12")
     if args.lighting_proof_screenshots <= 0 or args.lighting_proof_screenshots > 16:
         raise RuntimeError("--lighting-proof-screenshots must be between 1 and 16")
+    if args.traversal_proof and args.lighting_proof:
+        raise RuntimeError("--traversal-proof and --lighting-proof are mutually exclusive")
+    if args.traversal_bursts <= 0 or args.traversal_bursts > 8:
+        raise RuntimeError("--traversal-bursts must be between 1 and 8")
+    if args.traversal_frames <= 1 or args.traversal_frames > 16:
+        raise RuntimeError("--traversal-frames must be between 2 and 16")
     if args.camera_burst_limit <= 0 or args.camera_burst_limit > len(ROSTER):
         raise RuntimeError("--camera-burst-limit must be between 1 and %d" % len(ROSTER))
     if args.camera_frames <= 0 or args.camera_frames > 12:

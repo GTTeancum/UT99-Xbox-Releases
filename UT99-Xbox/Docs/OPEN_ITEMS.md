@@ -1,16 +1,35 @@
 # UT99 Xbox Open Items
 
-Last updated: 2026-08-03
+Last updated: 2026-08-13
 
 This is the quick-access tracker for active UT99 Xbox work. It preserves the
 older project backlog and adds the current visual-signoff queue so the project
 does not depend on scattered chat context.
 
-## Open Items
+## 1.2 Release Scope
 
-### Current Queue
+- Widescreen: decision pending. Steve is not sold on changing the current
+  presentation, so do not commit to a widescreen implementation until the
+  intended field of view, HUD/menu treatment, and real-hardware output have
+  been reviewed together.
+- Flicker and UV fixes: complete and signed off by Steve on 2026-08-13.
+- Mutators: fix missing entries and broaden the shipped set. Audit discovery,
+  packaging, class loading, compatibility, and launch behavior; investigate
+  Agent X and Akimbo as named candidates.
+- Last Man Standing: expose and qualify the stock
+  `Botpack.LastManStanding` game type in the Xbox flows.
+- System Link fixes: failed-join/re-entry implementation and two-xemu lifecycle
+  qualification are complete. Real-Xbox multi-machine qualification remains.
+- Tournament: investigate the v1.1 reports that the first match of every ladder
+  crashes, despite the earlier internal ladder progress qualification.
+- Tournament co-op: assess local split screen, System Link, and their combined
+  flow. Treat UT99 LAN Coop V1 as reference material until its contents and
+  integration requirements are understood.
+
+## Recently Completed Items
 
 1. Texture/light flickering in maps
+   - Complete and signed off by Steve on 2026-08-13.
    - Added by Steve on 2026-08-03 after reports from several users.
    - Root cause found 2026-08-04: display calibration post-process leaked
      texture address CLAMP into world rendering.
@@ -49,8 +68,172 @@ does not depend on scattered chat context.
    - Still untested on real hardware.
    - Permanent diagnostics added: `ADDRTRACE` (sampler address mode every 60th
      frame), `CLAMPTRACE`, and `clampBad`/`clampOk`/`nobase` counters on `PERF`.
+   - Second root cause found and fixed 2026-08-13: the full-cache LRU reuse
+     path blanket-unbound all four D3D texture stages before releasing an
+     unrelated victim. During multitextured BSP rendering, a stage-1 lightmap
+     miss could therefore clear the stage-0 base texture that had just been
+     bound. The surface was then submitted with only its lightmap, producing a
+     transient bright/white texture or lighting flash.
+     - The LRU candidate scan already excludes the resources tracked on stages
+       0 and 1, and the existing low-memory eviction path releases such an
+       unbound victim directly. Slot reuse now follows the same lifetime rule
+       and preserves active stage bindings.
+     - The permanent `nobase` invariant remains in place to detect any other
+       path that loses a BSP base binding before draw submission.
+   - Xemu cache-pressure qualification on 2026-08-13 used `DM-HangEmHigh` with
+     eight bots and all eight deterministic lighting viewpoints. The resident
+     pool reached its 512-entry limit and completed at least 1,024 LRU reuses
+     with `nobase=0` in every PERF sample, zero `RTEX nobase` events, zero draw
+     failures, and zero fatal errors. All eight captures retained coherent base
+     textures and lighting.
+     - Evidence: `UT99-Xbox/build_cli/xemu_item1_texture_flicker_20260813`.
+     - Qualified XBE SHA-256:
+       `19D8FC9BC404348745B498D59A1A1756265F42A6FFDF8523D618DCBFE6991917`.
+     - The harness aggregate is false only because lighting-proof mode does not
+       collect the generic character-roster audit that the selected stress case
+       normally requires; the lighting captures and renderer-specific checks
+       completed successfully.
+   - Moving temporal qualification completed on Xemu 2026-08-13 after the
+     static-view test was rejected as insufficient:
+     - The proof camera spectated a live bot in first person, so navigation,
+       corners, stairs/lifts, elevation changes, view turns, and combat came
+       from the game's bot AI instead of a fixed camera or scripted circle.
+     - Tested the actual first Deathmatch Tournament arena (`DM-Oblivion`) plus
+       all other specifically reported maps available in the Xbox build:
+       `DM-Deck16][`, `DM-Morpheus`, `DM-HangEmHigh`, and
+       `DM-Halo-Derelict`.
+     - Each map ran for about 82 seconds with four bots while brightness,
+       contrast, and gamma cycled through five neutral/moderate/edge profiles.
+       The primary matrix recorded 292 movement samples, 84,455 Unreal units
+       of cumulative bot travel, 160 consecutive moving captures, 49 display
+       calibration changes, and 119 live sampler reads.
+     - Every map passed. All sampler reads remained WRAP; there were zero
+       `RTEX nobase` events, display post-process failures, draw failures, or
+       fatal errors. The texture cache reached its 512-slot ceiling on every
+       map and performed up to 2,304 LRU reuses during a run.
+     - Automated adjacent-frame luminance review initially flagged two pairs;
+       both landed on intentional six-second calibration transitions. Morpheus
+       and Halo Derelict were rerun with 48 captures offset from all transition
+       boundaries. Both reruns passed with zero flagged frame pairs, and visual
+       contact-sheet review found no local texture/light flicker within any
+       held profile.
+     - Primary evidence:
+       `UT99-Xbox/build_cli/xemu_item1_bot_calibration_4bots_20260813`.
+       Stable-window reruns:
+       `UT99-Xbox/build_cli/xemu_item1_bot_calibration_stable_capture_20260813`.
+     - Qualified XBE SHA-256:
+       `7B9F006F1D4307FBC532F4031469D9E5B54F93073DF2EA294E42231D401AA1EC`.
+   - Steve accepted the completed fix after the moving bot-spectator and
+     calibration qualification. Any later affected-user or real-hardware report
+     is a new regression, not a blocker on this item.
 
-1.2. Co-op Tournament in existing multiplayer flows
+## Open Items
+
+### Current Queue
+
+2. System Link real-hardware qualification
+   - Source: [UT99-Xbox-Releases issue 7](https://github.com/GTTeancum/UT99-Xbox-Releases/issues/7),
+     opened 2026-08-09 with a v1.1 `ut99.log` from a four-machine test.
+   - The supplied log does not contain a terminal exception or explicit
+     dashboard exit. It does prove a failed client join leaves its pending
+     `UTcpipConnection` alive after the frontend is reopened and even after an
+     unrelated `DM-Tempest` match starts.
+   - The secure association initially connects and sends one packet, then
+     becomes `XNET_CONNECT_STATUS_LOST`. The retry path repeatedly translates
+     the same host into new virtual addresses (`0.138.206.0` through
+     `0.138.210.0`), eventually loops on `XNetConnect` result 10022
+     (`WSAEINVAL`), and performs a blocking 0.10-second wait on repeated sends.
+   - Returning to the System Link frontend unregisters the session/key and
+     clears the global secure travel host while that stale connection still
+     exists. The old connection then continues using the invalid association.
+   - The UC2 Xbox source under `Z:\Programming\UC2004` confirms the lifecycle
+     pattern that is missing here:
+     - every connection destroy calls `XNetUnregisterInAddr` for its translated
+       address;
+     - host and remote keys are driver-owned, reference-counted, and released
+       during driver teardown;
+     - System Link retries are rate-limited and close the pending connection
+       after `InitialConnectTimeout` instead of retrying every send forever.
+   - Repair implemented 2026-08-13:
+     - the Xbox `CityIntro` rewind shortcut now cancels pending network travel
+       before returning, restoring the cleanup skipped by that early return;
+     - opening a fresh System Link lobby also cancels any stale pending travel
+       before replacing the session/key;
+     - each secure connection retains its remote `XNADDR`/`XNKID`, unregisters
+       its translated address before retry or destruction, and accepted peers
+       now retain the same cleanup data;
+     - secure association handling no longer sleeps on the gameplay thread;
+       retries are limited to once per second and a pending association closes
+       after 15 seconds instead of retrying indefinitely.
+   - The final cleanup ordering is based on the actual UC2004 Xbox source, not
+     an inferred packet-close theory:
+     - `UTcpipConnectionXbox::Destroy` unregisters its translated `IN_ADDR`
+       before calling the base connection destructor;
+     - `UNetDriver::Destroy` deletes all connections before `LowLevelDestroy`;
+     - `UTcpNetDriverXbox::LowLevelDestroy` then closes the socket and releases
+       host/remote keys. UT99 now mirrors that address-then-driver/session-key
+       ownership split.
+   - Genuine same-host System Link was established through xemu's pcap backend
+     on the physical Ethernet interface. The automated lifecycle run then
+     passed on both instances:
+     - each deliberately unreachable join created and cancelled a real pending
+       level before lobby entry;
+     - the first host/client pair reached `NM_ListenServer` / `NM_Client` live
+       gameplay;
+     - both instances independently backed out, and each reached the frontend
+       with session, launch, acknowledgement, pending-travel, peer, started,
+       and socket state fully cleared;
+     - the second lobby formed a fresh secure association and both instances
+       reached a second live gameplay join (`XSL LIFECYCLE PASS`), with no
+       timeout, critical error, retry storm, or gameplay-thread wait loop.
+   - The red lower-right connection icon seen intermittently on one xemu is not
+     evidence of a dead secure association. Runtime logging caught `alert=1`
+     with 0% loss and a packet received 0.017 seconds earlier. UC2004 uses the
+     same stock UT expression, including the independent `InPackets < 2`
+     one-second-sample trigger, so that behavior is intentionally unchanged.
+   - Emulator evidence:
+     `UT99-Xbox/build_cli/xemu_syslink_lifecycle_ucaligned_20260813`.
+   - Canonical `Release` XBE SHA-256:
+     `95BCD2904F53C6DBEA041CD7E3EF2E38A118224514BDEE93737AFBF065C7E79C`.
+   - Remaining qualification is real-Xbox-only: repeat discovery, failed join,
+     pending back-out, lobby re-entry, second join, client leave, host loss,
+     and a subsequent offline match on two or more consoles. Verify no stale
+     socket/key/address and no dashboard exit. The emulator implementation and
+     lifecycle defect are complete; hardware sign-off remains open.
+
+3. Tournament first-match crash regression
+   - Sources: [release issue 5](https://github.com/GTTeancum/UT99-Xbox-Releases/issues/5)
+     and [release issue 6](https://github.com/GTTeancum/UT99-Xbox-Releases/issues/6)
+     both report that selecting the first match in Tournament crashes v1.1.
+   - Reconcile the deployed v1.1 file set and fresh-profile boot path with the
+     earlier internal ladder progress proof. Do not assume the save/progress
+     qualification proves the public release package can launch rung 1.
+   - Reproduce from a clean install and newly created profile for Deathmatch,
+     Domination, CTF, Assault, and Final Challenge. Capture the final log and
+     verify package/map dependencies, player-ready transition, opponent spawn,
+     result handling, save, resume, and frontend return.
+
+4. Mutator repair and expansion
+   - Audit the `.int` registry, Xbox fallback list, staged packages, forced
+     class links, URL construction, and in-match behavior so every displayed
+     mutator is present and functional.
+   - The current fixed fallback exposes only Low Gravity, Instagib, No
+     Powerups, and optionally OldSkool Weapons. No Agent X or Akimbo assets are
+     currently present in the repository; establish the exact packages,
+     permissions, dependencies, and Xbox compatibility before adding them.
+   - Regression-test combinations as well as individual mutators, especially
+     mutually exclusive weapon-replacement mutators.
+
+5. Last Man Standing mode
+   - The stock implementation already exists as `Botpack.LastManStanding`; the
+     remaining work is Xbox discovery/menu exposure, match-option presentation,
+     content staging, and gameplay qualification rather than inventing a new
+     game mode.
+   - Verify lives, elimination/spectating, bot population, win/end conditions,
+     restart/rematch, and frontend return in Instant Action, split screen, and
+     System Link where supported.
+
+6. Co-op Tournament in existing multiplayer flows
    - Added by Steve on 2026-07-22 as a 1.2 ask.
    - Assess and prototype Tournament mode as multiplayer without adding a new
      main-menu entry or changing the existing menu flows.
@@ -60,13 +243,23 @@ does not depend on scattered chat context.
    - Save and load Tournament ladder progress from P1's profile on the host
      machine only. Other local or System Link players participate in the host
      run without owning ladder advancement.
-   - Treat UT99 LAN Coop V1 as reference material until its package contents are
-     inspected; the release-quality path should integrate with the existing Xbox
-     Tournament, profile, splitscreen, and System Link systems.
+   - Treat [UT99 LAN Coop V1](https://www.moddb.com/games/unreal-tournament/addons/ut99-lan-coop-v1)
+     as reference material until its package contents are inspected; the
+     release-quality path should integrate with the existing Xbox Tournament,
+     profile, splitscreen, and System Link systems.
    - Proof requirements: validate local splitscreen, System Link host/client,
      and splitscreen plus System Link. Cover ladder load, match start, bot
      population, end-of-match travel, result screen, save/reload, and back-out
      or disconnect behavior.
+
+7. Widescreen decision and prototype gate
+   - Keep this as a 1.2 decision item, not an assumed feature commitment.
+   - Before implementation, compare the current 4:3-safe presentation against a
+     true widescreen camera/FOV prototype on real Xbox output. Include weapon
+     view, projection, scope/overlay effects, HUD safe area, menus, loading
+     screens, split screen, and performance.
+   - Proceed only after Steve approves the visual direction and compatibility
+     tradeoff.
 
 ### Active Legacy Backlog
 

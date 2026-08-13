@@ -75,20 +75,13 @@ static INT   GRD_DxtUnexpectedLogCount = 0;
 static INT   GRD_SourceUnloadLogCount = 0;
 static INT   GRD_LowMemoryScaleLogCount = 0;
 static UBOOL GRD_LowMemoryTextureMode = 0;
-// Untextured-surface diagnosis (see Docs/OPEN_ITEMS.md item 1, white flicker).
-// These are pure instrumentation: nothing here changes render behaviour.
-//   Reuse    = LRU slot recycles in SetTextureD3D (the branch that blanket-
-//              unbinds every stage).
-//   Clobber  = those recycles that cleared a stage-0 binding the caller had
-//              already been told was good.
-//   NoBase   = DrawComplexSurface draws that actually went out with stage 0
-//              unbound. This is the white-surface predicate itself, so it is
-//              true regardless of what colour an unbound stage samples as.
+// Texture-cache integrity diagnostics (see Docs/OPEN_ITEMS.md item 1).
+//   Reuse  = LRU slot recycles in SetTextureD3D.
+//   NoBase = DrawComplexSurface draws that reached the submit path without
+//            the requested base texture tracked on stage 0.
 static INT   GRD_TotalTexReuse   = 0;
-static INT   GRD_TotalStage0Clobber = 0;
 static INT   GRD_TotalNoBaseDraw = 0;
 static INT   GRD_NoBaseLogCount  = 0;
-static INT   GRD_ClobberLogCount = 0;
 static INT   GRD_ClampMismatchCount = 0;
 static INT   GRD_ClampMatchCount = 0;
 static INT   GRD_ClampMismatchLogCount = 0;
@@ -2290,32 +2283,13 @@ UBOOL UXboxRenderDevice::SetTextureD3D( INT Stage, FTextureInfo& Info, DWORD Pol
                 GRD_TotalTexReuse++;
                 if( Entry->pTexture )
                 {
-                    // Diagnosis only: record whether this blanket unbind is
-                    // about to drop a stage binding that belongs to some other
-                    // texture. The candidate scan above already excludes
-                    // BoundCacheID[0]/[1], so any live binding cleared here is
-                    // collateral damage rather than a necessary unbind.
-                    UBOOL bClobber0 = (BoundCacheID[0] != 0 && BoundCacheID[0] != Entry->CacheID);
-                    UBOOL bClobber1 = (BoundCacheID[1] != 0 && BoundCacheID[1] != Entry->CacheID);
-                    if( bClobber0 || bClobber1 )
-                    {
-                        GRD_TotalStage0Clobber++;
-                        if( GRD_ClobberLogCount < 64 || (GRD_TotalStage0Clobber % 128) == 0 )
-                        {
-                            GRD_ClobberLogCount++;
-                            GXboxLog.Write( "RTEX clobber #%d f=%d slot=%d s0=%d s1=%d bound0=%08X:%08X bound1=%08X:%08X victim=%08X:%08X want=%08X:%08X",
-                                GRD_TotalStage0Clobber, FrameCounter, BestIndex, (INT)bClobber0, (INT)bClobber1,
-                                (DWORD)(BoundCacheID[0] >> 32), (DWORD)BoundCacheID[0],
-                                (DWORD)(BoundCacheID[1] >> 32), (DWORD)BoundCacheID[1],
-                                (DWORD)(Entry->CacheID >> 32), (DWORD)Entry->CacheID,
-                                GRD_LastTextureIDHi, GRD_LastTextureIDLo );
-                        }
-                    }
-
-                    for( INT UnbindStage = 0; UnbindStage < 4; UnbindStage++ )
-                        Device->SetTexture( UnbindStage, NULL );
-                    BoundCacheID[0] = 0;
-                    BoundCacheID[1] = 0;
+                    // The victim scan excludes both tracked stage bindings, so
+                    // this resource is not live on stage 0 or 1. Do not clear
+                    // every stage here: when stage 1 needs a new lightmap, a
+                    // blanket unbind also drops the base texture that was just
+                    // bound on stage 0. The caller then submits the BSP facet
+                    // with only its lightmap, producing the reported white
+                    // texture/light flash once the resident cache is full.
                     RenderBlockAndReleaseTexture( Entry->pTexture );
                 }
                 RenderBlockAndReleasePalette( Entry->pPalette );
@@ -3127,24 +3101,21 @@ void UXboxRenderDevice::DrawComplexSurface( FSceneNode* Frame, FSurfaceInfo& Sur
             return;
         }
 
-        // Diagnosis only: bBaseTextureOk is sampled before the lightmap bind,
-        // so it can be stale by the time we draw. If stage 0 no longer holds
-        // the base texture here, this surface is about to be drawn untextured.
-        // Deliberately does not correct the binding - the point of this pass is
-        // to find out whether that ever actually happens in a flickering
-        // session. See Docs/OPEN_ITEMS.md item 1.
+        // Keep a permanent guard on the invariant fixed in item 1. The base
+        // bind happens before the lightmap bind, so any texture-cache operation
+        // performed while resolving stage 1 must preserve stage 0.
         if( BoundCacheID[0] != Surface.Texture->CacheID )
         {
             GRD_TotalNoBaseDraw++;
             if( GRD_NoBaseLogCount < 64 || (GRD_TotalNoBaseDraw % 128) == 0 )
             {
                 GRD_NoBaseLogCount++;
-                GXboxLog.Write( "RTEX nobase #%d f=%d dcs=%d want=%08X:%08X bound0=%08X:%08X light=%08X:%08X lightOk=%d reuse=%d clobber=%d pool=%d",
+                GXboxLog.Write( "RTEX nobase #%d f=%d dcs=%d want=%08X:%08X bound0=%08X:%08X light=%08X:%08X lightOk=%d reuse=%d pool=%d",
                     GRD_TotalNoBaseDraw, FrameCounter, GRD_FrameDCS,
                     (DWORD)(Surface.Texture->CacheID >> 32), (DWORD)Surface.Texture->CacheID,
                     (DWORD)(BoundCacheID[0] >> 32), (DWORD)BoundCacheID[0],
                     (DWORD)(Surface.LightMap->CacheID >> 32), (DWORD)Surface.LightMap->CacheID,
-                    (INT)bLightMapOk, GRD_TotalTexReuse, GRD_TotalStage0Clobber, TexPoolNext );
+                    (INT)bLightMapOk, GRD_TotalTexReuse, TexPoolNext );
             }
         }
 

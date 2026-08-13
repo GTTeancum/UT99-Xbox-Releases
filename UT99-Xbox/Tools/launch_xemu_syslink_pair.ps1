@@ -3,6 +3,7 @@ param(
     [switch]$Stop,
     [switch]$RebuildIso,
     [switch]$Smoke,
+    [switch]$Lifecycle,
     [switch]$FourPlayerStress,
     [switch]$UdpBackend,
     [switch]$McastBackend,
@@ -193,7 +194,7 @@ function Rebuild-SourceIso()
     $stage = Join-Path $BuildRoot 'xemu_syslink_stage_current'
     $newIso = Join-Path $BuildRoot 'ut99_xemu_current.new.iso'
 
-    $release = Join-Path $BuildRoot 'release'
+    $release = Join-Path $RepoRoot 'build'
     Require-Path $RuntimeSource 'Known-good UT99 runtime source'
     Require-Path (Join-Path $release 'default.xbe') 'Release default.xbe'
 
@@ -225,14 +226,23 @@ function Rebuild-SourceIso()
     Copy-TreeFiles (Join-Path $release 'Textures') (Join-Path $stage 'Textures')
 
     $smokePath = Join-Path $stage 'XboxSystemLinkSmoke.ini'
+    $lifecyclePath = Join-Path $stage 'XboxSystemLinkLifecycle.ini'
     $fourPlayerStressPath = Join-Path $stage 'XboxSystemLink4PStress.ini'
-    if( $Smoke )
+    if( $Smoke -or $Lifecycle )
     {
         Set-Content -LiteralPath $smokePath -Value '' -Encoding ASCII
     }
     elseif( Test-Path $smokePath )
     {
         Remove-Item -LiteralPath $smokePath -Force
+    }
+    if( $Lifecycle )
+    {
+        Set-Content -LiteralPath $lifecyclePath -Value '' -Encoding ASCII
+    }
+    elseif( Test-Path $lifecyclePath )
+    {
+        Remove-Item -LiteralPath $lifecyclePath -Force
     }
     if( $FourPlayerStress )
     {
@@ -258,13 +268,21 @@ function Rebuild-SourceIso()
     Remove-Item -LiteralPath $stage -Recurse -Force
     Write-Host "Rebuilt source XISO: $IsoPath"
     Write-Host "RAM log mirror: poll with UT99-Xbox\Tools\poll_xemu_ram_log.py against the monitor port."
-    if( $Smoke )
+    if( $Smoke -or $Lifecycle )
     {
         Write-Host "System Link smoke marker: enabled"
     }
     else
     {
         Write-Host "System Link smoke marker: disabled"
+    }
+    if( $Lifecycle )
+    {
+        Write-Host "System Link lifecycle marker: enabled"
+    }
+    else
+    {
+        Write-Host "System Link lifecycle marker: disabled"
     }
     if( $FourPlayerStress )
     {

@@ -42,6 +42,8 @@ struct FXboxTcpSecureTravelHost
 };
 
 static FXboxTcpSecureTravelHost GXboxTcpSecureTravelHost;
+static const FLOAT GXboxTcpSecureRetryIntervalSeconds = 1.0f;
+static const FLOAT GXboxTcpSecureConnectTimeoutSeconds = 15.0f;
 
 static UBOOL XboxTcpIsXNetVirtualAddress( in_addr Addr )
 {
@@ -54,11 +56,36 @@ static UBOOL XboxTcpIsXNetVirtualAddress( in_addr Addr )
 	return B[0] == 0;
 }
 
+static UBOOL XboxTcpAddressesMatch( in_addr A, in_addr B )
+{
+	DWORD AValue = 0;
+	DWORD BValue = 0;
+	IpGetInt( A, AValue );
+	IpGetInt( B, BValue );
+	return AValue == BValue;
+}
+
+static void XboxTcpForgetMatchingTravelAddress( in_addr Addr )
+{
+	if( GXboxTcpSecureTravelHost.Valid
+	&&  XboxTcpIsXNetVirtualAddress(GXboxTcpSecureTravelHost.SecureAddr)
+	&&  XboxTcpAddressesMatch(Addr, GXboxTcpSecureTravelHost.SecureAddr) )
+	{
+		IpSetInt( GXboxTcpSecureTravelHost.SecureAddr, 0 );
+	}
+}
+
 extern "C" void XboxIpDrvClearSecureTravelHost()
 {
 	if( GXboxTcpSecureTravelHost.Valid )
 	{
 		debugf( NAME_Log, TEXT("XNET secure travel host cleared addr=%s"), *IpString(GXboxTcpSecureTravelHost.SecureAddr) );
+		if( XboxTcpIsXNetVirtualAddress(GXboxTcpSecureTravelHost.SecureAddr) )
+		{
+			INT AddressResult = XNetUnregisterInAddr( GXboxTcpSecureTravelHost.SecureAddr );
+			debugf( NAME_Log, TEXT("XNET secure travel host address unregister result=%i"), AddressResult );
+			IpSetInt( GXboxTcpSecureTravelHost.SecureAddr, 0 );
+		}
 		if( GXboxTcpSecureTravelHost.KeyRegisteredByIpDrv )
 		{
 			INT Result = XNetUnregisterKey( &GXboxTcpSecureTravelHost.SessionKeyId );
@@ -233,6 +260,13 @@ static DWORD XboxTcpEnsureSecureAssociation( in_addr& Addr, const TCHAR* Where, 
 	if( Status == XNET_CONNECT_STATUS_LOST && bRefreshIfLost && GXboxTcpSecureTravelHost.Valid )
 	{
 		FString LostAddress = IpString( Addr );
+		INT UnregisterResult = XNetUnregisterInAddr( Addr );
+		XboxTcpForgetMatchingTravelAddress( Addr );
+		IpSetInt( Addr, 0 );
+		debugf( NAME_Log, TEXT("XNET secure %s released lost association old=%s result=%i"),
+			Where ? Where : TEXT("unknown"),
+			*LostAddress,
+			UnregisterResult );
 		if( XboxTcpTranslateSecureTravelHost( Addr, Where, 1 ) )
 		{
 			Status = XNetGetConnectStatus( Addr );
@@ -256,106 +290,6 @@ static DWORD XboxTcpEnsureSecureAssociation( in_addr& Addr, const TCHAR* Where, 
 			ConnectResult );
 	}
 	return Status;
-}
-
-static DWORD XboxTcpEnsureSecurePeerAssociation( in_addr& Addr, const XNADDR* XnAddr, const XNKID* SessionKeyId, const TCHAR* Where, UBOOL bLogStatus, UBOOL bRefreshIfLost )
-{
-	UBOOL bVirtualAddress = XboxTcpIsXNetVirtualAddress( Addr );
-	if( !bVirtualAddress )
-	{
-		if( bRefreshIfLost && XnAddr && SessionKeyId )
-			XboxTcpTranslateSecurePeer( Addr, XnAddr, SessionKeyId, Where, bLogStatus );
-		bVirtualAddress = XboxTcpIsXNetVirtualAddress( Addr );
-	}
-	if( !bVirtualAddress )
-		return XNET_CONNECT_STATUS_CONNECTED;
-
-	DWORD Status = XNetGetConnectStatus( Addr );
-	if( Status == XNET_CONNECT_STATUS_LOST && bRefreshIfLost && XnAddr && SessionKeyId )
-	{
-		FString LostAddress = IpString( Addr );
-		if( XboxTcpTranslateSecurePeer( Addr, XnAddr, SessionKeyId, Where, 1 ) )
-		{
-			Status = XNetGetConnectStatus( Addr );
-			debugf( NAME_Log, TEXT("XNET secure %s refreshed lost peer old=%s new=%s status=%lu"),
-				Where ? Where : TEXT("unknown"),
-				*LostAddress,
-				*IpString(Addr),
-				Status );
-		}
-	}
-
-	INT ConnectResult = 0;
-	if( Status == XNET_CONNECT_STATUS_IDLE || Status == XNET_CONNECT_STATUS_LOST )
-		ConnectResult = XNetConnect( Addr );
-
-	if( bLogStatus || ConnectResult != 0 || Status == XNET_CONNECT_STATUS_LOST )
-	{
-		debugf( NAME_Log, TEXT("XNET secure %s peer addr=%s status=%lu connect=%i"),
-			Where ? Where : TEXT("unknown"),
-			*IpString(Addr),
-			Status,
-			ConnectResult );
-	}
-	return Status;
-}
-
-static UBOOL XboxTcpWaitForSecureAssociation( in_addr& Addr, const TCHAR* Where, FLOAT TimeoutSeconds )
-{
-	UBOOL bVerboseWait = TimeoutSeconds >= 0.49f;
-	DWORD Status = XboxTcpEnsureSecureAssociation( Addr, Where, bVerboseWait, 1 );
-	if( !XboxTcpIsXNetVirtualAddress(Addr) )
-		return 1;
-
-	DOUBLE EndTime = appSeconds() + TimeoutSeconds;
-	while( Status == XNET_CONNECT_STATUS_PENDING || Status == XNET_CONNECT_STATUS_IDLE )
-	{
-		if( Status == XNET_CONNECT_STATUS_IDLE )
-			XNetConnect( Addr );
-		if( appSeconds() >= EndTime )
-			break;
-		appSleep( 0.01f );
-		Status = XNetGetConnectStatus( Addr );
-	}
-
-	if( bVerboseWait || Status != XNET_CONNECT_STATUS_PENDING )
-	{
-		debugf( NAME_Log, TEXT("XNET secure %s wait-complete addr=%s status=%lu connected=%i"),
-			Where ? Where : TEXT("unknown"),
-			*IpString(Addr),
-			Status,
-			Status == XNET_CONNECT_STATUS_CONNECTED ? 1 : 0 );
-	}
-	return Status == XNET_CONNECT_STATUS_CONNECTED;
-}
-
-static UBOOL XboxTcpWaitForSecurePeerAssociation( in_addr& Addr, const XNADDR* XnAddr, const XNKID* SessionKeyId, const TCHAR* Where, FLOAT TimeoutSeconds )
-{
-	UBOOL bVerboseWait = TimeoutSeconds >= 0.49f;
-	DWORD Status = XboxTcpEnsureSecurePeerAssociation( Addr, XnAddr, SessionKeyId, Where, bVerboseWait, 1 );
-	if( !XboxTcpIsXNetVirtualAddress(Addr) )
-		return 1;
-
-	DOUBLE EndTime = appSeconds() + TimeoutSeconds;
-	while( Status == XNET_CONNECT_STATUS_PENDING || Status == XNET_CONNECT_STATUS_IDLE )
-	{
-		if( Status == XNET_CONNECT_STATUS_IDLE )
-			XNetConnect( Addr );
-		if( appSeconds() >= EndTime )
-			break;
-		appSleep( 0.01f );
-		Status = XNetGetConnectStatus( Addr );
-	}
-
-	if( bVerboseWait || Status != XNET_CONNECT_STATUS_PENDING )
-	{
-		debugf( NAME_Log, TEXT("XNET secure %s peer wait-complete addr=%s status=%lu connected=%i"),
-			Where ? Where : TEXT("unknown"),
-			*IpString(Addr),
-			Status,
-			Status == XNET_CONNECT_STATUS_CONNECTED ? 1 : 0 );
-	}
-	return Status == XNET_CONNECT_STATUS_CONNECTED;
 }
 
 static void XboxTcpConfigureSecureTravelHostFromURL( FURL& ConnectURL )
@@ -422,6 +356,11 @@ class DLL_EXPORT_CLASS UTcpipConnection : public UNetConnection
 	UBOOL			HasSecureRemote;
 	XNADDR			SecureRemoteXnAddr;
 	XNKID			SecureRemoteKeyId;
+	UBOOL			OwnsSecureAddress;
+	UBOOL			SecureDestroying;
+	DOUBLE			SecureAttemptStartTime;
+	DOUBLE			SecureNextRetryTime;
+	INT			SecureRetryCount;
 #endif
 
 	// Constructors and destructors.
@@ -434,6 +373,11 @@ class DLL_EXPORT_CLASS UTcpipConnection : public UNetConnection
 	,	LoggedFirstSend	( 0 )
 #if TARGET_XBOX
 	,	HasSecureRemote( 0 )
+	,	OwnsSecureAddress( 0 )
+	,	SecureDestroying( 0 )
+	,	SecureAttemptStartTime( -1.0f )
+	,	SecureNextRetryTime( 0.0f )
+	,	SecureRetryCount( 0 )
 #endif
 	{
 		guard(UTcpipConnection::UTcpipConnection);
@@ -447,6 +391,18 @@ class DLL_EXPORT_CLASS UTcpipConnection : public UNetConnection
 		MaxPacket			  = WINSOCK_MAX_PACKET;
 		PacketOverhead		  = SLIP_HEADER_SIZE;
 		InitOut();
+#if TARGET_XBOX
+		// UObject construction/config loading can leave the inherited network clocks
+		// carrying the class-default sentinel on Xbox.  A pending secure connection
+		// must start its timeout window at the driver's current time, not at that
+		// stale value (observed as an immediate 2^24-second timeout in xemu).
+		LastReceiveTime = Driver ? Driver->Time : 0.0;
+		LastSendTime = LastReceiveTime;
+		LastTickTime = LastReceiveTime;
+		StatUpdateTime = LastReceiveTime;
+		SecureAttemptStartTime = -1.0;
+		SecureNextRetryTime = 0.0;
+#endif
 
 		// In connecting, figure out IP address.
 		if( InOpenedLocally )
@@ -464,7 +420,16 @@ class DLL_EXPORT_CLASS UTcpipConnection : public UNetConnection
 				IpSetInt(RemoteAddr.sin_addr, inet_addr( appToAnsi(*InURL.Host)));
 #if TARGET_XBOX
 				if( InURL.HasOption(TEXT("LAN")) )
+				{
+					if( GXboxTcpSecureTravelHost.Valid )
+					{
+						appMemcpy( &SecureRemoteXnAddr, &GXboxTcpSecureTravelHost.XnAddr, sizeof(SecureRemoteXnAddr) );
+						appMemcpy( &SecureRemoteKeyId, &GXboxTcpSecureTravelHost.SessionKeyId, sizeof(SecureRemoteKeyId) );
+						HasSecureRemote = 1;
+					}
 					XboxTcpEnsureSecureAssociation( RemoteAddr.sin_addr, TEXT("connect-init"), 1, 1 );
+					OwnsSecureAddress = XboxTcpIsXNetVirtualAddress( RemoteAddr.sin_addr );
+				}
 #endif
 			}
 			else
@@ -486,6 +451,110 @@ class DLL_EXPORT_CLASS UTcpipConnection : public UNetConnection
 	}
 
 #if TARGET_XBOX
+	void ReleaseSecureAddress( const TCHAR* Where, UBOOL bClearRemote )
+	{
+		guard(UTcpipConnection::ReleaseSecureAddress);
+		if( OwnsSecureAddress && XboxTcpIsXNetVirtualAddress(RemoteAddr.sin_addr) )
+		{
+			FString OldAddress = IpString( RemoteAddr.sin_addr );
+			INT Result = XNetUnregisterInAddr( RemoteAddr.sin_addr );
+			XboxTcpForgetMatchingTravelAddress( RemoteAddr.sin_addr );
+			debugf( NAME_Log, TEXT("XNET secure %s connection address released addr=%s result=%i retries=%i"),
+				Where ? Where : TEXT("unknown"),
+				*OldAddress,
+				Result,
+				SecureRetryCount );
+		}
+		OwnsSecureAddress = 0;
+		if( bClearRemote )
+			IpSetInt( RemoteAddr.sin_addr, 0 );
+		unguard;
+	}
+
+	UBOOL PrepareSecureSend( const TCHAR* Where )
+	{
+		guard(UTcpipConnection::PrepareSecureSend);
+		if( SecureDestroying )
+			return 0;
+		if( !HasSecureRemote )
+			return 1;
+
+		DOUBLE Now = Driver ? Driver->Time : appSeconds();
+
+		DWORD Status = XboxTcpIsXNetVirtualAddress(RemoteAddr.sin_addr)
+			? XNetGetConnectStatus( RemoteAddr.sin_addr )
+			: XNET_CONNECT_STATUS_IDLE;
+		if( Status == XNET_CONNECT_STATUS_CONNECTED )
+		{
+			SecureAttemptStartTime = -1.0f;
+			SecureNextRetryTime = 0.0f;
+			SecureRetryCount = 0;
+			return 1;
+		}
+
+		if( SecureAttemptStartTime < 0.0f )
+			SecureAttemptStartTime = Now;
+		if( Now - SecureAttemptStartTime >= GXboxTcpSecureConnectTimeoutSeconds )
+		{
+			debugf( NAME_Log, TEXT("XNET secure association timed out addr=%s status=%lu elapsed=%.2f retries=%i"),
+				*IpString(RemoteAddr.sin_addr,ntohs(RemoteAddr.sin_port)),
+				Status,
+				Now - SecureAttemptStartTime,
+				SecureRetryCount );
+			State = USOCK_Closed;
+			return 0;
+		}
+
+		if( !XboxTcpIsXNetVirtualAddress(RemoteAddr.sin_addr) )
+		{
+			if( Now < SecureNextRetryTime )
+				return 0;
+			if( GXboxTcpSecureTravelHost.Valid )
+				XboxTcpEnsureTravelHostKey( Where );
+			if( !XboxTcpTranslateSecurePeer( RemoteAddr.sin_addr, &SecureRemoteXnAddr, &SecureRemoteKeyId, Where, 1 ) )
+			{
+				SecureNextRetryTime = Now + GXboxTcpSecureRetryIntervalSeconds;
+				return 0;
+			}
+			OwnsSecureAddress = 1;
+			Status = XNetGetConnectStatus( RemoteAddr.sin_addr );
+			if( Status == XNET_CONNECT_STATUS_CONNECTED )
+				return 1;
+		}
+
+		if( Status == XNET_CONNECT_STATUS_PENDING || Now < SecureNextRetryTime )
+			return 0;
+
+		if( Status == XNET_CONNECT_STATUS_LOST )
+		{
+			ReleaseSecureAddress( TEXT("retry"), 1 );
+			if( GXboxTcpSecureTravelHost.Valid )
+				XboxTcpEnsureTravelHostKey( Where );
+			if( !XboxTcpTranslateSecurePeer( RemoteAddr.sin_addr, &SecureRemoteXnAddr, &SecureRemoteKeyId, Where, 1 ) )
+			{
+				SecureNextRetryTime = Now + GXboxTcpSecureRetryIntervalSeconds;
+				return 0;
+			}
+			OwnsSecureAddress = 1;
+			Status = XNetGetConnectStatus( RemoteAddr.sin_addr );
+			if( Status == XNET_CONNECT_STATUS_CONNECTED )
+				return 1;
+		}
+
+		INT ConnectResult = XNetConnect( RemoteAddr.sin_addr );
+		SecureRetryCount++;
+		SecureNextRetryTime = Now + GXboxTcpSecureRetryIntervalSeconds;
+		debugf( NAME_Log, TEXT("XNET secure %s retry addr=%s status=%lu connect=%i attempt=%i elapsed=%.2f"),
+			Where ? Where : TEXT("unknown"),
+			*IpString(RemoteAddr.sin_addr,ntohs(RemoteAddr.sin_port)),
+			Status,
+			ConnectResult,
+			SecureRetryCount,
+			Now - SecureAttemptStartTime );
+		return 0;
+		unguard;
+	}
+
 	void SetSecureRemotePeer( const XNADDR* XnAddr, const XNKID* SessionKeyId )
 	{
 		guard(UTcpipConnection::SetSecureRemotePeer);
@@ -495,16 +564,23 @@ class DLL_EXPORT_CLASS UTcpipConnection : public UNetConnection
 		appMemcpy( &SecureRemoteXnAddr, XnAddr, sizeof(SecureRemoteXnAddr) );
 		appMemcpy( &SecureRemoteKeyId, SessionKeyId, sizeof(SecureRemoteKeyId) );
 		HasSecureRemote = 1;
+		OwnsSecureAddress = XboxTcpIsXNetVirtualAddress( RemoteAddr.sin_addr );
 		debugf( NAME_Log, TEXT("XNET secure peer stored remote=%s"),
 			*IpString(RemoteAddr.sin_addr,ntohs(RemoteAddr.sin_port)) );
-		if( !XboxTcpWaitForSecurePeerAssociation( RemoteAddr.sin_addr, &SecureRemoteXnAddr, &SecureRemoteKeyId, TEXT("accept"), 0.50f ) )
-		{
-			debugf( NAME_Log, TEXT("XNET secure peer accept wait did not connect remote=%s"),
-				*IpString(RemoteAddr.sin_addr,ntohs(RemoteAddr.sin_port)) );
-		}
 		unguard;
 	}
 #endif
+
+	void Destroy()
+	{
+		guard(UTcpipConnection::Destroy);
+#if TARGET_XBOX
+		SecureDestroying = 1;
+		ReleaseSecureAddress( TEXT("destroy"), 0 );
+#endif
+		Super::Destroy();
+		unguard;
+	}
 
 	// UNetConnection interface.
 	void LowLevelSend( void* Data, INT Count )
@@ -544,37 +620,13 @@ class DLL_EXPORT_CLASS UTcpipConnection : public UNetConnection
 #if TARGET_XBOX
 		if( HasSecureRemote )
 		{
-			DWORD SecureStatus = XboxTcpEnsureSecurePeerAssociation(
-				RemoteAddr.sin_addr,
-				&SecureRemoteXnAddr,
-				&SecureRemoteKeyId,
-				LoggedFirstSend ? TEXT("peer-send") : TEXT("peer-first-send"),
-				!LoggedFirstSend,
-				1 );
-			if( SecureStatus == XNET_CONNECT_STATUS_LOST
-			&& !XboxTcpWaitForSecurePeerAssociation( RemoteAddr.sin_addr, &SecureRemoteXnAddr, &SecureRemoteKeyId, LoggedFirstSend ? TEXT("peer-send-wait") : TEXT("peer-first-send-wait"), LoggedFirstSend ? 0.10f : 0.50f ) )
-			{
-				if( !LoggedFirstSend )
-				{
-					debugf( NAME_Log, TEXT("XNET secure peer first send deferred remote=%s"), *IpString(RemoteAddr.sin_addr,ntohs(RemoteAddr.sin_port)) );
-					LoggedFirstSend = 1;
-				}
+			if( !PrepareSecureSend( LoggedFirstSend ? TEXT("send") : TEXT("first-send") ) )
 				return;
-			}
 		}
 		else if( OpenedLocally && URL.HasOption(TEXT("LAN")) )
 		{
-			DWORD SecureStatus = XboxTcpEnsureSecureAssociation( RemoteAddr.sin_addr, LoggedFirstSend ? TEXT("send") : TEXT("first-send"), !LoggedFirstSend, 1 );
-			if( SecureStatus == XNET_CONNECT_STATUS_LOST
-			&& !XboxTcpWaitForSecureAssociation( RemoteAddr.sin_addr, LoggedFirstSend ? TEXT("send-wait") : TEXT("first-send-wait"), LoggedFirstSend ? 0.10f : 0.50f ) )
-			{
-				if( !LoggedFirstSend )
-				{
-					debugf( NAME_Log, TEXT("XNET secure first send deferred remote=%s"), *IpString(RemoteAddr.sin_addr,ntohs(RemoteAddr.sin_port)) );
-					LoggedFirstSend = 1;
-				}
-				return;
-			}
+			// A LAN URL without secure host data is a legacy/plain-IP path.
+			// Secure LAN connections always set HasSecureRemote in the constructor.
 		}
 #endif
 
@@ -589,10 +641,7 @@ class DLL_EXPORT_CLASS UTcpipConnection : public UNetConnection
 			if( Sent==SOCKET_ERROR
 			&& (Err==WSAEHOSTUNREACH || Err==WSAENETUNREACH || Err==WSAENETRESET || Err==WSAECONNRESET) )
 			{
-				if( HasSecureRemote )
-					XboxTcpWaitForSecurePeerAssociation( RemoteAddr.sin_addr, &SecureRemoteXnAddr, &SecureRemoteKeyId, TEXT("peer-send-error"), 0.10f );
-				else
-					XboxTcpWaitForSecureAssociation( RemoteAddr.sin_addr, TEXT("send-error"), 0.10f );
+				SecureNextRetryTime = 0.0f;
 			}
 #endif
 			debugf( NAME_Log, TEXT("XNET send %s bytes=%i sent=%i err=%i state=%i remote=%s"),
@@ -784,10 +833,12 @@ class DLL_EXPORT_CLASS UTcpNetDriver : public UNetDriver
 #if TARGET_XBOX
 				UBOOL bHasSecurePeer = 0;
 				XNADDR SecureXnAddr;
+				XNKID SecureKeyId;
 				appMemzero( &SecureXnAddr, sizeof(SecureXnAddr) );
+				appMemzero( &SecureKeyId, sizeof(SecureKeyId) );
 				if( RequireSecurePeers )
 				{
-					INT SecureResult = XNetInAddrToXnAddr( FromAddr.sin_addr, &SecureXnAddr, NULL );
+					INT SecureResult = XNetInAddrToXnAddr( FromAddr.sin_addr, &SecureXnAddr, &SecureKeyId );
 					if( SecureResult != 0 )
 					{
 						if( SecureDropCount < 8 )
@@ -811,6 +862,7 @@ class DLL_EXPORT_CLASS UTcpNetDriver : public UNetDriver
 #if TARGET_XBOX
 				if( bHasSecurePeer )
 				{
+					Connection->SetSecureRemotePeer( &SecureXnAddr, &SecureKeyId );
 					debugf( NAME_Log, TEXT("XNET secure peer accepted direct remote=%s status=%lu"),
 						*IpString(FromAddr.sin_addr,ntohs(FromAddr.sin_port)),
 						XNetGetConnectStatus(FromAddr.sin_addr) );

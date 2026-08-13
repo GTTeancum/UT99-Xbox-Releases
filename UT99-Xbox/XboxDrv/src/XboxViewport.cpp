@@ -1023,6 +1023,12 @@ static UBOOL XboxSystemLinkIsUsableIPv4( DWORD Address )
     if( Address == 0 || Address == INADDR_NONE || Address == INADDR_ANY || Address == INADDR_BROADCAST )
         return 0;
 
+    // xemu's pcap backend reports raw broadcast frames through Xbox Winsock
+    // with 0.0.0.1 as their source.  It is useful for receiving discovery
+    // state but cannot be a unicast destination or an XNet virtual address.
+    if( Address == inet_addr("0.0.0.1") )
+        return 0;
+
     BYTE* B = (BYTE*)&Address;
     // XNetXnAddrToInAddr returns a local-only virtual IN_ADDR with the
     // 0.x.y.z shape. That is valid for Xbox Winsock travel even though it is
@@ -1032,7 +1038,7 @@ static UBOOL XboxSystemLinkIsUsableIPv4( DWORD Address )
 
 static UBOOL XboxSystemLinkIsXNetVirtualAddress( DWORD Address )
 {
-    if( Address == 0 || Address == INADDR_NONE || Address == INADDR_ANY || Address == INADDR_BROADCAST )
+    if( !XboxSystemLinkIsUsableIPv4(Address) )
         return 0;
 
     BYTE* B = (BYTE*)&Address;
@@ -1749,10 +1755,22 @@ static UBOOL XboxIssueMapSmokeEnabled()
     return XboxSmokeMarkerExists( "XboxIssueMapSmoke.ini", Cached );
 }
 
+static UBOOL XboxFlickerTraversalProofEnabled()
+{
+    static INT Cached = -1;
+    return XboxSmokeMarkerExists( "XboxFlickerTraversal.ini", Cached );
+}
+
 static UBOOL XboxSystemLinkSmokeEnabled()
 {
     static INT Cached = -1;
     return XboxSmokeMarkerExists( "XboxSystemLinkSmoke.ini", Cached );
+}
+
+static UBOOL XboxSystemLinkLifecycleSmokeEnabled()
+{
+    static INT Cached = -1;
+    return XboxSmokeMarkerExists( "XboxSystemLinkLifecycle.ini", Cached );
 }
 
 static UBOOL XboxSystemLinkFourPlayerStressEnabled()
@@ -2727,6 +2745,30 @@ static void XboxSystemLinkSmokeLogGameplayStatus( UClient* InClient, ULevel* Cur
         ViewportActorCount,
         TCHAR_TO_ANSI(SlotText) );
 
+    UNetConnection* HealthConnection = NULL;
+    if( CurrentLevel->NetDriver )
+    {
+        if( CurrentLevel->NetDriver->ServerConnection )
+            HealthConnection = CurrentLevel->NetDriver->ServerConnection;
+        else if( CurrentLevel->NetDriver->ClientConnections.Num() > 0 )
+            HealthConnection = CurrentLevel->NetDriver->ClientConnections(0);
+    }
+    if( HealthConnection )
+    {
+        GXboxLog.Write( "XSL NETHEALTH state=%d alert=%d inPPS=%.2f outPPS=%.2f inLoss=%.2f outLoss=%.2f bestLag=%.3f rxAge=%.3f txAge=%.3f speed=%d queued=%d",
+            (INT)HealthConnection->State,
+            (ViewportActorCount > 0 && InClient->Viewports(0) && InClient->Viewports(0)->Actor && InClient->Viewports(0)->Actor->bBadConnectionAlert) ? 1 : 0,
+            HealthConnection->InPackets,
+            HealthConnection->OutPackets,
+            HealthConnection->InLoss,
+            HealthConnection->OutLoss,
+            HealthConnection->BestLag,
+            CurrentLevel->NetDriver->Time - HealthConnection->LastReceiveTime,
+            CurrentLevel->NetDriver->Time - HealthConnection->LastSendTime,
+            HealthConnection->CurrentNetSpeed,
+            HealthConnection->QueuedBytes );
+    }
+
     static UBOOL bSystemLinkSmokeDoneLogged = 0;
     if( !bSystemLinkSmokeDoneLogged
     &&  XboxSystemLinkFourPlayerStressEnabled()
@@ -3001,11 +3043,19 @@ extern "C" void XboxSystemLinkAbortTravelCleanup( const char* Reason )
     GXboxSystemLinkSmokeHostPreTravelHoldDone = 0;
 }
 
-static UBOOL XboxSystemLinkStart()
+static UBOOL XboxSystemLinkStart( UXboxViewport* Viewport )
 {
     XboxSystemLinkEnsureState();
     if( GXboxSystemLink.Started )
         return 1;
+
+    UXboxClient* Client = Viewport ? (UXboxClient*)Viewport->GetOuter() : NULL;
+    UGameEngine* GameEngine = Client ? Cast<UGameEngine>(Client->Engine) : NULL;
+    if( GameEngine && GameEngine->GPendingLevel )
+    {
+        GXboxLog.Write( "XSL cancelling stale pending travel before lobby start" );
+        GameEngine->CancelPending();
+    }
 
     if( !XboxSystemLinkInitSockets() )
         return 0;
@@ -3240,7 +3290,7 @@ static void XboxSystemLinkSendProbe()
     for( INT i=0; i<GXboxSystemLink.Peers.Num(); i++ )
     {
         const FXboxSystemLinkPeer& Peer = GXboxSystemLink.Peers(i);
-        if( Peer.Address && Peer.Port )
+        if( XboxSystemLinkIsUsableIPv4(Peer.Address) && Peer.Port )
             XboxSystemLinkSendProbeTo( "peer", Peer.Address, Peer.Port, Packet, PacketLen, 1 );
     }
 
@@ -3286,6 +3336,15 @@ static void XboxSystemLinkRecordPeer( DWORD Id, DWORD Address, INT Port, INT Rol
         FXboxSystemLinkPeer& Peer = GXboxSystemLink.Peers(i);
         if( Peer.Id == Id )
         {
+            // A raw pcap broadcast and its secure XNet delivery can both reach
+            // this socket. Once XNet verifies a peer, never let the unusable
+            // raw-source sentinel replace that connection-owned address.
+            if( !XboxSystemLinkIsUsableIPv4(Address)
+            &&  Peer.VerifiedSecurePeer
+            &&  XboxSystemLinkIsXNetVirtualAddress(Peer.SecureAddress) )
+            {
+                Address = Peer.SecureAddress;
+            }
             UBOOL bStateChanged =
                 Peer.Address != Address
             ||  Peer.Port != Port
@@ -3906,7 +3965,7 @@ static void XboxSystemLinkTick( UXboxViewport* Viewport )
         return;
 
     if( !GXboxSystemLink.Started )
-        XboxSystemLinkStart();
+        XboxSystemLinkStart( Viewport );
     if( !GXboxSystemLink.Started )
         return;
 
@@ -6323,31 +6382,44 @@ static void XboxMenuLoadPlayerState()
     GXboxMenu.PlayerTeam = Clamp<INT>( GXboxMenu.PlayerTeam, 0, 255 );
 }
 
+static void XboxMakeURLSafePlayerName( const TCHAR* In, TCHAR* Out, INT OutCount )
+{
+    if( !Out || OutCount <= 0 )
+        return;
+
+    INT OutLen = 0;
+    if( In )
+    {
+        for( INT i=0; In[i] && OutLen<OutCount-1; i++ )
+        {
+            TCHAR C = In[i];
+            UBOOL bSafe =
+                (C >= 'A' && C <= 'Z')
+            ||  (C >= 'a' && C <= 'z')
+            ||  (C >= '0' && C <= '9')
+            ||  C == '_'
+            ||  C == '-'
+            ||  C == '.';
+            Out[OutLen++] = bSafe ? C : '_';
+        }
+    }
+
+    if( OutLen <= 0 )
+    {
+        appStrncpy( Out, TEXT("Player"), OutCount );
+        Out[OutCount-1] = 0;
+        return;
+    }
+    Out[OutLen] = 0;
+}
+
 static void XboxMenuBuildPlayerURL( TCHAR* Out, INT OutCount )
 {
     XboxMenuLoadPlayerState();
     XboxMenuSaveDefaultPlayer();
 
     TCHAR URLName[ARRAY_COUNT(GXboxProfileName)];
-    INT URLNameLen = 0;
-    for( INT i=0; GXboxProfileName[i] && URLNameLen<ARRAY_COUNT(URLName)-1; i++ )
-    {
-        TCHAR C = GXboxProfileName[i];
-        UBOOL bSafe =
-            (C >= 'A' && C <= 'Z')
-        ||  (C >= 'a' && C <= 'z')
-        ||  (C >= '0' && C <= '9')
-        ||  C == '_'
-        ||  C == '-'
-        ||  C == '.';
-        URLName[URLNameLen++] = bSafe ? C : '_';
-    }
-    if( URLNameLen <= 0 )
-    {
-        appStrcpy( URLName, TEXT("Player") );
-        URLNameLen = appStrlen( URLName );
-    }
-    URLName[URLNameLen] = 0;
+    XboxMakeURLSafePlayerName( GXboxProfileName, URLName, ARRAY_COUNT(URLName) );
 
     if( appStrcmp(URLName, GXboxProfileName) != 0 )
         GXboxLog.Write( "XPROFILE URL-safe gameplay name profile=%s url=%s",
@@ -6622,21 +6694,24 @@ static void XboxSplitBuildPlayerURLForSlot( INT Port, TCHAR* Out, INT OutCount, 
         FString ProfileSkin = XboxMenuUserString( Section, TEXT("Skin"), *Player.SkinValue );
         FString ProfileFace = XboxMenuUserString( Section, TEXT("Face"), *Player.FaceValue );
         FString ProfileVoice = XboxMenuUserString( Section, TEXT("Voice"), *Player.DefaultVoice );
+        TCHAR URLName[XBOX_PROFILE_NAME_MAX+1];
+        XboxMakeURLSafePlayerName( *ProfileName, URLName, ARRAY_COUNT(URLName) );
         appSprintf
         (
             Out,
             TEXT("?Name=%s?Class=%s?Skin=%s?Face=%s?Voice=%s?Team=%i"),
-            *ProfileName,
+            URLName,
             *ProfileClass,
             *ProfileSkin,
             *ProfileFace,
             *ProfileVoice,
             Team
         );
-        GXboxLog.Write( "XPROFILE multiplayer URL port=%d slot=%d name=%s class=%s team=%d",
+        GXboxLog.Write( "XPROFILE multiplayer URL port=%d slot=%d profileName=%s netName=%s class=%s team=%d",
             Port + 1,
             ProfileIndex + 1,
             TCHAR_TO_ANSI(*ProfileName),
+            TCHAR_TO_ANSI(URLName),
             TCHAR_TO_ANSI(*ProfileClass),
             Team );
     }
@@ -9371,20 +9446,155 @@ static void XboxSystemLinkSmokeTick( UXboxViewport* Viewport )
     static INT SmokeStage = 0;
     static DOUBLE SmokeStartTime = 0.0;
     static DOUBLE SmokeLastStatusTime = 0.0;
+    static INT LifecycleGameplayJoins = 0;
+    static DOUBLE LifecycleBackOutDelay = 0.0;
 
     if( !XboxSystemLinkSmokeEnabled() || !Viewport || !Viewport->Actor )
         return;
 
     DOUBLE Now = appSeconds();
+    UBOOL bLifecycle = XboxSystemLinkLifecycleSmokeEnabled();
+    ULevel* CurrentLevel = Viewport->Actor->GetLevel();
+
+    if( bLifecycle && SmokeStage == -1 )
+    {
+        if( Now - SmokeStartTime >= 2.0 )
+        {
+            UXboxClient* Client = (UXboxClient*)Viewport->GetOuter();
+            UGameEngine* GameEngine = Client ? Cast<UGameEngine>(Client->Engine) : NULL;
+            UBOOL bHadPending = GameEngine && GameEngine->GPendingLevel;
+            if( bHadPending )
+                GameEngine->CancelPending();
+            XboxSystemLinkAbortTravelCleanup( "lifecycle failed join back-out" );
+            XboxMenuOpen( Viewport );
+            XboxSplitReadyReset( Viewport );
+            GXboxMenu.Screen = XMS_SystemLink;
+            GXboxMenu.MainFocus = 2;
+            GXboxMenu.SplitFocus = 0;
+            XboxSystemLinkStart( Viewport );
+            SmokeStartTime = Now;
+            SmokeLastStatusTime = 0.0;
+            SmokeStage = 1;
+            GXboxLog.Write( "XSL LIFECYCLE failed join cancelled pending=%d; entered first lobby", bHadPending ? 1 : 0 );
+        }
+        return;
+    }
+
+    if( bLifecycle && SmokeStage >= 2 && SmokeStage <= 4 && CurrentLevel && !XboxIsFrontendLevel(CurrentLevel)
+    &&  CurrentLevel->GetLevelInfo()
+    &&  (CurrentLevel->GetLevelInfo()->NetMode == NM_ListenServer || CurrentLevel->GetLevelInfo()->NetMode == NM_Client)
+    &&  Viewport->Actor->PlayerReplicationInfo
+    &&  !Viewport->Actor->PlayerReplicationInfo->bIsSpectator )
+    {
+        LifecycleGameplayJoins++;
+        SmokeStartTime = Now;
+        if( LifecycleGameplayJoins >= 2 )
+        {
+            const TCHAR* LifecyclePlayerName = Viewport->Actor->PlayerReplicationInfo
+                ? *Viewport->Actor->PlayerReplicationInfo->PlayerName
+                : TEXT("none");
+            SmokeStage = 8;
+            GXboxLog.Write( "XSL LIFECYCLE PASS second gameplay join map=%s net=%d player=%s",
+                TCHAR_TO_ANSI(*CurrentLevel->URL.Map),
+                (INT)CurrentLevel->GetLevelInfo()->NetMode,
+                TCHAR_TO_ANSI(LifecyclePlayerName) );
+        }
+        else
+        {
+            SmokeStage = 5;
+            LifecycleBackOutDelay = CurrentLevel->GetLevelInfo()->NetMode == NM_ListenServer ? 8.0 : 6.0;
+            GXboxLog.Write( "XSL LIFECYCLE first gameplay join map=%s net=%d; holding %.1fs before back-out",
+                TCHAR_TO_ANSI(*CurrentLevel->URL.Map),
+                (INT)CurrentLevel->GetLevelInfo()->NetMode,
+                LifecycleBackOutDelay );
+        }
+        return;
+    }
+
+    if( bLifecycle && SmokeStage == 5 )
+    {
+        if( Now - SmokeStartTime >= LifecycleBackOutDelay )
+        {
+            XboxMenuReturnToFrontend( Viewport );
+            SmokeStartTime = Now;
+            SmokeStage = 6;
+            GXboxLog.Write( "XSL LIFECYCLE gameplay back-out queued after first join" );
+        }
+        return;
+    }
+
+    if( bLifecycle && SmokeStage == 6 )
+    {
+        if( CurrentLevel && XboxIsFrontendLevel(CurrentLevel) )
+        {
+            SmokeStartTime = Now;
+            SmokeStage = 7;
+            GXboxLog.Write( "XSL LIFECYCLE frontend restored after first join sessionRegistered=%d launch=0x%08X ack=0x%08X pending=%d peers=%d",
+                GXboxSystemLink.SessionRegistered ? 1 : 0,
+                GXboxSystemLink.LaunchId,
+                GXboxSystemLink.LaunchAckId,
+                GXboxSystemLink.PendingTravel ? 1 : 0,
+                GXboxSystemLink.Peers.Num() );
+        }
+        return;
+    }
+
+    if( bLifecycle && SmokeStage == 7 )
+    {
+        if( Now - SmokeStartTime >= 2.0 )
+        {
+            GXboxLog.Write( "XSL LIFECYCLE pre-second-lobby stale sessionRegistered=%d launch=0x%08X ack=0x%08X pending=%d peers=%d started=%d socket=%d",
+                GXboxSystemLink.SessionRegistered ? 1 : 0,
+                GXboxSystemLink.LaunchId,
+                GXboxSystemLink.LaunchAckId,
+                GXboxSystemLink.PendingTravel ? 1 : 0,
+                GXboxSystemLink.Peers.Num(),
+                GXboxSystemLink.Started ? 1 : 0,
+                (INT)GXboxSystemLink.Socket );
+            XboxMenuOpen( Viewport );
+            XboxSplitReadyReset( Viewport );
+            GXboxMenu.Screen = XMS_SystemLink;
+            GXboxMenu.MainFocus = 2;
+            GXboxMenu.SplitFocus = 0;
+            XboxSystemLinkStart( Viewport );
+            SmokeStartTime = Now;
+            SmokeLastStatusTime = 0.0;
+            SmokeStage = 1;
+            GXboxLog.Write( "XSL LIFECYCLE entered second lobby sessionRegistered=%d launch=0x%08X ack=0x%08X pending=%d peers=%d",
+                GXboxSystemLink.SessionRegistered ? 1 : 0,
+                GXboxSystemLink.LaunchId,
+                GXboxSystemLink.LaunchAckId,
+                GXboxSystemLink.PendingTravel ? 1 : 0,
+                GXboxSystemLink.Peers.Num() );
+        }
+        return;
+    }
+
+    if( bLifecycle && SmokeStage == 8 )
+        return;
 
     if( SmokeStage == 0 )
     {
+        if( bLifecycle )
+        {
+            UXboxClient* Client = (UXboxClient*)Viewport->GetOuter();
+            if( Client && Client->Engine )
+            {
+                const TCHAR* FailedURL = TEXT("192.0.2.1:7777?LAN?Name=LifecycleProbe?Class=Botpack.TMale2?Team=255");
+                Client->Engine->SetClientTravel( Viewport, FailedURL, 0, TRAVEL_Absolute );
+                SmokeStartTime = Now;
+                SmokeLastStatusTime = 0.0;
+                SmokeStage = -1;
+                GXboxLog.Write( "XSL LIFECYCLE queued deliberate failed join url=%s", TCHAR_TO_ANSI(FailedURL) );
+                return;
+            }
+        }
         XboxMenuOpen( Viewport );
         XboxSplitReadyReset( Viewport );
         GXboxMenu.Screen = XMS_SystemLink;
         GXboxMenu.MainFocus = 2;
         GXboxMenu.SplitFocus = 0;
-        XboxSystemLinkStart();
+        XboxSystemLinkStart( Viewport );
         SmokeStartTime = Now;
         SmokeLastStatusTime = 0.0;
         SmokeStage = 1;
@@ -11215,7 +11425,7 @@ static void XboxMenuActivate( UXboxViewport* Viewport )
                 XboxSplitReadyReset( Viewport );
                 XboxSplitReadyActivatePrimary( Viewport );
                 GXboxMenu.Screen = XMS_SystemLink;
-                XboxSystemLinkStart();
+                XboxSystemLinkStart( Viewport );
                 GXboxLog.Write( "XMENU screen: System Link alpha" );
                 break;
             case 3:
@@ -16430,6 +16640,114 @@ static void XboxAutoFireSmokeTick( UXboxViewport* Viewport )
     }
 }
 
+static void XboxFlickerTraversalProofApply( UXboxViewport* Viewport, XINPUT_GAMEPAD& Pad )
+{
+    if( !XboxFlickerTraversalProofEnabled() || !Viewport || !Viewport->Actor )
+        return;
+
+    APlayerPawn* Player = Viewport->Actor;
+    ULevel* Level = Player->GetLevel();
+    if( !Level || XboxIsFrontendLevel(Level) || GXboxMenu.Active )
+        return;
+
+    // Follow a live bot instead of synthesizing a movement pattern. The bot's
+    // navigation and combat decisions exercise real map routes, corners,
+    // lifts, stairs, elevation changes, and arbitrary view rotations.
+    APawn* Bot = NULL;
+    for( APawn* Pawn = Level->GetLevelInfo()->PawnList; Pawn; Pawn = Pawn->nextPawn )
+    {
+        if( Pawn != Player
+        &&  Pawn->bIsPlayer
+        &&  Pawn->PlayerReplicationInfo
+        &&  Pawn->PlayerReplicationInfo->bIsABot
+        &&  !Pawn->PlayerReplicationInfo->bIsSpectator
+        &&  Pawn->Health > 0
+        &&  !Pawn->bHidden )
+        {
+            Bot = Pawn;
+            break;
+        }
+    }
+    if( !Bot )
+        return;
+
+    appMemzero( &Pad, sizeof(Pad) );
+    if( Player->ViewTarget != Bot || Player->bBehindView )
+    {
+        Player->ViewTarget = Bot;
+        Player->bBehindView = 0;
+        GXboxLog.Write( "XFLICKER SPECTATE target=%s map=%s",
+            Bot->PlayerReplicationInfo
+                ? TCHAR_TO_ANSI(*Bot->PlayerReplicationInfo->PlayerName)
+                : TCHAR_TO_ANSI(Bot->GetName()),
+            Level->URL.Map.Len() ? TCHAR_TO_ANSI(*Level->URL.Map) : "" );
+    }
+
+    DWORD Now = GetTickCount();
+
+    // The reported visual corruption was also associated with display-control
+    // changes. Cycle through neutral, moderate, and edge settings during the
+    // moving bot view so every run exercises both the calibration pass and the
+    // transitions into and out of it.
+    UXboxClient* Client = Cast<UXboxClient>( Viewport->GetOuter() );
+    static DWORD CalibrationStart = 0;
+    static INT LastCalibrationPhase = -1;
+    if( Client )
+    {
+        if( !CalibrationStart )
+            CalibrationStart = Now;
+        INT CalibrationPhase = ((Now - CalibrationStart) / 6000) % 5;
+        if( CalibrationPhase != LastCalibrationPhase )
+        {
+            static const FLOAT BrightnessValues[5] = { 0.60f, 0.35f, 0.80f, 0.50f, 0.20f };
+            static const FLOAT ContrastValues[5]   = { 1.10f, 0.75f, 1.40f, 1.00f, 1.30f };
+            static const FLOAT GammaValues[5]      = { 1.25f, 0.65f, 1.80f, 1.00f, 1.50f };
+            Client->Brightness = BrightnessValues[CalibrationPhase];
+            Client->DisplayContrast = ContrastValues[CalibrationPhase];
+            Client->DisplayGamma = GammaValues[CalibrationPhase];
+            XboxRenderSetDisplayCalibration(
+                Client->Brightness,
+                Client->DisplayContrast,
+                Client->DisplayGamma );
+            LastCalibrationPhase = CalibrationPhase;
+            GXboxLog.Write( "XFLICKER CALIBRATION phase=%d brightness=%.2f contrast=%.2f gamma=%.2f",
+                CalibrationPhase, Client->Brightness, Client->DisplayContrast, Client->DisplayGamma );
+        }
+    }
+
+    static UBOOL Initialized = 0;
+    static DWORD LastLog = 0;
+    static FVector StartLocation(0,0,0);
+    static FVector LastLocation(0,0,0);
+    if( !Initialized )
+    {
+        Initialized = 1;
+        LastLog = Now;
+        StartLocation = LastLocation = Bot->Location;
+        GXboxLog.Write( "XFLICKER TRAVERSAL START map=%s target=%s loc=%.1f,%.1f,%.1f",
+            Level->URL.Map.Len() ? TCHAR_TO_ANSI(*Level->URL.Map) : "",
+            Bot->PlayerReplicationInfo
+                ? TCHAR_TO_ANSI(*Bot->PlayerReplicationInfo->PlayerName)
+                : TCHAR_TO_ANSI(Bot->GetName()),
+            Bot->Location.X, Bot->Location.Y, Bot->Location.Z );
+    }
+    else if( Now - LastLog >= 1000 )
+    {
+        FLOAT Segment = (Bot->Location - LastLocation).Size();
+        FLOAT Total = (Bot->Location - StartLocation).Size();
+        GXboxLog.Write( "XFLICKER MOVE ms=%lu map=%s target=%s loc=%.1f,%.1f,%.1f segment=%.1f total=%.1f phase=0",
+            Now,
+            Level->URL.Map.Len() ? TCHAR_TO_ANSI(*Level->URL.Map) : "",
+            Bot->PlayerReplicationInfo
+                ? TCHAR_TO_ANSI(*Bot->PlayerReplicationInfo->PlayerName)
+                : TCHAR_TO_ANSI(Bot->GetName()),
+            Bot->Location.X, Bot->Location.Y, Bot->Location.Z,
+            Segment, Total );
+        LastLocation = Bot->Location;
+        LastLog = Now;
+    }
+}
+
 void UXboxViewport::OpenWindow( DWORD ParentWindow, UBOOL Temporary,
                                  INT NewX, INT NewY, INT OpenX, INT OpenY )
 {
@@ -16633,6 +16951,7 @@ void UXboxViewport::PollController()
             }
         }
         XboxWeaponCycleProofSmokeApply( this, ControllerState.Gamepad );
+        XboxFlickerTraversalProofApply( this, ControllerState.Gamepad );
         static INT StateLogCount = 0;
         if( StateLogCount < 8
         ||  ControllerState.Gamepad.wButtons

@@ -1604,6 +1604,11 @@ UBOOL UGameEngine::Browse( FURL URL, const TMap<FString,FString>* TravelInfo, FS
 	if( GLevel && XboxIsCityIntroLevel( GLevel ) && XboxIsCityIntroURL( URL ) )
 	{
 		debugf( NAME_Init, TEXT("Xbox: intercepting CityIntro Browse loop %s"), *URL.String() );
+		if( GPendingLevel )
+		{
+			debugf( NAME_Log, TEXT("Xbox: cancelling pending network travel before CityIntro rewind") );
+			CancelPending();
+		}
 		if( Client && Client->Viewports.Num() )
 			Client->Viewports(0)->TravelURL = TEXT("");
 		if( XboxRestartCityIntroFlyby( GLevel, Client && Client->Viewports.Num() ? Client->Viewports(0) : NULL ) )
@@ -1945,6 +1950,13 @@ ULevel* UGameEngine::LoadMap( const FURL& URL, UPendingLevel* Pending, const TMa
 		{
 			delete GLevel->NetDriver;
 			GLevel->NetDriver = NULL;
+#if TARGET_XBOX
+			// UC2004 releases connection-owned secure addresses in the Xbox
+			// connection destructor, then releases session keys in the net driver's
+			// LowLevelDestroy. Our frontend owns the session key, so mirror that
+			// lifetime by cleaning it up only after the old net driver is gone.
+			XboxSystemLinkAbortTravelCleanup( "LoadMap post net shutdown" );
+#endif
 		}
 		if( GLevel->DemoRecDriver )
 		{
@@ -2790,14 +2802,24 @@ void UGameEngine::SetClientTravel( UPlayer* Player, const TCHAR* NextURL, UBOOL 
 {
 	guard(UGameEngine::SetClientTravel);
 	check(Player);
+	check(NextURL);
+
+	// Xbox frontend cleanup can release menu-owned strings and other transient
+	// state.  Preserve the requested URL before invoking it so callers may pass
+	// either a stack buffer or an FString owned by that frontend state.
+	FString RequestedURL = NextURL;
 
 #if TARGET_XBOX
 	XboxMenuPreClientTravelCleanup();
 #endif
 	UViewport* Viewport    = CastChecked<UViewport>( Player );
-	Viewport->TravelURL    = NextURL;
+	Viewport->TravelURL    = RequestedURL;
 	Viewport->TravelType   = TravelType;
 	Viewport->bTravelItems = bItems;
+#if TARGET_XBOX
+	debugf( NAME_Log, TEXT("Xbox: client travel queued url=%s type=%i items=%i viewport=%08X"),
+		*Viewport->TravelURL, TravelType, bItems, (DWORD)Viewport );
+#endif
 
 	unguard;
 }
@@ -2971,6 +2993,10 @@ void UGameEngine::Tick( FLOAT DeltaSeconds )
 	{
 		// Travel to new level, and exit.
 		UViewport* Viewport = Client->Viewports( 0 );
+		#if TARGET_XBOX
+		debugf( NAME_Log, TEXT("Xbox: client travel consuming url=%s type=%i items=%i viewport=%08X"),
+			*Viewport->TravelURL, Viewport->TravelType, Viewport->bTravelItems, (DWORD)Viewport );
+		#endif
 		TMap<FString,FString> TravelInfo;
 
 		// Export items.

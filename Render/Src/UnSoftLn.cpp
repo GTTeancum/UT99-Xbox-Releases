@@ -53,12 +53,13 @@ UBOOL URender::Project( FSceneNode* Frame, const FVector& V, FLOAT& ScreenX, FLO
 	{
 		Temp     = Temp.TransformVectorBy( Frame->Coords );
 		FLOAT Z  = Temp.Z; if (Abs (Z)<0.01) Z+=0.02;
-		FLOAT RZ = Frame->Proj.Z / Z;
-		ScreenX = Temp.X * RZ + Frame->FX2;
-		ScreenY = Temp.Y * RZ + Frame->FY2;
+		FLOAT RZX = Frame->Proj.X / Z;
+		FLOAT RZY = Frame->Proj.Z / Z;
+		ScreenX = Temp.X * RZX + Frame->FX2;
+		ScreenY = Temp.Y * RZY + Frame->FY2;
 
 		if( Scale  )
-			*Scale = RZ;
+			*Scale = RZY;
 
 		return Z > 1.0;
 	}

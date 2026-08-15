@@ -1,6 +1,6 @@
 # UT99 Xbox Open Items
 
-Last updated: 2026-08-14
+Last updated: 2026-08-15
 
 This is the quick-access tracker for active UT99 Xbox work. It preserves the
 older project backlog and adds the current visual-signoff queue so the project
@@ -8,7 +8,7 @@ does not depend on scattered chat context.
 
 ## 1.2 Release Scope
 
-**1̲.̲** **Widescreen:** decision pending. Steve is not sold on changing the current presentation, so do not commit to a widescreen implementation until the intended field of view, HUD/menu treatment, and real-hardware output have been reviewed together.
+**1̲.̲** **Widescreen:** implementation complete and Xemu-qualified on 2026-08-15; final real-Xbox/TV sign-off remains. Following UC2004's original-Xbox path, the renderer reads the dashboard widescreen flag, sets the Xbox anamorphic presentation flag, and applies pixel aspect only to the 3D horizontal projection. The 4:3 path is unchanged. Live-bot gameplay, HUD, main menu, loading, and two-player split-screen presentation passed at 16:9; evidence is recorded below.
 **2̲.̲** **Flicker and UV fixes:** complete and signed off by Steve on 2026-08-13.
 **3̲.̲** **Mutators:** complete and Xemu-qualified on 2026-08-13, including Steve's manual menu review. The Xbox selector now exposes the full stock mutator set plus OldSkool Weapons, AgentX Arena, and Akimbo Arena; details and evidence are recorded below.
 **4̲.̲** **Last Man Standing:** complete and visually qualified on Xemu on 2026-08-13, including Steve's manual review of its Instant Action, split-screen, and System Link exposure. `Botpack.LastManStanding` uses DM arenas, a Lives setting, and no time limit. Menu-driven proof on Deck16 loaded the actual `LastManStanding` class with two bots and five lives; the stock scoreboard displayed “Be the last one alive!” and its Lives column dropped a competitor from 5 to 4 during play. Evidence: `UT99-Xbox/build_cli/xemu_item4_lms_20260813_green`.
@@ -347,14 +347,37 @@ does not depend on scattered chat context.
    - Revisit only as a separate post-1.2 effort with its own rendering and
      network qualification plan.
 
-7. Widescreen decision and prototype gate
-   - Keep this as a 1.2 decision item, not an assumed feature commitment.
-   - Before implementation, compare the current 4:3-safe presentation against a
-     true widescreen camera/FOV prototype on real Xbox output. Include weapon
-     view, projection, scope/overlay effects, HUD safe area, menus, loading
-     screens, split screen, and performance.
-   - Proceed only after Steve approves the visual direction and compatibility
-     tradeoff.
+7. Widescreen implementation and hardware sign-off
+   - Implemented on 2026-08-15 from the local UC2004 Xbox source rather than an
+     inferred PC widescreen path. The render device reads
+     `XC_VIDEO_FLAGS_WIDESCREEN`, sets `D3DPRESENTFLAG_WIDESCREEN`, exposes a
+     render-device pixel-aspect hook, and keeps horizontal and vertical camera
+     projection scales separate throughout world projection, clipping, lines,
+     sprites, coronas, and the Xbox GPU matrix.
+   - The dashboard setting is the only production switch. No proof marker,
+     command-line option, or config override can force widescreen, and the 4:3
+     control path retains equal horizontal/vertical projection scales.
+   - Final telemetry proved `wide=0 projX=383.1 projY=383.1` in the 4:3 control
+     and `wide=1 projX=287.4 projY=383.1` with dashboard widescreen enabled.
+     This preserves vertical FOV and widens the horizontal view by the expected
+     4:3 pixel-aspect factor.
+   - Xemu qualification passed with moving bots on Deck16 in both modes. The
+     widescreen main menu remained proportioned and readable, and the dedicated
+     two-player layout proof passed with two rendered and two skipped viewport
+     objects. Evidence:
+     `UT99-Xbox/build_cli/item1_widescreen_4x3_final_20260815`,
+     `UT99-Xbox/build_cli/item1_widescreen_16x9_final_20260815`,
+     `UT99-Xbox/build_cli/item1_widescreen_menu_final_20260815`, and
+     `UT99-Xbox/build_cli/item1_widescreen_split_2p_pass_20260815`. The final
+     post-audit XBE then passed an 84.3-second moving-bot widescreen smoke with
+     no steady-state texture uploads under
+     `UT99-Xbox/build_cli/item1_widescreen_release_smoke_20260815`; its SHA-256
+     is `50F694FAD2044CBD1A7723FB545AFC4C59E044A0D2FAD50A9745A6D4BCDFBC81`.
+   - A separate four-dummy split stress attempt was not counted as a pass: the
+     stock `ChallengeHUD` script repeatedly logged `Accessed None` for dummy
+     HUDs and prevented the harness from completing. Two-player widescreen
+     presentation is qualified; four-player stress and real-Xbox/TV output
+     remain explicit sign-off checks.
 
 8. Menu transition latency
    - Added by Steve on 2026-08-13 after manual qualification of Mutators and

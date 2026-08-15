@@ -1151,6 +1151,16 @@ UBOOL UXboxRenderDevice::Init( UViewport* InViewport, INT NewX, INT NewY, INT Ne
     PP.FullScreen_RefreshRateInHz      = 60;
     PP.FullScreen_PresentationInterval = D3DPRESENT_INTERVAL_IMMEDIATE;
 
+	// Match UC2004's original-Xbox behavior: honor the console dashboard's
+	// widescreen preference and advertise anamorphic 16:9 to the video encoder.
+	// The engine-side pixel-aspect hook widens only the 3D horizontal frustum.
+	DWORD XboxVideoFlags = XGetVideoFlags();
+	Widescreen = (XboxVideoFlags & XC_VIDEO_FLAGS_WIDESCREEN) != 0;
+	if( Widescreen )
+		PP.Flags |= D3DPRESENTFLAG_WIDESCREEN;
+	GXboxLog.Write( "XboxRender::Init: videoFlags=0x%08X widescreen=%d presentFlags=0x%08X",
+		XboxVideoFlags, Widescreen, PP.Flags );
+
     // May 15 hardware-oriented path configured push buffers before CreateDevice.
     Direct3D_SetPushBufferSize( 512 * 1024, 64 * 1024 );
     GXboxLog.Write( "XboxRender::Init: SetPushBufferSize(512K, 64K) called" );
@@ -1255,6 +1265,13 @@ UBOOL UXboxRenderDevice::SetRes( INT NewX, INT NewY, INT NewColorBytes, UBOOL Fu
     // Xbox is always 640x480 fullscreen
     return 1;
     unguard;
+}
+
+FLOAT UXboxRenderDevice::GetPixelAspectRatio()
+{
+	// A 640x480 framebuffer displayed anamorphically at 16:9 has pixels that
+	// are 4/3 as wide as the square-pixel engine assumes.
+	return Widescreen ? (4.0f / 3.0f) : 1.0f;
 }
 
 // ============================================================================
@@ -1978,8 +1995,9 @@ void UXboxRenderDevice::Unlock( UBOOL Blit )
         GRD_LastPerfLogSeconds = AfterPresentSeconds;
     if( AfterPresentSeconds - GRD_LastPerfLogSeconds >= 2.0 )
     {
-        GXboxLog.Write( "PERF fps=%.1f frameMS=%.2f renderMS=%.2f presentMS=%.2f DCS=%d DGP=%d DT=%d prim=%d verts=%d dgpBatch=%d/%d dtBatch=%d/%d vbLocks=%d vbWraps=%d up=%d/%d vbKB=%d state=%d/%d texBind=%d texNew=%d texUp=%d texDef=%d splits=%d liveKB=%d texKB=%d availKB=%u clampBad=%d clampOk=%d nobase=%d",
+        GXboxLog.Write( "PERF fps=%.1f frameMS=%.2f renderMS=%.2f presentMS=%.2f wide=%d projX=%.1f projY=%.1f DCS=%d DGP=%d DT=%d prim=%d verts=%d dgpBatch=%d/%d dtBatch=%d/%d vbLocks=%d vbWraps=%d up=%d/%d vbKB=%d state=%d/%d texBind=%d texNew=%d texUp=%d texDef=%d splits=%d liveKB=%d texKB=%d availKB=%u clampBad=%d clampOk=%d nobase=%d",
             GRD_DisplayFPS, GRD_LastFrameMS, GRD_LastRenderMS, GRD_LastPresentMS,
+            Widescreen, CurrentFrame ? CurrentFrame->Proj.X : 0.0f, CurrentFrame ? CurrentFrame->Proj.Z : 0.0f,
             GRD_FrameDCS, GRD_FrameDGP, GRD_FrameDT, GRD_FramePrims, GRD_FrameVerts,
             GRD_FrameDGPBatches, GRD_FrameDGPBatchedPolys, GRD_FrameDTBatches, GRD_FrameDTBatchedTiles,
             GRD_FrameVBLocks, GRD_FrameVBWraps, GRD_FrameUPDraws, GRD_FrameUPFails, GRD_FrameVBBytes / 1024,
@@ -2046,7 +2064,7 @@ void UXboxRenderDevice::SetSceneNode( FSceneNode* Frame )
 
     D3DMATRIX Projection;
     appMemzero( &Projection, sizeof(Projection) );
-    Projection._11 = (Frame->X > 0) ? (2.0f * Frame->Proj.Z / (FLOAT)Frame->X) : 1.0f;
+    Projection._11 = (Frame->X > 0) ? (2.0f * Frame->Proj.X / (FLOAT)Frame->X) : 1.0f;
     Projection._22 = (Frame->Y > 0) ? (-2.0f * Frame->Proj.Z / (FLOAT)Frame->Y) : -1.0f;
     Projection._33 = ProjZRatio;
     Projection._34 = 1.0f;
@@ -2058,8 +2076,8 @@ void UXboxRenderDevice::SetSceneNode( FSceneNode* Frame )
     if( ProjectionLogCount < 4 )
     {
         ProjectionLogCount++;
-        GXboxLog.Write( "RPROJ gpu f=%d #%d frame=%dx%d projZ=%.6f m11=%.6f m22=%.6f zNear=%.3f zFar=%.1f",
-            FrameCounter, ProjectionLogCount, Frame->X, Frame->Y, Frame->Proj.Z,
+		GXboxLog.Write( "RPROJ gpu f=%d #%d frame=%dx%d wide=%d projX=%.6f projY=%.6f m11=%.6f m22=%.6f zNear=%.3f zFar=%.1f",
+			FrameCounter, ProjectionLogCount, Frame->X, Frame->Y, Widescreen, Frame->Proj.X, Frame->Proj.Z,
             Projection._11, Projection._22, zNear, zFar );
     }
 

@@ -187,6 +187,7 @@ public:
     // viewport at 640x480 logical, so we have to honour what really exists.
     UINT                ActualBackBufferW;
     UINT                ActualBackBufferH;
+	UBOOL               Widescreen;
 
     // Texture cache
     FXboxTexCacheEntry* TexCache[XBOX_TEX_CACHE_SIZE];
@@ -231,6 +232,7 @@ public:
     void  ReadPixels( FColor* Pixels );
     void  EndFlash();
     void  SetSceneNode( FSceneNode* Frame );
+	FLOAT GetPixelAspectRatio();
 
     // Private helpers
     void  SetBlending( DWORD PolyFlags );

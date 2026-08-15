@@ -183,8 +183,8 @@ void URenderDevice::Draw3DLine
 		}
 
 		// Calculate perspective.
-		P1.Z = 1.0/P1.Z; P1.X = P1.X * Frame->Proj.Z * P1.Z + SX2; P1.Y = P1.Y * Frame->Proj.Z * P1.Z + SY2;
-		P2.Z = 1.0/P2.Z; P2.X = P2.X * Frame->Proj.Z * P2.Z + SX2; P2.Y = P2.Y * Frame->Proj.Z * P2.Z + SY2;
+		P1.Z = 1.0/P1.Z; P1.X = P1.X * Frame->Proj.X * P1.Z + SX2; P1.Y = P1.Y * Frame->Proj.Z * P1.Z + SY2;
+		P2.Z = 1.0/P2.Z; P2.X = P2.X * Frame->Proj.X * P2.Z + SX2; P2.Y = P2.Y * Frame->Proj.Z * P2.Z + SY2;
 	}
 
 	// Clip it and draw it.
@@ -277,11 +277,19 @@ void FSceneNode::ComputeRenderSize()
 	FY2			= FY * 0.5;	
 	FX15		= (FX+1.0001) * 0.5;
 	FY15		= (FY+1.0001) * 0.5;	
-	Proj		= FVector( 0.5-0.5*FX, 0.5-0.5*FY, 0.5*FX / appTan(Viewport->Actor->FovAngle * PI/360.0) );
+	// UT99 traditionally uses one projection scale for both axes. Keep that
+	// value as the vertical scale, but allow a render device to describe wide
+	// physical pixels (the original Xbox's 640x480 anamorphic 16:9 mode). This
+	// is the UT99 equivalent of UC2004's render-interface pixel-aspect hook.
+	FLOAT PixelAspect = Viewport->RenDev ? Viewport->RenDev->GetPixelAspectRatio() : 1.0f;
+	if( PixelAspect <= 0.0f )
+		PixelAspect = 1.0f;
+	FLOAT ProjectionScale = 0.5f*FX / appTan(Viewport->Actor->FovAngle * PI/360.0);
+	Proj		= FVector( ProjectionScale / PixelAspect, ProjectionScale, ProjectionScale );
 	RProj		= FVector( 1/Proj.X, 1/Proj.Y, 1/Proj.Z );
 	Zoom 		= Viewport->Actor->OrthoZoom / (FX * 15.0);
-	PrjXM		= (0  - FX2)*(-RProj.Z);
-	PrjXP		= (FX - FX2)*(+RProj.Z);
+	PrjXM		= (0  - FX2)*(-RProj.X);
+	PrjXP		= (FX - FX2)*(+RProj.X);
 	PrjYM		= (0  - FY2)*(-RProj.Z);
 	PrjYP		= (FY - FY2)*(+RProj.Z);
 
@@ -291,7 +299,7 @@ void FSceneNode::ComputeRenderSize()
 	{
 		for( INT j=0; j<2; j++ )
 		{
-			ViewSides[i*2+j] = FVector(TempSigns[i] * FX2, TempSigns[j] * FY2, Proj.Z).UnsafeNormal().TransformVectorBy(Uncoords);
+			ViewSides[i*2+j] = FVector(TempSigns[i] * FX2 * RProj.X, TempSigns[j] * FY2 * RProj.Z, 1.0f).UnsafeNormal().TransformVectorBy(Uncoords);
 		}
 		ViewPlanes[i] = FPlane
 		(
@@ -301,7 +309,7 @@ void FSceneNode::ComputeRenderSize()
 		ViewPlanes[i+2] = FPlane
 		(
 			Coords.Origin,
-			FVector(TempSigns[i] / FX2,0,1.0/Proj.Z).UnsafeNormal().TransformVectorBy(Uncoords)
+			FVector(TempSigns[i] / FX2,0,1.0/Proj.X).UnsafeNormal().TransformVectorBy(Uncoords)
 		);
 	}
 

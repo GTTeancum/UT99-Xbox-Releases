@@ -111,7 +111,7 @@ struct FTransform : public FOutVector
 	void Project( const FSceneNode* Frame )
 	{
 		RZ      = Frame->Proj.Z / Point.Z;
-		ScreenX = Point.X * RZ + Frame->FX15;
+		ScreenX = Point.X * (Frame->Proj.X / Point.Z) + Frame->FX15;
 		ScreenY = Point.Y * RZ + Frame->FY15;
 		IntY    = appFloor( ScreenY );
 	}
@@ -506,7 +506,7 @@ struct ENGINE_API HCoords : public HHitProxy
 		FLOAT Y = InFrame->Viewport->HitY+InFrame->Viewport->HitYL/2;
 		Direction
 		=	InFrame->Coords.ZAxis
-		+	InFrame->Coords.XAxis * (X - InFrame->FX2) * InFrame->RProj.Z
+		+	InFrame->Coords.XAxis * (X - InFrame->FX2) * InFrame->RProj.X
 		+	InFrame->Coords.YAxis * (Y - InFrame->FY2) * InFrame->RProj.Z;
 	}
 };

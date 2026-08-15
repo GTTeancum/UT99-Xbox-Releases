@@ -680,7 +680,7 @@ void URender::DrawLodMesh
 				}
 				if ( Tex )
 				{
-					FLOAT XSize = SortedPts[i]->RZ * Tex->USize * Owner->DrawScale;
+					FLOAT XSize = SortedPts[i]->RZ * (Frame->Proj.X / Frame->Proj.Z) * Tex->USize * Owner->DrawScale;
 					FLOAT YSize = SortedPts[i]->RZ * Tex->VSize * Owner->DrawScale;
 
 					Frame->Viewport->Canvas->DrawIcon

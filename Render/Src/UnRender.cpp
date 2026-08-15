@@ -916,7 +916,7 @@ static void Pipe( FTransform& Result, const FSceneNode* Frame, const FVector& In
 			);
 		#else
 		Result.RZ      = Frame->Proj.Z / Result.Point.Z;
-		Result.ScreenX = Result.Point.X * Result.RZ + Frame->FX15;
+		Result.ScreenX = Result.Point.X * (Frame->Proj.X / Result.Point.Z) + Frame->FX15;
 		Result.ScreenY = Result.Point.Y * Result.RZ + Frame->FY15;
 		Result.IntY    = appFloor( Result.ScreenY );
 		#endif
@@ -1613,8 +1613,8 @@ FSceneNode* URender::CreateChildFrame
 			Frame->Span->MergeWith( *Span );
 			if( Bounds )
 			{
-				Frame->PrjXM = Max( Frame->PrjXM, (Bounds->MinX - Frame->FX2)*(-Frame->RProj.Z) );
-				Frame->PrjXP = Max( Frame->PrjXP, (Bounds->MaxX - Frame->FX2)*(+Frame->RProj.Z) );
+				Frame->PrjXM = Max( Frame->PrjXM, (Bounds->MinX - Frame->FX2)*(-Frame->RProj.X) );
+				Frame->PrjXP = Max( Frame->PrjXP, (Bounds->MaxX - Frame->FX2)*(+Frame->RProj.X) );
 				Frame->PrjYM = Max( Frame->PrjYM, (Bounds->MinY - Frame->FY2)*(-Frame->RProj.Z) );
 				Frame->PrjYP = Max( Frame->PrjYP, (Bounds->MaxY - Frame->FY2)*(+Frame->RProj.Z) );
 			}
@@ -1651,8 +1651,8 @@ FSceneNode* URender::CreateChildFrame
 		Frame->ComputeRenderSize();
 		if( Bounds )
 		{
-			Frame->PrjXM = (Bounds->MinX - Frame->FX2)*(-Frame->RProj.Z);
-			Frame->PrjXP = (Bounds->MaxX - Frame->FX2)*(+Frame->RProj.Z);
+			Frame->PrjXM = (Bounds->MinX - Frame->FX2)*(-Frame->RProj.X);
+			Frame->PrjXP = (Bounds->MaxX - Frame->FX2)*(+Frame->RProj.X);
 			Frame->PrjYM = (Bounds->MinY - Frame->FY2)*(-Frame->RProj.Z);
 			Frame->PrjYP = (Bounds->MaxY - Frame->FY2)*(+Frame->RProj.Z);
 		}
@@ -2018,18 +2018,20 @@ UBOOL URender::BoundVisible
 
 	// Calculate projections of 8 points and take X,Y min/max bounded to Span X,Y window.
 	Pt       = &Pts[0];
-	FLOAT RZ = Frame->Proj.Z / Pt->Point.Z;
-	BoxMinX  = BoxMaxX = appFloor( Frame->FX2 + Pt->Point.X * RZ );
-	BoxMinY  = BoxMaxY = appFloor( Frame->FY2 + Pt->Point.Y * RZ );
+	FLOAT RZX = Frame->Proj.X / Pt->Point.Z;
+	FLOAT RZY = Frame->Proj.Z / Pt->Point.Z;
+	BoxMinX  = BoxMaxX = appFloor( Frame->FX2 + Pt->Point.X * RZX );
+	BoxMinY  = BoxMaxY = appFloor( Frame->FY2 + Pt->Point.Y * RZY );
 	if( AllCodes & 1 ) BoxMinX = 0;
 	if( AllCodes & 2 ) BoxMaxX = Frame->X;
 	if( AllCodes & 4 ) BoxMinY = 0;
 	if( AllCodes & 8 ) BoxMaxY = Frame->Y;
 	for( INT i=1; i<8; i++,Pt++ )
 	{
-		FLOAT RZ = Frame->Proj.Z / Pt->Point.Z;
-		BoxX     = appFloor( Frame->FX2 + Pt->Point.X * RZ );
-		BoxY     = appFloor( Frame->FY2 + Pt->Point.Y * RZ );
+		FLOAT RZX = Frame->Proj.X / Pt->Point.Z;
+		FLOAT RZY = Frame->Proj.Z / Pt->Point.Z;
+		BoxX     = appFloor( Frame->FX2 + Pt->Point.X * RZX );
+		BoxY     = appFloor( Frame->FY2 + Pt->Point.Y * RZY );
 		if      ( BoxX < BoxMinX ) BoxMinX = BoxX;
 		else if ( BoxX > BoxMaxX ) BoxMaxX = BoxX;
 		if      ( BoxY < BoxMinY ) BoxMinY = BoxY;
@@ -3266,13 +3268,15 @@ void URender::DrawFrame( FSceneNode* Frame )
 					FVector Hue   = (H<86) ? FVector((85-H)/85.f,(H-0)/85.f,0) : (H<171) ? FVector(0,(170-H)/85.f,(H-85)/85.f) : FVector((H-170)/85.f,0,(255-H)/84.f);
 					FLOAT	Alpha = Light->LightSaturation / 255.0;
 					FVector Color = (Hue + Alpha * (FVector(1,1,1) - Hue));
-					FLOAT   RZ    = Frame->Proj.Z / Loc.Z;
-					FLOAT   X     = Loc.X * RZ + Frame->FX2;
-					FLOAT   Y     = Loc.Y * RZ + Frame->FY2;
+					FLOAT   RZX   = Frame->Proj.X / Loc.Z;
+					FLOAT   RZY   = Frame->Proj.Z / Loc.Z;
+					FLOAT   X     = Loc.X * RZX + Frame->FX2;
+					FLOAT   Y     = Loc.Y * RZY + Frame->FY2;
 					FLOAT   Scale = 512.f * Light->DrawScale * Frame->X/640;
+					FLOAT   ScaleX = Scale * Frame->Proj.X / Frame->Proj.Z;
 #if LEGEND
 					// adjust lens flare clipping effect by half of the size of the primary light skin
-					FLOAT	AdjustClipX = Scale / 2;
+					FLOAT	AdjustClipX = ScaleX / 2;
 					// adjust Y clipping to account for non-square display area
 					FLOAT	AdjustClipY = ( Scale - ( ( Frame->X - Frame->Y ) / 2 ) ) / 2 ;
 					if( Light->bLensFlare )
@@ -3294,10 +3298,11 @@ void URender::DrawFrame( FSceneNode* Frame )
 								break;
 							}
 							FLOAT Sc = Scale * 0.2 * Light->Region.Zone->LensFlareScale[j];
-							Viewport->Canvas->DrawIcon( Light->Region.Zone->LensFlare[j], XX-Sc/2, YY-Sc/2, Sc, Sc, NULL, 1.0, CoronaLights[i].Bright * RZ * Color, FPlane(0,0,0,0), PF_TwoSided | PF_Translucent );
+							FLOAT ScX = Sc * Frame->Proj.X / Frame->Proj.Z;
+							Viewport->Canvas->DrawIcon( Light->Region.Zone->LensFlare[j], XX-ScX/2, YY-Sc/2, ScX, Sc, NULL, 1.0, CoronaLights[i].Bright * RZY * Color, FPlane(0,0,0,0), PF_TwoSided | PF_Translucent );
 						}
 					}
-					Viewport->Canvas->DrawIcon( Light->Skin, X-Scale/2, Y-Scale/2, Scale, Scale, NULL, 1.0, CoronaLights[i].Bright * RZ * Color, FPlane(0,0,0,0), PF_TwoSided | PF_Translucent );
+					Viewport->Canvas->DrawIcon( Light->Skin, X-ScaleX/2, Y-Scale/2, ScaleX, Scale, NULL, 1.0, CoronaLights[i].Bright * RZY * Color, FPlane(0,0,0,0), PF_TwoSided | PF_Translucent );
 #else
 					/*for( int j=0; j<5; j++ )
 					{
@@ -3307,7 +3312,7 @@ void URender::DrawFrame( FSceneNode* Frame )
 						FLOAT Sc = Scale * (1.0-Abs(j-2)/2.2);
 						GRend->DrawIcon( Viewport, Light->Region.Zone->LensFlares[Abs(j-2)], XX-Sc/2, YY-Sc/2, Sc, Sc, NULL, 1.0, GCoronaLights[i].Bright * Color );
 					}*/
-					Viewport->Canvas->DrawIcon( Light->Skin, X-Scale/2, Y-Scale/2, Scale, Scale, NULL, 1.0, CoronaLights[i].Bright * Color, FPlane(0,0,0,0), PF_TwoSided | PF_Translucent );
+					Viewport->Canvas->DrawIcon( Light->Skin, X-ScaleX/2, Y-Scale/2, ScaleX, Scale, NULL, 1.0, CoronaLights[i].Bright * Color, FPlane(0,0,0,0), PF_TwoSided | PF_Translucent );
 #endif
 				}
 			}

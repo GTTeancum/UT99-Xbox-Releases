@@ -84,6 +84,10 @@ class ENGINE_API URenderDevice : public USubsystem
 	virtual void DrawStats( FSceneNode* Frame ) {}
 	virtual void SetSceneNode( FSceneNode* Frame ) {}
 	virtual void PrecacheTexture( FTextureInfo& Info, DWORD PolyFlags ) {}
+	// Physical display-pixel width relative to height. Square-pixel renderers
+	// return 1.0; anamorphic Xbox widescreen returns 4:3 so the engine can widen
+	// only the horizontal frustum while preserving the authored vertical FOV.
+	virtual FLOAT GetPixelAspectRatio() { return 1.0f; }
 
 	// Padding.
 	virtual void vtblPad0() {}

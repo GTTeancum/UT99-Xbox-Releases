@@ -257,11 +257,12 @@ FDynamicSprite::FDynamicSprite( FSceneNode* Frame, INT iNode, AActor* InActor )
 		FLOAT FloatY2 = Y2;
 
 		// Move closer to prevent actors from slipping into floor.
-		FLOAT PlaneZRD	= Z * Frame->RProj.Z;
-		FLOAT PlaneX1   = PlaneZRD * (FloatX1 - Frame->FX2);
-		FLOAT PlaneX2   = PlaneZRD * (FloatX2 - Frame->FX2);
-		FLOAT PlaneY1   = PlaneZRD * (FloatY1 - Frame->FY2);
-		FLOAT PlaneY2   = PlaneZRD * (FloatY2 - Frame->FY2);
+		FLOAT PlaneXRD  = Z * Frame->RProj.X;
+		FLOAT PlaneYRD  = Z * Frame->RProj.Z;
+		FLOAT PlaneX1   = PlaneXRD * (FloatX1 - Frame->FX2);
+		FLOAT PlaneX2   = PlaneXRD * (FloatX2 - Frame->FX2);
+		FLOAT PlaneY1   = PlaneYRD * (FloatY1 - Frame->FY2);
+		FLOAT PlaneY2   = PlaneYRD * (FloatY2 - Frame->FY2);
 
 		// Generate four screen-aligned box vertices.
 		ProxyVerts[0].Point = FVector(PlaneX1, PlaneY1, Z).TransformPointBy( Frame->Uncoords );

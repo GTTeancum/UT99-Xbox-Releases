@@ -737,6 +737,20 @@ void UNetConnection::Tick()
 	guard(UNetConnection::Tick);
 	AssertValid();
 
+#if TARGET_XBOX
+	// UC2004 keeps connection-health statistics on a one-second sampling
+	// period.  The Xbox client connection can lose that inherited native
+	// value while it survives the pending-level travel, leaving it at zero
+	// and turning the stock bad-connection test into a per-frame test.
+	// Restore the native invariant at its point of use; the warning criteria
+	// below remain unchanged and still report genuine low packet rates.
+	if( StatPeriod<=0.0f )
+	{
+		debugf( NAME_Log, TEXT("XNET restored invalid StatPeriod %.3f to UC2004 default"), StatPeriod );
+		StatPeriod = 1.0f;
+	}
+#endif
+
 	// Lag simulation.
 #if DO_ENABLE_NET_TEST
 	if( PktLag )

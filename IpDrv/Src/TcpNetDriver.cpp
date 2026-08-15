@@ -45,6 +45,17 @@ static FXboxTcpSecureTravelHost GXboxTcpSecureTravelHost;
 static const FLOAT GXboxTcpSecureRetryIntervalSeconds = 1.0f;
 static const FLOAT GXboxTcpSecureConnectTimeoutSeconds = 15.0f;
 
+struct FXboxTcpSecureAddressRef
+{
+	in_addr Addr;
+	INT RefCount;
+};
+
+// A current driver and its pending replacement can temporarily use the same
+// XNet virtual address.  XNetUnregisterInAddr is process-wide, so one
+// connection must not invalidate that address while the other still owns it.
+static FXboxTcpSecureAddressRef GXboxTcpSecureAddressRefs[16];
+
 static UBOOL XboxTcpIsXNetVirtualAddress( in_addr Addr )
 {
 	DWORD Ip = 0;
@@ -63,6 +74,81 @@ static UBOOL XboxTcpAddressesMatch( in_addr A, in_addr B )
 	IpGetInt( A, AValue );
 	IpGetInt( B, BValue );
 	return AValue == BValue;
+}
+
+static void XboxTcpAcquireSecureAddress( in_addr Addr, const TCHAR* Where )
+{
+	if( !XboxTcpIsXNetVirtualAddress(Addr) )
+		return;
+
+	INT FreeIndex = INDEX_NONE;
+	for( INT i=0; i<ARRAY_COUNT(GXboxTcpSecureAddressRefs); i++ )
+	{
+		FXboxTcpSecureAddressRef& Ref = GXboxTcpSecureAddressRefs[i];
+		if( Ref.RefCount && XboxTcpAddressesMatch(Ref.Addr, Addr) )
+		{
+			Ref.RefCount++;
+			debugf( NAME_Log, TEXT("XNET secure %s address retained addr=%s refs=%i"),
+				Where ? Where : TEXT("unknown"), *IpString(Addr), Ref.RefCount );
+			return;
+		}
+		if( !Ref.RefCount && FreeIndex == INDEX_NONE )
+			FreeIndex = i;
+	}
+
+	if( FreeIndex != INDEX_NONE )
+	{
+		GXboxTcpSecureAddressRefs[FreeIndex].Addr = Addr;
+		GXboxTcpSecureAddressRefs[FreeIndex].RefCount = 1;
+		debugf( NAME_Log, TEXT("XNET secure %s address acquired addr=%s refs=1"),
+			Where ? Where : TEXT("unknown"), *IpString(Addr) );
+	}
+	else
+	{
+		debugf( NAME_Warning, TEXT("XNET secure address ownership table full addr=%s"), *IpString(Addr) );
+	}
+}
+
+static INT XboxTcpReleaseSecureAddress( in_addr Addr, const TCHAR* Where, INT* RemainingRefs )
+{
+	if( RemainingRefs )
+		*RemainingRefs = 0;
+	if( !XboxTcpIsXNetVirtualAddress(Addr) )
+		return 0;
+
+	for( INT i=0; i<ARRAY_COUNT(GXboxTcpSecureAddressRefs); i++ )
+	{
+		FXboxTcpSecureAddressRef& Ref = GXboxTcpSecureAddressRefs[i];
+		if( Ref.RefCount && XboxTcpAddressesMatch(Ref.Addr, Addr) )
+		{
+			Ref.RefCount--;
+			if( RemainingRefs )
+				*RemainingRefs = Ref.RefCount;
+			if( Ref.RefCount )
+			{
+				debugf( NAME_Log, TEXT("XNET secure %s address released addr=%s refs=%i unregister=deferred"),
+					Where ? Where : TEXT("unknown"), *IpString(Addr), Ref.RefCount );
+				return 0;
+			}
+			IpSetInt( Ref.Addr, 0 );
+			return XNetUnregisterInAddr( Addr );
+		}
+	}
+
+	debugf( NAME_Warning, TEXT("XNET secure %s address release missing owner addr=%s"),
+		Where ? Where : TEXT("unknown"), *IpString(Addr) );
+	return XNetUnregisterInAddr( Addr );
+}
+
+static UBOOL XboxTcpSameTravelHost( const XNADDR* XnAddr, const XNKID* SessionKeyId, const XNKEY* SessionKey )
+{
+	return GXboxTcpSecureTravelHost.Valid
+	&&  XnAddr
+	&&  SessionKeyId
+	&&  SessionKey
+	&&  appMemcmp( &GXboxTcpSecureTravelHost.XnAddr, XnAddr, sizeof(*XnAddr) ) == 0
+	&&  appMemcmp( &GXboxTcpSecureTravelHost.SessionKeyId, SessionKeyId, sizeof(*SessionKeyId) ) == 0
+	&&  appMemcmp( &GXboxTcpSecureTravelHost.SessionKey, SessionKey, sizeof(*SessionKey) ) == 0;
 }
 
 static void XboxTcpForgetMatchingTravelAddress( in_addr Addr )
@@ -100,6 +186,30 @@ extern "C" void XboxIpDrvSetSecureTravelHost( const XNADDR* XnAddr, const XNKID*
 	if( !XnAddr || !SessionKeyId || !SessionKey )
 	{
 		XboxIpDrvClearSecureTravelHost();
+		return;
+	}
+
+	// UC2004 keeps both the current and pending remote registrations alive during
+	// travel.  Our connection objects already retain their own peer identity and
+	// translated address, so do not tear down the shared handoff when the pending
+	// driver presents the same session again.
+	if( XboxTcpSameTravelHost(XnAddr, SessionKeyId, SessionKey) )
+	{
+		in_addr Preferred;
+		IpSetInt( Preferred, PreferredAddress );
+		if( XboxTcpIsXNetVirtualAddress(Preferred) )
+		{
+			if( XboxTcpIsXNetVirtualAddress(GXboxTcpSecureTravelHost.SecureAddr)
+			&& !XboxTcpAddressesMatch(GXboxTcpSecureTravelHost.SecureAddr, Preferred) )
+			{
+				INT AddressResult = XNetUnregisterInAddr( GXboxTcpSecureTravelHost.SecureAddr );
+				debugf( NAME_Log, TEXT("XNET secure replaced unclaimed travel address result=%i"), AddressResult );
+			}
+			GXboxTcpSecureTravelHost.SecureAddr = Preferred;
+		}
+		debugf( NAME_Log, TEXT("XNET secure travel host retained preferred=%s hasPreferred=%i"),
+			*IpString(GXboxTcpSecureTravelHost.SecureAddr),
+			XboxTcpIsXNetVirtualAddress(GXboxTcpSecureTravelHost.SecureAddr) ? 1 : 0 );
 		return;
 	}
 
@@ -320,9 +430,9 @@ static void XboxTcpConfigureSecureTravelHostFromURL( FURL& ConnectURL )
 
 	XboxIpDrvSetSecureTravelHost( &HostXnAddr, &SessionKeyId, &SessionKey, 0 );
 
-	in_addr SecureAddr;
-	IpSetInt( SecureAddr, 0 );
-	if( XboxTcpTranslateSecureTravelHost( SecureAddr, TEXT("url"), 1 ) )
+	in_addr SecureAddr = GXboxTcpSecureTravelHost.SecureAddr;
+	if( XboxTcpIsXNetVirtualAddress(SecureAddr)
+	||  XboxTcpTranslateSecureTravelHost(SecureAddr, TEXT("url"), 1) )
 	{
 		ConnectURL.Host = IpString( SecureAddr );
 		if( ConnectURL.Port <= 0 )
@@ -352,6 +462,7 @@ class DLL_EXPORT_CLASS UTcpipConnection : public UNetConnection
 	UBOOL			OpenedLocally;
 	FResolveInfo*	ResolveInfo;
 	UBOOL			LoggedFirstSend;
+	DOUBLE			OpenedTime;
 #if TARGET_XBOX
 	UBOOL			HasSecureRemote;
 	XNADDR			SecureRemoteXnAddr;
@@ -371,6 +482,7 @@ class DLL_EXPORT_CLASS UTcpipConnection : public UNetConnection
 	,	OpenedLocally	( InOpenedLocally )
 	,	ResolveInfo		( NULL )
 	,	LoggedFirstSend	( 0 )
+	,	OpenedTime		( appSeconds() )
 #if TARGET_XBOX
 	,	HasSecureRemote( 0 )
 	,	OwnsSecureAddress( 0 )
@@ -390,6 +502,12 @@ class DLL_EXPORT_CLASS UTcpipConnection : public UNetConnection
 		State                 = InState;
 		MaxPacket			  = WINSOCK_MAX_PACKET;
 		PacketOverhead		  = SLIP_HEADER_SIZE;
+#if TARGET_XBOX
+		// UC2004 accounts for the 16-byte XNet UDP envelope in addition to the
+		// ordinary IP/UDP headers.  Accurate overhead keeps the Unreal rate
+		// limiter from overfilling the encrypted transport during a long session.
+		PacketOverhead       = UDP_HEADER_SIZE + 16;
+#endif
 		InitOut();
 #if TARGET_XBOX
 		// UObject construction/config loading can leave the inherited network clocks
@@ -429,6 +547,11 @@ class DLL_EXPORT_CLASS UTcpipConnection : public UNetConnection
 					}
 					XboxTcpEnsureSecureAssociation( RemoteAddr.sin_addr, TEXT("connect-init"), 1, 1 );
 					OwnsSecureAddress = XboxTcpIsXNetVirtualAddress( RemoteAddr.sin_addr );
+					if( OwnsSecureAddress )
+					{
+						XboxTcpAcquireSecureAddress( RemoteAddr.sin_addr, TEXT("connect-init") );
+						XboxTcpForgetMatchingTravelAddress( RemoteAddr.sin_addr );
+					}
 				}
 #endif
 			}
@@ -457,12 +580,14 @@ class DLL_EXPORT_CLASS UTcpipConnection : public UNetConnection
 		if( OwnsSecureAddress && XboxTcpIsXNetVirtualAddress(RemoteAddr.sin_addr) )
 		{
 			FString OldAddress = IpString( RemoteAddr.sin_addr );
-			INT Result = XNetUnregisterInAddr( RemoteAddr.sin_addr );
+			INT RemainingRefs = 0;
+			INT Result = XboxTcpReleaseSecureAddress( RemoteAddr.sin_addr, Where, &RemainingRefs );
 			XboxTcpForgetMatchingTravelAddress( RemoteAddr.sin_addr );
-			debugf( NAME_Log, TEXT("XNET secure %s connection address released addr=%s result=%i retries=%i"),
+			debugf( NAME_Log, TEXT("XNET secure %s connection address released addr=%s result=%i refs=%i retries=%i"),
 				Where ? Where : TEXT("unknown"),
 				*OldAddress,
 				Result,
+				RemainingRefs,
 				SecureRetryCount );
 		}
 		OwnsSecureAddress = 0;
@@ -517,6 +642,7 @@ class DLL_EXPORT_CLASS UTcpipConnection : public UNetConnection
 				return 0;
 			}
 			OwnsSecureAddress = 1;
+			XboxTcpAcquireSecureAddress( RemoteAddr.sin_addr, Where );
 			Status = XNetGetConnectStatus( RemoteAddr.sin_addr );
 			if( Status == XNET_CONNECT_STATUS_CONNECTED )
 				return 1;
@@ -536,6 +662,7 @@ class DLL_EXPORT_CLASS UTcpipConnection : public UNetConnection
 				return 0;
 			}
 			OwnsSecureAddress = 1;
+			XboxTcpAcquireSecureAddress( RemoteAddr.sin_addr, Where );
 			Status = XNetGetConnectStatus( RemoteAddr.sin_addr );
 			if( Status == XNET_CONNECT_STATUS_CONNECTED )
 				return 1;
@@ -564,7 +691,12 @@ class DLL_EXPORT_CLASS UTcpipConnection : public UNetConnection
 		appMemcpy( &SecureRemoteXnAddr, XnAddr, sizeof(SecureRemoteXnAddr) );
 		appMemcpy( &SecureRemoteKeyId, SessionKeyId, sizeof(SecureRemoteKeyId) );
 		HasSecureRemote = 1;
+		UBOOL bAlreadyOwned = OwnsSecureAddress;
 		OwnsSecureAddress = XboxTcpIsXNetVirtualAddress( RemoteAddr.sin_addr );
+		if( OwnsSecureAddress && !bAlreadyOwned )
+			XboxTcpAcquireSecureAddress( RemoteAddr.sin_addr, TEXT("accepted") );
+		if( OwnsSecureAddress )
+			XboxTcpForgetMatchingTravelAddress( RemoteAddr.sin_addr );
 		debugf( NAME_Log, TEXT("XNET secure peer stored remote=%s"),
 			*IpString(RemoteAddr.sin_addr,ntohs(RemoteAddr.sin_port)) );
 		unguard;
@@ -697,6 +829,7 @@ class DLL_EXPORT_CLASS UTcpNetDriver : public UNetDriver
 #if TARGET_XBOX
 	UBOOL		RequireSecurePeers;
 	INT			SecureDropCount;
+	INT			SecureConnectionLimitDropCount;
 #endif
 
 	// Constructor.
@@ -707,6 +840,7 @@ class DLL_EXPORT_CLASS UTcpNetDriver : public UNetDriver
 #if TARGET_XBOX
 		RequireSecurePeers = 0;
 		SecureDropCount = 0;
+		SecureConnectionLimitDropCount = 0;
 #endif
 	}
 
@@ -853,6 +987,28 @@ class DLL_EXPORT_CLASS UTcpNetDriver : public UNetDriver
 					}
 					bHasSecurePeer = 1;
 				}
+				// UC2004 refuses more than five recent connections from one address.
+				// This prevents delayed packets from obsolete source ports from creating
+				// a pile of parallel connections after reconnect or map travel.
+				INT SameAddressCount = 0;
+				for( INT RecentIndex=0; RecentIndex<ClientConnections.Num(); RecentIndex++ )
+				{
+					UTcpipConnection* Recent = (UTcpipConnection*)ClientConnections(RecentIndex);
+					if( Recent
+					&&  XboxTcpAddressesMatch(Recent->RemoteAddr.sin_addr, FromAddr.sin_addr)
+					&&  Recent->OpenedTime > appSeconds() - 60.0 )
+					{
+						SameAddressCount++;
+					}
+				}
+				if( SameAddressCount >= 5 )
+				{
+					if( SecureConnectionLimitDropCount < 8 )
+						debugf( NAME_Log, TEXT("XNET dropped excess recent connection remote=%s recent=%i"),
+							*IpString(FromAddr.sin_addr,ntohs(FromAddr.sin_port)), SameAddressCount );
+					SecureConnectionLimitDropCount++;
+					continue;
+				}
 #endif
 				debugf( NAME_Log, TEXT("XNET accepted remote=%s bytes=%i clients=%i"),
 					*IpString(FromAddr.sin_addr,ntohs(FromAddr.sin_port)),
@@ -898,7 +1054,10 @@ class DLL_EXPORT_CLASS UTcpNetDriver : public UNetDriver
 			debugf( NAME_Exit, TEXT("WinSock shut down") );
 		}
 #if TARGET_XBOX
-		XboxIpDrvClearSecureTravelHost();
+		// The secure travel host is a handoff shared by current and pending net
+		// drivers.  Connections release their own translated addresses above; the
+		// System Link lifecycle owner clears the handoff only after the last driver
+		// is gone.  This mirrors UC2004's two-slot remote-session lifetime.
 #endif
 
 		unguard;

@@ -4,6 +4,7 @@ param(
     [switch]$RebuildIso,
     [switch]$Smoke,
     [switch]$Lifecycle,
+    [switch]$LongSoak,
     [switch]$FourPlayerStress,
     [switch]$UdpBackend,
     [switch]$McastBackend,
@@ -227,8 +228,9 @@ function Rebuild-SourceIso()
 
     $smokePath = Join-Path $stage 'XboxSystemLinkSmoke.ini'
     $lifecyclePath = Join-Path $stage 'XboxSystemLinkLifecycle.ini'
+    $longSoakPath = Join-Path $stage 'XboxSystemLinkLongSoak.ini'
     $fourPlayerStressPath = Join-Path $stage 'XboxSystemLink4PStress.ini'
-    if( $Smoke -or $Lifecycle )
+    if( $Smoke -or $Lifecycle -or $LongSoak )
     {
         Set-Content -LiteralPath $smokePath -Value '' -Encoding ASCII
     }
@@ -243,6 +245,14 @@ function Rebuild-SourceIso()
     elseif( Test-Path $lifecyclePath )
     {
         Remove-Item -LiteralPath $lifecyclePath -Force
+    }
+    if( $LongSoak )
+    {
+        Set-Content -LiteralPath $longSoakPath -Value '' -Encoding ASCII
+    }
+    elseif( Test-Path $longSoakPath )
+    {
+        Remove-Item -LiteralPath $longSoakPath -Force
     }
     if( $FourPlayerStress )
     {
@@ -268,7 +278,7 @@ function Rebuild-SourceIso()
     Remove-Item -LiteralPath $stage -Recurse -Force
     Write-Host "Rebuilt source XISO: $IsoPath"
     Write-Host "RAM log mirror: poll with UT99-Xbox\Tools\poll_xemu_ram_log.py against the monitor port."
-    if( $Smoke -or $Lifecycle )
+    if( $Smoke -or $Lifecycle -or $LongSoak )
     {
         Write-Host "System Link smoke marker: enabled"
     }
@@ -283,6 +293,14 @@ function Rebuild-SourceIso()
     else
     {
         Write-Host "System Link lifecycle marker: disabled"
+    }
+    if( $LongSoak )
+    {
+        Write-Host "System Link long-soak marker: enabled"
+    }
+    else
+    {
+        Write-Host "System Link long-soak marker: disabled"
     }
     if( $FourPlayerStress )
     {

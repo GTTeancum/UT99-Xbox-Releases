@@ -1,6 +1,6 @@
 # UT99 Xbox Open Items
 
-Last updated: 2026-08-13
+Last updated: 2026-08-14
 
 This is the quick-access tracker for active UT99 Xbox work. It preserves the
 older project backlog and adds the current visual-signoff queue so the project
@@ -8,25 +8,62 @@ does not depend on scattered chat context.
 
 ## 1.2 Release Scope
 
-- Widescreen: decision pending. Steve is not sold on changing the current
-  presentation, so do not commit to a widescreen implementation until the
-  intended field of view, HUD/menu treatment, and real-hardware output have
-  been reviewed together.
-- Flicker and UV fixes: complete and signed off by Steve on 2026-08-13.
-- Mutators: fix missing entries and broaden the shipped set. Audit discovery,
-  packaging, class loading, compatibility, and launch behavior; investigate
-  Agent X and Akimbo as named candidates.
-- Last Man Standing: expose and qualify the stock
-  `Botpack.LastManStanding` game type in the Xbox flows.
-- System Link fixes: failed-join/re-entry implementation and two-xemu lifecycle
-  qualification are complete. Real-Xbox multi-machine qualification remains.
-- Tournament: investigate the v1.1 reports that the first match of every ladder
-  crashes, despite the earlier internal ladder progress qualification.
-- Tournament co-op: assess local split screen, System Link, and their combined
-  flow. Treat UT99 LAN Coop V1 as reference material until its contents and
-  integration requirements are understood.
+**1̲.̲** **Widescreen:** decision pending. Steve is not sold on changing the current presentation, so do not commit to a widescreen implementation until the intended field of view, HUD/menu treatment, and real-hardware output have been reviewed together.
+**2̲.̲** **Flicker and UV fixes:** complete and signed off by Steve on 2026-08-13.
+**3̲.̲** **Mutators:** complete and Xemu-qualified on 2026-08-13, including Steve's manual menu review. The Xbox selector now exposes the full stock mutator set plus OldSkool Weapons, AgentX Arena, and Akimbo Arena; details and evidence are recorded below.
+**4̲.̲** **Last Man Standing:** complete and visually qualified on Xemu on 2026-08-13, including Steve's manual review of its Instant Action, split-screen, and System Link exposure. `Botpack.LastManStanding` uses DM arenas, a Lives setting, and no time limit. Menu-driven proof on Deck16 loaded the actual `LastManStanding` class with two bots and five lives; the stock scoreboard displayed “Be the last one alive!” and its Lives column dropped a competitor from 5 to 4 during play. Evidence: `UT99-Xbox/build_cli/xemu_item4_lms_20260813_green`.
+**5̲.̲** **System Link fixes:** complete and decisively two-Xemu-qualified on 2026-08-14. UC2004-guided fixes cover failed-join cleanup, address/key ownership across current/pending drivers, map travel, connection churn, transport overhead, lobby re-entry, and second-match lifecycle. A 15-minute six-bot soak crossed two server travels, followed by client-loss, host-loss, failed-join, re-entry, and subsequent-session recovery tests. The warning icon and its stock detection criteria remain active; it visibly asserted during genuine host loss. Real-Xbox multi-machine confirmation is still desirable.
+**6̲.̲** **Tournament:** complete and Xemu-qualified on 2026-08-14. The v1.1 first-match crash was caused by scripted `TournamentConsole.PostRender` lazily loading ladder fonts while `LoadMap` had an active object queue. Xbox loading capture/fallback frames are now native-only, matching the UC2004 Xbox direction. Fresh first matches in Deathmatch, Domination, CTF, Assault, and Final Challenge all reached live gameplay at the 64 MB memory limit with no fatal or load error. Evidence: `UT99-Xbox/build_cli/xemu_item6_tournament_first_matches_20260814`.
+**7̲.̲** **Tournament co-op:** shelved on 2026-08-14 after the experimental two-machine flow produced severe flickering on one machine. All item 7 implementation and proof hooks have been removed; revisit only as a separate post-1.2 effort.
+**8̲.̲** **Menu transition latency:** complete and Xemu-qualified on 2026-08-14. The stall was synchronous game-class inheritance inspection from the Instant Action draw path, which loaded `Botpack.Bot` plus the stock player meshes in one 6.3-second frame. Fixed Xbox game types now use source-verified rule metadata without loading Botpack during menu rendering. A direct Main → Instant Action → Player Setup run improved from 6,497 ms with one heartbeat to 2,072 ms with 108 advancing frames. The failed map-preview experiment remains reverted, and System Link behavior is unchanged.
 
 ## Recently Completed Items
+
+3. Mutators
+   - Complete and Xemu-qualified on 2026-08-13.
+   - Fixed the Xbox-only discovery fallback. It previously exposed only three
+     of the 14 mutators registered by `Botpack.int`; all 14 stock entries are
+     now present, with the existing OldSkool Weapons entry retained.
+   - Downloaded and verified the named community candidates from Unreal
+     Archive:
+     - AgentX 0.99 archive SHA-1:
+       `44ff3c2aa491c7e2f5dbd50802c3dd1d24bc235a`; packaged `AgentX.u` SHA-1:
+       `4e52e876ea392846f8a9de72ae6d30ba878bbcf0`.
+     - Akimbo Arena UMOD SHA-1:
+       `52412fa11ea5553e5c5b854c0d85f9050e210ee8`; packaged `AkimboArena.u`
+       SHA-1: `0213b9efafd31f824717c09d9f06e66f4f171793`.
+     - Agent X 2.4 was audited but deliberately excluded: its own readme
+       identifies it as a separate game-type modification, lists no mutators,
+       and says multiplayer is unsupported. AgentX 0.99 is the actual mutator
+       release and documents server use.
+   - Added both packages and registry files to `RuntimeAssets/System`; retained
+     the original AgentX readme plus Akimbo readme and UMOD under
+     `RuntimeAssets/Docs`; extended the canonical builder to stage Docs and
+     remove stale staged documentation.
+   - Added non-menu Xbox defaults for Akimbo's standard UT weapon set. The
+     original release relies on a UMenu configuration window that the Xbox
+     frontend does not expose; the mutually exclusive Chainsaw, InstaGib, and
+     Unreal 1 variants remain disabled.
+   - Added selector conflict handling for stock weapon arenas, OldSkool,
+     AgentX, Akimbo, and Akimbo's documented Chainsaw conflict. Compatible
+     utility mutators remain multi-selectable.
+   - Canonical Release build succeeded. Qualified XBE SHA-256:
+     `a736ce7ad22694e42740d8bf4724a94b68415cb55ce3bdaac51b304cedac2fe3`.
+   - AgentX Arena ran live on `DM-Deck16][` for 51.1 seconds with two bots. It
+     completed at 57.9 steady FPS with 23,800 KB minimum available memory; the
+     runtime URL carried `AgentX.AgentXArena`, and captures/logs showed the
+     AgentX PPK and grenade launcher models active in combat. One nonfatal
+     `Accessed None` occurred in the original 0.99 AK-47 `Fire` script; it did
+     not stall or fail the match and is retained as an upstream compatibility
+     note rather than hidden. Evidence:
+     `UT99-Xbox/build_cli/xemu_item3_agentx_20260813`.
+   - Akimbo Arena ran live on `DM-Deck16][` for 92.0 seconds with four bots. It
+     completed at 57.2 steady FPS with 23,076 KB minimum available memory,
+     instantiated and rendered `AkimboImpactHammer` replacements repeatedly,
+     and produced no load, script, fatal, or draw errors. Evidence:
+     `UT99-Xbox/build_cli/xemu_item3_akimbo_20260813`.
+   - Real-Xbox qualification remains desirable but is not a blocker on the
+     completed discovery, packaging, and Xemu compatibility work.
 
 1. Texture/light flickering in maps
    - Complete and signed off by Steve on 2026-08-13.
@@ -186,32 +223,100 @@ does not depend on scattered chat context.
      - the second lobby formed a fresh secure association and both instances
        reached a second live gameplay join (`XSL LIFECYCLE PASS`), with no
        timeout, critical error, retry storm, or gameplay-thread wait loop.
-   - The red lower-right connection icon seen intermittently on one xemu is not
-     evidence of a dead secure association. Runtime logging caught `alert=1`
-     with 0% loss and a packet received 0.017 seconds earlier. UC2004 uses the
-     same stock UT expression, including the independent `InPackets < 2`
-     one-second-sample trigger, so that behavior is intentionally unchanged.
+   - Two separate warning conditions were proven. The first was a false alert:
+     the client connection's inherited `StatPeriod` became zero during
+     pending-level travel, so the stock `InPackets < 2` health test ran every
+     frame. Frames without a datagram toggled the icon even while `rxAge`
+     remained about 0.017 seconds and gameplay traffic was healthy.
+   - The later icon Steve observed was genuine. Its archived trace shows more
+     than ten seconds of one-way starvation (`InPPS=0` while outbound traffic
+     continued), followed by an XNet `LOST` association, address unregister
+     result 10022 (`WSAEINVAL` because the mapping was already invalid), and a
+     translation to a new virtual address. It was not harness-driven and was
+     not suppressed.
+   - UC2004 establishes a one-second `StatPeriod` and retains the same stock
+     bad-connection criteria. The Xbox connection tick now restores that
+     native invariant if travel leaves it invalid; it does not hide the icon,
+     force `bBadConnectionAlert` off, or weaken any warning threshold.
+   - A deeper UC2004 audit found additional applicable safeguards and they are
+     now implemented:
+     - LAN-to-LAN server travel preserves the host session/key handoff instead
+       of unconditionally destroying it with the old driver.
+     - Current and pending connections use reference-counted ownership for a
+       shared translated XNet address. Old-driver teardown defers
+       `XNetUnregisterInAddr` until the replacement releases the last reference.
+     - The server rejects more than five recent connections from one secure
+       address in 60 seconds, matching UC2004's churn/DoS guard.
+     - Xbox packet overhead is 44 bytes (28-byte IP/UDP plus the 16-byte XNet
+       envelope), so Unreal's rate limiter no longer budgets encrypted packets
+       as the desktop SLIP path.
+   - UC2004 features deliberately not copied are Xbox Live QoS/voice/VDP,
+     host migration, and its fixed client-port table. They do not apply to this
+     LAN discovery stack; Xemu/XDK already assign distinct ephemeral ports.
+     UC2004's variable eight-byte encryption padding also depends on a newer
+     engine-level packet-overhead hook absent from UT99; the conservative base
+     overhead is implemented without inventing a cross-engine approximation.
+   - Decisive two-Xemu qualification used the pcap backend and six active bots:
+     - 15 continuous minutes across `DM-Fractal`, `DM-Deck16][`, and
+       `DM-Oblivion`, with forced server travel at 120 and 300 seconds;
+     - both peers logged `XSL LONGSOAK PASS` at 900.5 seconds with open sockets,
+       three observed map legs, both human players live, and final receive age
+       at or near zero;
+     - forced client process loss timed out on the host at 15.0 seconds,
+       released the final translated-address reference, removed the player,
+       and left the host match running;
+     - forced host process loss visibly raised the client's stock warning,
+       timed out at 15.0 seconds, released the address, and returned to Entry;
+     - a fresh automated lifecycle run then passed deliberate failed join,
+       first join, full teardown, fresh lobby, and second gameplay join on both
+       instances.
+   - Final evidence:
+     `UT99-Xbox/build_cli/item5_address_ref_soak_20260814`,
+     `UT99-Xbox/build_cli/item5_disruption_client_loss_20260814`,
+     `UT99-Xbox/build_cli/item5_disruption_host_loss_20260814`, and
+     `UT99-Xbox/build_cli/item5_post_disruption_lifecycle_20260814`.
+   - Final two-Xemu smoke held both peers in live `PlayerWalking` gameplay with
+     health 100. The repaired client normally sampled about 24–29 inbound and
+     48–59 outbound packets per second with `alert=0`; the old alternating
+     zero-packet false alerts did not recur. One genuine pcap loss/lag spike
+     (32% inbound loss, 43% outbound loss, modified lag above the stock
+     threshold) correctly raised `alert=1` for one sample and cleared on the
+     next healthy sample, directly proving the icon remains functional. The
+     lifecycle run also passed deliberate failed-join cancellation, first
+     join, frontend back-out, fresh lobby formation, and second gameplay join
+     on both instances without a retry storm or send error.
    - Emulator evidence:
-     `UT99-Xbox/build_cli/xemu_syslink_lifecycle_ucaligned_20260813`.
+     `UT99-Xbox/build_cli/item5_tick_invariant_20260814` and
+     `UT99-Xbox/build_cli/item5_lifecycle_final_20260814`; stripped production
+     build: `UT99-Xbox/build_cli/item5_production_smoke_20260814`.
    - Canonical `Release` XBE SHA-256:
-     `95BCD2904F53C6DBEA041CD7E3EF2E38A118224514BDEE93737AFBF065C7E79C`.
-   - Remaining qualification is real-Xbox-only: repeat discovery, failed join,
+     `0EFE1CBB26A884CBFB01DA44A44AE80F7DA105DAAC3F13B63829776DFEC1E337`.
+   - Optional real-Xbox confirmation: repeat discovery, failed join,
      pending back-out, lobby re-entry, second join, client leave, host loss,
      and a subsequent offline match on two or more consoles. Verify no stale
      socket/key/address and no dashboard exit. The emulator implementation and
      lifecycle defect are complete; hardware sign-off remains open.
 
-3. Tournament first-match crash regression
+3. Tournament first-match crash regression — complete
    - Sources: [release issue 5](https://github.com/GTTeancum/UT99-Xbox-Releases/issues/5)
      and [release issue 6](https://github.com/GTTeancum/UT99-Xbox-Releases/issues/6)
      both report that selecting the first match in Tournament crashes v1.1.
-   - Reconcile the deployed v1.1 file set and fresh-profile boot path with the
-     earlier internal ladder progress proof. Do not assume the save/progress
-     qualification proves the public release package can launch rung 1.
-   - Reproduce from a clean install and newly created profile for Deathmatch,
-     Domination, CTF, Assault, and Final Challenge. Capture the final log and
-     verify package/map dependencies, player-ready transition, opponent spawn,
-     result handling, save, resume, and frontend return.
+   - Root cause confirmed on 2026-08-14 at the Xbox 64 MB limit: the loading
+     capture/fallback draw invoked scripted `TournamentConsole.PostRender`,
+     which lazily loaded its ladder font while `LoadMap` still had an active
+     object queue. That violates the package loader's empty-queue invariant.
+   - UC2004's Xbox path excludes the normal scripted loading-screen draw. UT99
+     now follows that direction for its native loading capture/fallback frame:
+     the world frame and loading indicator still render, but console, player,
+     and Xbox-menu script hooks wait until ordinary frames resume.
+   - Automated fresh-boot proofs selected and started the first Deathmatch,
+     Domination, CTF, Assault, and Final Challenge matches. Every run reached
+     live `PlayerWalking` gameplay with health 100 and `bGameEnded=False`, and
+     produced a gameplay screenshot with no fatal, assertion, or load error.
+   - Evidence:
+     `UT99-Xbox/build_cli/xemu_item6_tournament_first_matches_20260814`.
+     Qualified XBE SHA-256:
+     `7598C2CBF96206DC821CBA130AA9BBCB54224E68CC16210657007ECF93F637B2`.
 
 4. Mutator repair and expansion
    - Audit the `.int` registry, Xbox fallback list, staged packages, forced
@@ -233,24 +338,14 @@ does not depend on scattered chat context.
      restart/rematch, and frontend return in Instant Action, split screen, and
      System Link where supported.
 
-6. Co-op Tournament in existing multiplayer flows
-   - Added by Steve on 2026-07-22 as a 1.2 ask.
-   - Assess and prototype Tournament mode as multiplayer without adding a new
-     main-menu entry or changing the existing menu flows.
-   - Silo the option inside the current Split Screen and System Link paths so
-     players still join, select profiles, host, join, ready up, and start from
-     the same screens they use today.
-   - Save and load Tournament ladder progress from P1's profile on the host
-     machine only. Other local or System Link players participate in the host
-     run without owning ladder advancement.
-   - Treat [UT99 LAN Coop V1](https://www.moddb.com/games/unreal-tournament/addons/ut99-lan-coop-v1)
-     as reference material until its package contents are inspected; the
-     release-quality path should integrate with the existing Xbox Tournament,
-     profile, splitscreen, and System Link systems.
-   - Proof requirements: validate local splitscreen, System Link host/client,
-     and splitscreen plus System Link. Cover ladder load, match start, bot
-     population, end-of-match travel, result screen, save/reload, and back-out
-     or disconnect behavior.
+6. Co-op Tournament in existing multiplayer flows — shelved
+   - Shelved on 2026-08-14 after the experimental two-machine flow produced
+     severe flickering on one machine.
+   - All synthetic game-type, split-screen/System Link travel, shared-progress,
+     result-dispatch, menu, and proof-harness code from the experiment has been
+     removed. No item 7 implementation ships in the current 1.2 tree.
+   - Revisit only as a separate post-1.2 effort with its own rendering and
+     network qualification plan.
 
 7. Widescreen decision and prototype gate
    - Keep this as a 1.2 decision item, not an assumed feature commitment.
@@ -260,6 +355,38 @@ does not depend on scattered chat context.
      screens, split screen, and performance.
    - Proceed only after Steve approves the visual direction and compatibility
      tradeoff.
+
+8. Menu transition latency
+   - Added by Steve on 2026-08-13 after manual qualification of Mutators and
+     Last Man Standing in the complete Xemu package.
+   - Symptom: entering various frontend menus can visibly pause for roughly
+     5–10 seconds; CityIntro and music stop advancing during the pause, proving
+     that synchronous game-thread work is responsible.
+   - Root cause confirmed in Xemu on 2026-08-14: the Instant Action draw path
+     asked whether the selected game class inherited from Last Man Standing.
+     `StaticLoadClass` synchronously loaded `Botpack.Bot`, Commando, Soldier,
+     FCommando, and SGirl before the next frame. Mutators exhibited the same
+     behavior because it draws Instant Action behind the mutator overlay.
+   - The stock `.uc` sources establish the exact rule relationships:
+     `LastManStanding extends DeathMatchPlus`; `CTFGame`, `Domination`, and
+     `Assault` extend `TeamGamePlus`; and Assault uses objective rules. The five
+     fixed Xbox game types now answer those menu-only rule queries directly.
+     Unknown third-party game classes retain the original inheritance fallback.
+   - Ruled out and reverted: replacing Instant Action and Tournament's
+     `StaticLoadObject(Map.Screenshot)` calls with small standalone assets made
+     zero observable difference to the stall in Steve's manual Xemu test.
+   - Before the fix, Main → Instant Action reached Instant Action at 14,592 ms
+     and Player Setup at 21,089 ms: 6,497 ms elapsed and the heartbeat advanced
+     only from 91 to 92. The render log measured 6,391 ms in that frame.
+   - After the fix, the same sequence reached Instant Action at 10,811 ms and
+     Player Setup at 12,883 ms: the intended 2,072 ms delay while heartbeat
+     advanced from 108 to 216. Subsequent render frames remained 4–11 ms near
+     59 FPS. Evidence is under
+     `UT99-Xbox/build_cli/menu_stall_selftest_20260814`.
+   - The temporary timing overlay and transition logging were removed after
+     qualification. Per Steve's direction, System Link code, profile
+     persistence, menu flow, map-preview loading, networking, and logging were
+     not changed.
 
 ### Active Legacy Backlog
 

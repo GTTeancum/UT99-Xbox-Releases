@@ -885,6 +885,9 @@ static UBOOL GXboxSplitReadyInitialized = 0;
 static UBOOL XboxSetObjectPropertyText( UObject* Object, const TCHAR* PropertyName, const TCHAR* Value );
 static UBOOL XboxSetClassDefaultPropertyText( const TCHAR* ClassName, const TCHAR* PropertyName, const TCHAR* Value );
 static UBOOL XboxSetClassDefaultPropertyInt( const TCHAR* ClassName, const TCHAR* PropertyName, INT Value );
+static void XboxMenuLoadDiscoveredLists();
+static UBOOL XboxProfileActiveCreated();
+static UBOOL XboxMenuGameUsesLives( const TCHAR* GameClassName );
 static UBOOL XboxMenuGameUsesTeamScore( const TCHAR* GameClassName );
 static UBOOL XboxMenuGameUsesObjectiveRules( const TCHAR* GameClassName );
 static void XboxMenuApplyMatchRuleDefaults( const TCHAR* GameClassName, INT ScoreLimit, INT MinPlayers );
@@ -893,14 +896,14 @@ static void XboxMenuQueuePendingMatchRules( const TCHAR* GameClassName, INT Scor
 static void XboxMenuApplyPendingMatchRules( UXboxViewport* Viewport );
 static void XboxMenuActivate( UXboxViewport* Viewport );
 static void XboxMenuAdjustInstantAction( INT Delta );
-static void XboxProfileOpen( UXboxViewport* Viewport );
+static void XboxProfileOpen( UXboxViewport* Viewport, UBOOL bPersistGlobal=1 );
 static INT XboxMenuWeaponHandIndex( APlayerPawn* Player );
 static const TCHAR* XboxControlPresetLabel( UXboxClient* Client );
 static const TCHAR* XboxInstantRulesProofRequestedPrefix();
 static INT XboxSplitReadyJoinedCount();
 static UBOOL XboxSplitReadyCanBegin();
 static void XboxSplitReadyEnsure();
-static void XboxSplitReadyReset( UXboxViewport* Viewport );
+static void XboxSplitReadyReset( UXboxViewport* Viewport, UBOOL bPersistProfile=1 );
 static UBOOL XboxSplitEnsureProfileForJoin( UXboxViewport* Viewport, INT Port, UBOOL bCreateIfMissing=0 );
 static const FXboxPlayerClassOption& XboxSplitReadyPlayerClass( INT Port );
 static void XboxSplitBuildPlayerURLForSlot( INT Port, TCHAR* Out, INT OutCount, UBOOL bForceDummy );
@@ -910,6 +913,13 @@ static UBOOL XboxSplitControlsProofApply( UXboxViewport* Viewport, XINPUT_GAMEPA
 static void XboxSplitControlsProofObserve( UXboxViewport* Viewport, const XINPUT_GAMEPAD& Pad );
 static void XboxMenuReturnToFrontend( UXboxViewport* Viewport );
 static void XboxTournamentClampSelection( UXboxViewport* Viewport );
+static INT XboxTournamentMatchCount( INT LadderIndex );
+static INT XboxTournamentSavedPosition( INT LadderIndex, INT DefaultPosition );
+static INT XboxTournamentAvailableMatch( UXboxViewport* Viewport, INT LadderIndex );
+static UBOOL XboxTournamentStringAt( INT LadderIndex, const TCHAR* PropertyName, INT MatchIndex, FString& OutValue );
+static FString XboxTournamentFullMap( INT LadderIndex, INT MatchIndex );
+static UBOOL XboxTournamentEnsureInventory( UXboxViewport* Viewport );
+static void XboxTournamentProgressProofPrepareWin( UObject* Game, APlayerPawn* Player, FLOAT HighestBotScore, INT FragLimit );
 static const TCHAR* XboxMenuScreenName( EXboxMenuScreen Screen );
 static INT XboxMenuGameTypeCount();
 static INT XboxInstantMapList( INT GameType );
@@ -1732,6 +1742,26 @@ static UBOOL XboxIsSystemLinkProofRequest( INT Request )
         || Request == XFMP_SystemLinkClientMap;
 }
 
+static UBOOL XboxFullMenuProofExtraMarkerExists( const char* MarkerName )
+{
+    if( !MarkerName || !MarkerName[0] )
+        return 0;
+
+    char DPath[128];
+    appSprintf( DPath, "D:\\%s", MarkerName );
+    return GetFileAttributesA(DPath) != 0xFFFFFFFF
+        || GetFileAttributesA(MarkerName) != 0xFFFFFFFF;
+}
+
+static INT XboxFullMenuProofFindGameType( const TCHAR* ClassName )
+{
+    const INT Count = XboxMenuGameTypeCount();
+    for( INT i=0; i<Count; i++ )
+        if( appStricmp(*XboxMenuGameType(i).URLValue, ClassName) == 0 )
+            return i;
+    return INDEX_NONE;
+}
+
 static UBOOL XboxSafeAreaProofSmokeEnabled()
 {
     static INT Cached = -1;
@@ -1771,6 +1801,12 @@ static UBOOL XboxSystemLinkLifecycleSmokeEnabled()
 {
     static INT Cached = -1;
     return XboxSmokeMarkerExists( "XboxSystemLinkLifecycle.ini", Cached );
+}
+
+static UBOOL XboxSystemLinkLongSoakEnabled()
+{
+    static INT Cached = -1;
+    return XboxSmokeMarkerExists( "XboxSystemLinkLongSoak.ini", Cached );
 }
 
 static UBOOL XboxSystemLinkFourPlayerStressEnabled()
@@ -1824,6 +1860,7 @@ static void XboxSplitSmokeMaybeQueue( UXboxClient* Client )
         );
         GXboxLog.Write( "XSPLIT proof assigned requestedMask=0x%X readyMask=0x%X lockedMask=0x%X",
             LayoutProofMask, XboxSystemLinkReadyMask(), XboxSystemLinkLockedMask() );
+
     }
 
     GXboxLog.Write( "XSPLIT SELFTEST queued travel: %s", TCHAR_TO_ANSI(*TravelURL) );
@@ -2750,8 +2787,18 @@ static void XboxSystemLinkSmokeLogGameplayStatus( UClient* InClient, ULevel* Cur
     {
         if( CurrentLevel->NetDriver->ServerConnection )
             HealthConnection = CurrentLevel->NetDriver->ServerConnection;
-        else if( CurrentLevel->NetDriver->ClientConnections.Num() > 0 )
-            HealthConnection = CurrentLevel->NetDriver->ClientConnections(0);
+        else
+        {
+            // Server travel can briefly leave an old and a replacement client
+            // connection in the new driver's list.  Report the connection that
+            // most recently received traffic instead of the stale first entry.
+            for( INT ConnectionIndex=0; ConnectionIndex<CurrentLevel->NetDriver->ClientConnections.Num(); ConnectionIndex++ )
+            {
+                UNetConnection* Candidate = CurrentLevel->NetDriver->ClientConnections(ConnectionIndex);
+                if( Candidate && (!HealthConnection || Candidate->LastReceiveTime > HealthConnection->LastReceiveTime) )
+                    HealthConnection = Candidate;
+            }
+        }
     }
     if( HealthConnection )
     {
@@ -2767,6 +2814,117 @@ static void XboxSystemLinkSmokeLogGameplayStatus( UClient* InClient, ULevel* Cur
             CurrentLevel->NetDriver->Time - HealthConnection->LastSendTime,
             HealthConnection->CurrentNetSpeed,
             HealthConnection->QueuedBytes );
+    }
+
+    if( XboxSystemLinkLongSoakEnabled()
+    &&  (CurrentLevel->GetLevelInfo()->NetMode == NM_ListenServer || CurrentLevel->GetLevelInfo()->NetMode == NM_Client) )
+    {
+        static DOUBLE SoakStartTime = 0.0;
+        static DOUBLE LastCheckpointTime = 0.0;
+        static INT TravelStage = 0;
+        static INT ObservedMapLegs = 0;
+        static INT AlertSamples = 0;
+        static INT ClosedSamples = 0;
+        static FLOAT PeakInLoss = 0.0f;
+        static FLOAT PeakOutLoss = 0.0f;
+        static FLOAT PeakReceiveAge = 0.0f;
+        static TCHAR LastMap[128] = TEXT("");
+        static UBOOL PassLogged = 0;
+
+        if( SoakStartTime == 0.0 )
+        {
+            SoakStartTime = Now;
+            LastCheckpointTime = Now;
+            GXboxLog.Write( "XSL LONGSOAK START map=%s net=%d target=900s travelAt=120/300 bots=6 minPlayers=8",
+                TCHAR_TO_ANSI(*CurrentLevel->URL.Map),
+                (INT)CurrentLevel->GetLevelInfo()->NetMode );
+        }
+
+        if( appStricmp( LastMap, *CurrentLevel->URL.Map ) != 0 )
+        {
+            appStrncpy( LastMap, *CurrentLevel->URL.Map, ARRAY_COUNT(LastMap) );
+            LastMap[ARRAY_COUNT(LastMap)-1] = 0;
+            ObservedMapLegs++;
+            GXboxLog.Write( "XSL LONGSOAK MAP leg=%d elapsed=%.1f map=%s net=%d players=%d",
+                ObservedMapLegs,
+                Now - SoakStartTime,
+                TCHAR_TO_ANSI(LastMap),
+                (INT)CurrentLevel->GetLevelInfo()->NetMode,
+                Game ? Game->NumPlayers : -1 );
+        }
+
+        if( HealthConnection )
+        {
+            UBOOL bAlert = ViewportActorCount > 0
+                && InClient->Viewports(0)
+                && InClient->Viewports(0)->Actor
+                && InClient->Viewports(0)->Actor->bBadConnectionAlert;
+            if( bAlert )
+                AlertSamples++;
+            if( HealthConnection->State != USOCK_Open )
+                ClosedSamples++;
+            PeakInLoss = Max<FLOAT>( PeakInLoss, HealthConnection->InLoss );
+            PeakOutLoss = Max<FLOAT>( PeakOutLoss, HealthConnection->OutLoss );
+            PeakReceiveAge = Max<FLOAT>( PeakReceiveAge, CurrentLevel->NetDriver->Time - HealthConnection->LastReceiveTime );
+        }
+
+        DOUBLE SoakElapsed = Now - SoakStartTime;
+        if( Now - LastCheckpointTime >= 60.0 )
+        {
+            LastCheckpointTime = Now;
+            GXboxLog.Write( "XSL LONGSOAK CHECK elapsed=%.1f mapLegs=%d map=%s net=%d players=%d state=%d alerts=%d closed=%d peakLoss=%.2f/%.2f peakRxAge=%.3f",
+                SoakElapsed,
+                ObservedMapLegs,
+                TCHAR_TO_ANSI(LastMap),
+                (INT)CurrentLevel->GetLevelInfo()->NetMode,
+                Game ? Game->NumPlayers : -1,
+                HealthConnection ? (INT)HealthConnection->State : -1,
+                AlertSamples,
+                ClosedSamples,
+                PeakInLoss,
+                PeakOutLoss,
+                PeakReceiveAge );
+            GXboxLog.Flush();
+        }
+
+        if( CurrentLevel->GetLevelInfo()->NetMode == NM_ListenServer )
+        {
+            const TCHAR* TravelURL = NULL;
+            if( TravelStage == 0 && SoakElapsed >= 120.0 )
+                TravelURL = TEXT("DM-Deck16][.unr?Game=Botpack.DeathMatchPlus?FragLimit=0?TimeLimit=0?MinPlayers=8?Difficulty=3?MaxPlayers=16?LAN");
+            else if( TravelStage == 1 && SoakElapsed >= 300.0 )
+                TravelURL = TEXT("DM-Oblivion.unr?Game=Botpack.DeathMatchPlus?FragLimit=0?TimeLimit=0?MinPlayers=8?Difficulty=3?MaxPlayers=16?LAN");
+
+            if( TravelURL )
+            {
+                TravelStage++;
+                GXboxLog.Write( "XSL LONGSOAK SERVERTRAVEL stage=%d elapsed=%.1f url=%s",
+                    TravelStage, SoakElapsed, TCHAR_TO_ANSI(TravelURL) );
+                GXboxLog.Flush();
+                CurrentLevel->GetLevelInfo()->eventServerTravel( FString(TravelURL), 0 );
+            }
+        }
+
+        if( !PassLogged && SoakElapsed >= 900.0 )
+        {
+            UBOOL bOpen = HealthConnection && HealthConnection->State == USOCK_Open;
+            UBOOL bEnoughMaps = ObservedMapLegs >= 3;
+            PassLogged = 1;
+            GXboxLog.Write( "XSL LONGSOAK %s elapsed=%.1f mapLegs=%d map=%s net=%d players=%d state=%d alerts=%d closed=%d peakLoss=%.2f/%.2f peakRxAge=%.3f",
+                (bOpen && bEnoughMaps) ? "PASS" : "FAIL",
+                SoakElapsed,
+                ObservedMapLegs,
+                TCHAR_TO_ANSI(LastMap),
+                (INT)CurrentLevel->GetLevelInfo()->NetMode,
+                Game ? Game->NumPlayers : -1,
+                HealthConnection ? (INT)HealthConnection->State : -1,
+                AlertSamples,
+                ClosedSamples,
+                PeakInLoss,
+                PeakOutLoss,
+                PeakReceiveAge );
+            GXboxLog.Flush();
+        }
     }
 
     static UBOOL bSystemLinkSmokeDoneLogged = 0;
@@ -3585,10 +3743,18 @@ static UBOOL XboxSystemLinkBuildSelectedMapURL( TCHAR* Out, INT OutCount, UBOOL 
     INT FragLimit = GXboxFragLimits[Clamp<INT>(GXboxSystemLink.FragLimitIndex, 0, ARRAY_COUNT(GXboxFragLimits)-1)];
     INT TimeLimit = GXboxTimeLimits[Clamp<INT>(GXboxSystemLink.TimeLimitIndex, 0, ARRAY_COUNT(GXboxTimeLimits)-1)];
     INT Skill = Clamp<INT>( GXboxSystemLink.SkillIndex, 0, ARRAY_COUNT(GXboxSkillLabels)-1 );
+    INT MinPlayers = 0;
+    INT DesiredBots = 0;
     if( XboxSystemLinkSmokeEnabled() )
     {
         FragLimit = 0;
         TimeLimit = 0;
+    }
+    if( XboxSystemLinkLongSoakEnabled() )
+    {
+        MinPlayers = 8;
+        DesiredBots = 6;
+        Skill = 3;
     }
 
     TCHAR PlayerURL[512];
@@ -3597,9 +3763,9 @@ static UBOOL XboxSystemLinkBuildSelectedMapURL( TCHAR* Out, INT OutCount, UBOOL 
     if( bListen )
     {
         TCHAR RuleURL[256];
-        XboxMenuApplyMatchRuleDefaults( *Game.URLValue, FragLimit, 0 );
-        XboxMenuBuildMatchRuleOptions( *Game.URLValue, FragLimit, TimeLimit, 0, Skill, RuleURL );
-        XboxMenuQueuePendingMatchRules( *Game.URLValue, FragLimit, TimeLimit, 0, Skill, 0 );
+        XboxMenuApplyMatchRuleDefaults( *Game.URLValue, FragLimit, MinPlayers );
+        XboxMenuBuildMatchRuleOptions( *Game.URLValue, FragLimit, TimeLimit, MinPlayers, Skill, RuleURL );
+        XboxMenuQueuePendingMatchRules( *Game.URLValue, FragLimit, TimeLimit, MinPlayers, Skill, DesiredBots );
         appSprintf
         (
             Out,
@@ -3609,11 +3775,13 @@ static UBOOL XboxSystemLinkBuildSelectedMapURL( TCHAR* Out, INT OutCount, UBOOL 
             RuleURL,
             PlayerURL
         );
-        GXboxLog.Write( "XSL host rules teamScore=%d objective=%d score=%d time=%d minPlayers=0: %s",
+        GXboxLog.Write( "XSL host rules teamScore=%d objective=%d score=%d time=%d minPlayers=%d bots=%d: %s",
             XboxMenuGameUsesTeamScore( *Game.URLValue ) ? 1 : 0,
             XboxMenuGameUsesObjectiveRules( *Game.URLValue ) ? 1 : 0,
             FragLimit,
             TimeLimit,
+            MinPlayers,
+            DesiredBots,
             TCHAR_TO_ANSI(Out) );
     }
     else
@@ -4593,17 +4761,32 @@ static void XboxMenuLoadDiscoveredLists()
     GXboxDiscoveredMutators.Empty();
 
     XboxMenuAddFallbackGameType( TEXT("DEATHMATCH"), TEXT("Botpack.DeathMatchPlus"), TEXT("DM") );
+    XboxMenuAddFallbackGameType( TEXT("LAST MAN STANDING"), TEXT("Botpack.LastManStanding"), TEXT("DM") );
     XboxMenuAddFallbackGameType( TEXT("CAPTURE THE FLAG"), TEXT("Botpack.CTFGame"), TEXT("CTF") );
     XboxMenuAddFallbackGameType( TEXT("DOMINATION"), TEXT("Botpack.Domination"), TEXT("DOM") );
     XboxMenuAddFallbackGameType( TEXT("ASSAULT"), TEXT("Botpack.Assault"), TEXT("AS") );
     if( XboxMenuPackageFileExists( TEXT("JailBreak.u") ) )
         XboxMenuAddFallbackGameType( TEXT("JAILBREAK"), TEXT("JailBreak.JailBreak"), TEXT("JB") );
-
     XboxMenuAddFallbackMutator( TEXT("LOW GRAVITY"), TEXT("Botpack.LowGrav") );
     XboxMenuAddFallbackMutator( TEXT("INSTAGIB"), TEXT("Botpack.InstaGibDM") );
     XboxMenuAddFallbackMutator( TEXT("NO POWERUPS"), TEXT("Botpack.NoPowerups") );
+    XboxMenuAddFallbackMutator( TEXT("PULSE ARENA"), TEXT("Botpack.PulseArena") );
+    XboxMenuAddFallbackMutator( TEXT("FLAK ARENA"), TEXT("Botpack.FlakArena") );
+    XboxMenuAddFallbackMutator( TEXT("ROCKET ARENA"), TEXT("Botpack.RocketArena") );
+    XboxMenuAddFallbackMutator( TEXT("SHOCK ARENA"), TEXT("Botpack.ShockArena") );
+    XboxMenuAddFallbackMutator( TEXT("SNIPER ARENA"), TEXT("Botpack.SniperArena") );
+    XboxMenuAddFallbackMutator( TEXT("CHAINSAW MELEE"), TEXT("Botpack.ChainsawMelee") );
+    XboxMenuAddFallbackMutator( TEXT("NO REDEEMER"), TEXT("Botpack.NoRedeemer") );
+    XboxMenuAddFallbackMutator( TEXT("STEALTH"), TEXT("Botpack.Stealth") );
+    XboxMenuAddFallbackMutator( TEXT("FATBOY"), TEXT("Botpack.FatBoy") );
+    XboxMenuAddFallbackMutator( TEXT("INSTANT ROCKETS"), TEXT("Botpack.InstantRockets") );
+    XboxMenuAddFallbackMutator( TEXT("JUMP MATCH"), TEXT("Botpack.JumpMatch") );
     if( XboxMenuPackageFileExists( TEXT("OLweapons.u") ) )
         XboxMenuAddFallbackMutator( TEXT("OLDSKOOL WEAPONS"), TEXT("olweapons.oldskool") );
+    if( XboxMenuPackageFileExists( TEXT("AgentX.u") ) )
+        XboxMenuAddFallbackMutator( TEXT("AGENTX ARENA"), TEXT("AgentX.AgentXArena") );
+    if( XboxMenuPackageFileExists( TEXT("AkimboArena.u") ) )
+        XboxMenuAddFallbackMutator( TEXT("AKIMBO ARENA"), TEXT("AkimboArena.AkimboArena") );
 
     GXboxLog.Write( "XMENU using fixed Xbox discovery list gameTypes=%d mutators=%d",
         GXboxDiscoveredGameTypes.Num(), GXboxDiscoveredMutators.Num() );
@@ -4655,6 +4838,7 @@ static void XboxMenuLoadDiscoveredLists()
     if( GXboxDiscoveredGameTypes.Num() == 0 )
     {
         XboxMenuAddFallbackGameType( TEXT("DEATHMATCH"), TEXT("Botpack.DeathMatchPlus"), TEXT("DM") );
+        XboxMenuAddFallbackGameType( TEXT("LAST MAN STANDING"), TEXT("Botpack.LastManStanding"), TEXT("DM") );
         XboxMenuAddFallbackGameType( TEXT("CAPTURE THE FLAG"), TEXT("Botpack.CTFGame"), TEXT("CTF") );
         XboxMenuAddFallbackGameType( TEXT("DOMINATION"), TEXT("Botpack.Domination"), TEXT("DOM") );
         XboxMenuAddFallbackGameType( TEXT("ASSAULT"), TEXT("Botpack.Assault"), TEXT("AS") );
@@ -4890,8 +5074,16 @@ static void XboxMenuToggleCurrentMutator()
             const TCHAR* SelectedClass = *GXboxDiscoveredMutators(Index).URLValue;
             const UBOOL bSelectedArena
                 = appStricmp( SelectedClass, TEXT("Botpack.InstaGibDM") ) == 0
-                || appStricmp( SelectedClass, TEXT("olweapons.oldskool") ) == 0;
-            if( bSelectedArena )
+                || appStricmp( SelectedClass, TEXT("Botpack.PulseArena") ) == 0
+                || appStricmp( SelectedClass, TEXT("Botpack.FlakArena") ) == 0
+                || appStricmp( SelectedClass, TEXT("Botpack.RocketArena") ) == 0
+                || appStricmp( SelectedClass, TEXT("Botpack.ShockArena") ) == 0
+                || appStricmp( SelectedClass, TEXT("Botpack.SniperArena") ) == 0
+                || appStricmp( SelectedClass, TEXT("olweapons.oldskool") ) == 0
+                || appStricmp( SelectedClass, TEXT("AgentX.AgentXArena") ) == 0;
+            const UBOOL bSelectedAkimbo = appStricmp( SelectedClass, TEXT("AkimboArena.AkimboArena") ) == 0;
+            const UBOOL bSelectedChainsaw = appStricmp( SelectedClass, TEXT("Botpack.ChainsawMelee") ) == 0;
+            if( bSelectedArena || bSelectedAkimbo || bSelectedChainsaw )
             {
                 for( INT i=0; i<GXboxDiscoveredMutators.Num(); i++ )
                 {
@@ -4900,8 +5092,20 @@ static void XboxMenuToggleCurrentMutator()
                     const TCHAR* OtherClass = *GXboxDiscoveredMutators(i).URLValue;
                     const UBOOL bOtherArena
                         = appStricmp( OtherClass, TEXT("Botpack.InstaGibDM") ) == 0
-                        || appStricmp( OtherClass, TEXT("olweapons.oldskool") ) == 0;
-                    if( bOtherArena )
+                        || appStricmp( OtherClass, TEXT("Botpack.PulseArena") ) == 0
+                        || appStricmp( OtherClass, TEXT("Botpack.FlakArena") ) == 0
+                        || appStricmp( OtherClass, TEXT("Botpack.RocketArena") ) == 0
+                        || appStricmp( OtherClass, TEXT("Botpack.ShockArena") ) == 0
+                        || appStricmp( OtherClass, TEXT("Botpack.SniperArena") ) == 0
+                        || appStricmp( OtherClass, TEXT("olweapons.oldskool") ) == 0
+                        || appStricmp( OtherClass, TEXT("AgentX.AgentXArena") ) == 0;
+                    const UBOOL bOtherAkimbo = appStricmp( OtherClass, TEXT("AkimboArena.AkimboArena") ) == 0;
+                    const UBOOL bOtherChainsaw = appStricmp( OtherClass, TEXT("Botpack.ChainsawMelee") ) == 0;
+                    const UBOOL bConflict
+                        = (bSelectedArena && (bOtherArena || bOtherAkimbo))
+                        || (bSelectedAkimbo && (bOtherArena || bOtherChainsaw))
+                        || (bSelectedChainsaw && bOtherAkimbo);
+                    if( bConflict )
                         GXboxMenu.InstantMutatorMask[i >> 5] &= ~(1 << (i & 31));
                 }
             }
@@ -6583,10 +6787,10 @@ static UBOOL XboxSplitReadyActivatePrimary( UXboxViewport* Viewport, UBOOL bCrea
     return 1;
 }
 
-static void XboxSplitReadyReset( UXboxViewport* Viewport=NULL )
+static void XboxSplitReadyReset( UXboxViewport* Viewport, UBOOL bPersistProfile )
 {
     if( Viewport )
-        XboxProfileOpen( Viewport );
+        XboxProfileOpen( Viewport, bPersistProfile );
     else
         XboxMenuLoadPlayerState();
     XboxMenuLoadPlayerClasses();
@@ -7595,8 +7799,9 @@ static void XboxProfileSaveActive( UXboxViewport* Viewport )
     GXboxLog.Flush();
 }
 
-static void XboxProfileApplyActive( UXboxViewport* Viewport )
+static void XboxProfileApplyActive( UXboxViewport* Viewport, UBOOL bPersistGlobal=1 )
 {
+    DOUBLE ApplyStart = appSeconds();
     XboxProfileLoadDirectory();
     if( !GXboxProfiles[GXboxActiveProfile].Created )
         return;
@@ -7620,7 +7825,14 @@ static void XboxProfileApplyActive( UXboxViewport* Viewport )
         XboxRenderReleaseMenuTexture( OldPortraitName );
 
     UXboxClient* Client = XboxMenuGetClient( Viewport );
-    XboxProfileApplyClientConfig( Client );
+    if( bPersistGlobal )
+        XboxProfileApplyClientConfig( Client );
+    else
+    {
+        // Ordinary local-menu entry is a read/apply operation. On optical
+        // media, rewriting global config here can stall the frontend.
+        XboxProfileApplyClientConfigForIndex( Client, GXboxActiveProfile, 0 );
+    }
     APlayerPawn* Player = Viewport ? Viewport->Actor : NULL;
     TCHAR Section[32];
     XboxProfileSectionName( GXboxActiveProfile, Section, ARRAY_COUNT(Section) );
@@ -7629,29 +7841,45 @@ static void XboxProfileApplyActive( UXboxViewport* Viewport )
         XboxMenuSetWeaponHand( Player, Clamp<INT>(XboxProfileConfigInt(Section, TEXT("WeaponHand"), XboxMenuWeaponHandIndex(Player)), 0, ARRAY_COUNT(GXboxWeaponHands)-1) );
         Player->bNeverAutoSwitch = XboxProfileConfigInt( Section, TEXT("AutoSwitch"), Player->bNeverAutoSwitch ? 0 : 1 ) == 0;
         Player->bNeverSwitchOnPickup = Player->bNeverAutoSwitch;
-        Player->SaveConfig();
+        if( bPersistGlobal )
+            Player->SaveConfig();
         if( Player->PlayerReplicationInfo )
             Player->PlayerReplicationInfo->PlayerName = GXboxProfileName;
     }
-    XboxMenuSaveDefaultPlayer();
-    GXboxLog.Write( "XPROFILE loaded slot=%d name=%s class=%s team=%d",
-        GXboxActiveProfile + 1,
-        TCHAR_TO_ANSI(GXboxProfileName),
-        TCHAR_TO_ANSI(*GXboxPlayerClasses(GXboxMenu.PlayerClass).URLValue),
-        GXboxMenu.PlayerTeam );
+    if( bPersistGlobal )
+        XboxMenuSaveDefaultPlayer();
+    if( bPersistGlobal )
+        GXboxLog.Write( "XPROFILE loaded slot=%d name=%s class=%s team=%d",
+            GXboxActiveProfile + 1,
+            TCHAR_TO_ANSI(GXboxProfileName),
+            TCHAR_TO_ANSI(*GXboxPlayerClasses(GXboxMenu.PlayerClass).URLValue),
+            GXboxMenu.PlayerTeam );
+    else
+        GXboxLog.Write( "XPROFILE loaded slot=%d name=%s class=%s team=%d applyOnly=1 elapsedMS=%.1f",
+            GXboxActiveProfile + 1,
+            TCHAR_TO_ANSI(GXboxProfileName),
+            TCHAR_TO_ANSI(*GXboxPlayerClasses(GXboxMenu.PlayerClass).URLValue),
+            GXboxMenu.PlayerTeam,
+            (appSeconds() - ApplyStart) * 1000.0 );
 }
 
-static void XboxProfileOpen( UXboxViewport* Viewport )
+static void XboxProfileOpen( UXboxViewport* Viewport, UBOOL bPersistGlobal )
 {
+    DOUBLE OpenStart = appSeconds();
     XboxProfileLoadDirectory( 1 );
     GXboxProfileSelected = GXboxActiveProfile;
     if( GXboxProfiles[GXboxActiveProfile].Created )
-        XboxProfileApplyActive( Viewport );
+        XboxProfileApplyActive( Viewport, bPersistGlobal );
     else
     {
         GXboxPlayerStateLoaded = 0;
         XboxMenuLoadPlayerState();
     }
+    if( !bPersistGlobal )
+        GXboxLog.Write( "XPROFILE open complete slot=%d created=%d persist=0 elapsedMS=%.1f",
+            GXboxActiveProfile + 1,
+            GXboxProfiles[GXboxActiveProfile].Created ? 1 : 0,
+            (appSeconds() - OpenStart) * 1000.0 );
 }
 
 static INT XboxProfileCreatedCount()
@@ -8080,7 +8308,7 @@ static void XboxMenuSmokeTick( UXboxViewport* Viewport )
     {
         GXboxMenu.Screen = XMS_PlayerSetup;
         GXboxMenu.PlayerFocus = 0;
-        XboxProfileOpen( Viewport );
+        XboxProfileOpen( Viewport, 0 );
         SmokeStage = 3;
         SmokeStartTime = appSeconds();
         const FXboxPlayerClassOption& Player = XboxMenuPlayerClass( GXboxMenu.PlayerClass );
@@ -9155,12 +9383,26 @@ static void XboxConfigureFullMenuProof( UXboxViewport* Viewport, INT Request )
     {
         GXboxMenu.Screen = XMS_InstantAction;
         GXboxMenu.InstantFocus = 0;
+        if( XboxFullMenuProofExtraMarkerExists("XboxProofSelectLMS.ini") )
+        {
+            const INT LMS = XboxFullMenuProofFindGameType( TEXT("Botpack.LastManStanding") );
+            if( LMS != INDEX_NONE )
+                GXboxMenu.InstantGameType = LMS;
+        }
     }
     else if( Request == XFMP_Mutators )
     {
         GXboxMenu.Screen = XMS_Mutators;
         GXboxMenu.InstantFocus = 6;
         GXboxMenu.InstantMutatorChoice = 0;
+        if( XboxFullMenuProofExtraMarkerExists("XboxProofMutatorsPage2.ini") )
+            GXboxMenu.InstantMutatorChoice = Min<INT>( 6, XboxMenuMutatorCount()-1 );
+        else if( XboxFullMenuProofExtraMarkerExists("XboxProofMutatorsPage3.ini") )
+            GXboxMenu.InstantMutatorChoice = Min<INT>( 10, XboxMenuMutatorCount()-1 );
+        else if( XboxFullMenuProofExtraMarkerExists("XboxProofMutatorsPage4.ini") )
+            GXboxMenu.InstantMutatorChoice = Min<INT>( 14, XboxMenuMutatorCount()-1 );
+        else if( XboxFullMenuProofExtraMarkerExists("XboxProofMutatorsEnd.ini") )
+            GXboxMenu.InstantMutatorChoice = Max<INT>( 0, XboxMenuMutatorCount()-1 );
     }
     else if( Request == XFMP_Tournament )
     {
@@ -9209,6 +9451,12 @@ static void XboxConfigureFullMenuProof( UXboxViewport* Viewport, INT Request )
     {
         GXboxMenu.Screen = XMS_SplitMapSelect;
         GXboxMenu.SplitFocus = 0;
+        if( XboxFullMenuProofExtraMarkerExists("XboxProofSelectLMS.ini") )
+        {
+            const INT LMS = XboxFullMenuProofFindGameType( TEXT("Botpack.LastManStanding") );
+            if( LMS != INDEX_NONE )
+                GXboxMenu.InstantGameType = LMS;
+        }
     }
     else if( Request == XFMP_ProfileSelect )
     {
@@ -9229,7 +9477,7 @@ static void XboxConfigureFullMenuProof( UXboxViewport* Viewport, INT Request )
     {
         GXboxMenu.Screen = XMS_PlayerSetup;
         GXboxMenu.PlayerFocus = 0;
-        XboxProfileOpen( Viewport );
+        XboxProfileOpen( Viewport, 0 );
     }
     else if( Request == XFMP_ProfileName )
     {
@@ -9309,9 +9557,25 @@ static void XboxConfigureFullMenuProof( UXboxViewport* Viewport, INT Request )
         GXboxMenu.Screen = Request == XFMP_SystemLinkHostMap || Request == XFMP_SystemLinkClientMap
             ? XMS_SystemLinkMapSelect : XMS_SystemLink;
         GXboxMenu.SplitFocus = 0;
+        if( XboxFullMenuProofExtraMarkerExists("XboxProofSelectLMS.ini") )
+        {
+            const INT LMS = XboxFullMenuProofFindGameType( TEXT("Botpack.LastManStanding") );
+            if( LMS != INDEX_NONE )
+            {
+                GXboxMenu.InstantGameType = LMS;
+                GXboxSystemLink.GameType = LMS;
+            }
+        }
     }
 
-    GXboxLog.Write( "XMENU FULL PROOF configured request=%d screen=%s", Request, TCHAR_TO_ANSI(XboxMenuScreenName(GXboxMenu.Screen)) );
+    const INT ProofGameType = Clamp<INT>( GXboxMenu.InstantGameType, 0, XboxMenuGameTypeCount()-1 );
+    GXboxLog.Write( "XMENU FULL PROOF configured request=%d screen=%s gameType=%d gameClass=%s mutatorChoice=%d mutatorCount=%d",
+        Request,
+        TCHAR_TO_ANSI(XboxMenuScreenName(GXboxMenu.Screen)),
+        ProofGameType,
+        TCHAR_TO_ANSI(*XboxMenuGameType(ProofGameType).URLValue),
+        GXboxMenu.InstantMutatorChoice,
+        XboxMenuMutatorCount() );
 }
 
 static void XboxMenuProofSmokeTick( UXboxViewport* Viewport )
@@ -9408,7 +9672,13 @@ static void XboxMenuProofSmokeTick( UXboxViewport* Viewport )
     else if( SmokeStage == 1 && (appSeconds() - SmokeStartTime) > 4.0 )
     {
         SmokeStartTime = appSeconds();
-        GXboxLog.Write( "XMENU PROOF holding screen=%s", TCHAR_TO_ANSI(XboxMenuScreenName(GXboxMenu.Screen)) );
+        const INT ProofGameType = Clamp<INT>( GXboxMenu.InstantGameType, 0, XboxMenuGameTypeCount()-1 );
+        GXboxLog.Write( "XMENU PROOF holding screen=%s gameType=%d gameClass=%s mutatorChoice=%d mutatorCount=%d",
+            TCHAR_TO_ANSI(XboxMenuScreenName(GXboxMenu.Screen)),
+            ProofGameType,
+            TCHAR_TO_ANSI(*XboxMenuGameType(ProofGameType).URLValue),
+            GXboxMenu.InstantMutatorChoice,
+            XboxMenuMutatorCount() );
         GXboxLog.Flush();
     }
 }
@@ -9675,9 +9945,8 @@ static void XboxSystemLinkSmokeTick( UXboxViewport* Viewport )
                 GXboxSystemLink.GameType = SmokeGameType;
                 GXboxSystemLink.MapIndex = SmokeMapIndex;
                 const FXboxDiscoveredOption& SmokeMap = XboxMenuMap( SmokeGameType, SmokeMapIndex );
-                GXboxLog.Write( "XSL SMOKE selected lightweight map %s index=%d",
-                    TCHAR_TO_ANSI(*SmokeMap.URLValue),
-                    SmokeMapIndex );
+                GXboxLog.Write( "XSL SMOKE lightweight map selected %s index=%d game=%d",
+                    TCHAR_TO_ANSI(*SmokeMap.URLValue), SmokeMapIndex, SmokeGameType );
             }
             else
             {
@@ -9732,14 +10001,43 @@ static UBOOL XboxMenuGameIsChildOf( const TCHAR* GameClassName, const TCHAR* Par
     return GameClass && ParentClass && GameClass->IsChildOf( ParentClass );
 }
 
+static UBOOL XboxMenuIsFixedCoreGameClass( const TCHAR* GameClassName )
+{
+    return GameClassName
+        && (appStricmp(GameClassName, TEXT("Botpack.DeathMatchPlus")) == 0
+        ||  appStricmp(GameClassName, TEXT("Botpack.LastManStanding")) == 0
+        ||  appStricmp(GameClassName, TEXT("Botpack.CTFGame")) == 0
+        ||  appStricmp(GameClassName, TEXT("Botpack.Domination")) == 0
+        ||  appStricmp(GameClassName, TEXT("Botpack.Assault")) == 0);
+}
+
 static UBOOL XboxMenuGameUsesObjectiveRules( const TCHAR* GameClassName )
 {
+    if( GameClassName && appStricmp(GameClassName, TEXT("Botpack.Assault")) == 0 )
+        return 1;
+    if( XboxMenuIsFixedCoreGameClass(GameClassName) )
+        return 0;
     return XboxMenuGameIsChildOf( GameClassName, TEXT("Botpack.Assault") );
+}
+
+static UBOOL XboxMenuGameUsesLives( const TCHAR* GameClassName )
+{
+    if( GameClassName && appStricmp(GameClassName, TEXT("Botpack.LastManStanding")) == 0 )
+        return 1;
+    if( XboxMenuIsFixedCoreGameClass(GameClassName) )
+        return 0;
+    return XboxMenuGameIsChildOf( GameClassName, TEXT("Botpack.LastManStanding") );
 }
 
 static UBOOL XboxMenuGameUsesTeamScore( const TCHAR* GameClassName )
 {
     if( XboxMenuGameUsesObjectiveRules( GameClassName ) )
+        return 0;
+    if( GameClassName
+    && (appStricmp(GameClassName, TEXT("Botpack.CTFGame")) == 0
+    ||  appStricmp(GameClassName, TEXT("Botpack.Domination")) == 0) )
+        return 1;
+    if( XboxMenuIsFixedCoreGameClass(GameClassName) )
         return 0;
     return XboxMenuGameIsChildOf( GameClassName, TEXT("Botpack.TeamGamePlus") );
 }
@@ -9777,6 +10075,11 @@ static void XboxMenuBuildMatchRuleOptions( const TCHAR* GameClassName, INT Score
     TimeLimit = Max<INT>( 0, TimeLimit );
     MinPlayers = Max<INT>( 0, MinPlayers );
     Skill = Max<INT>( 0, Skill );
+
+    // LastManStanding.InitGame deliberately disables timed play. Keep that
+    // invariant in the travel URL as well as in the post-travel rule handoff.
+    if( XboxMenuGameUsesLives(GameClassName) )
+        TimeLimit = 0;
 
     if( XboxMenuGameUsesObjectiveRules( GameClassName ) )
     {
@@ -9822,7 +10125,7 @@ static void XboxMenuQueuePendingMatchRules( const TCHAR* GameClassName, INT Scor
     appStrncpy( GXboxPendingMatchRules.GameClass, GameClassName ? GameClassName : TEXT(""), ARRAY_COUNT(GXboxPendingMatchRules.GameClass) );
     GXboxPendingMatchRules.GameClass[ARRAY_COUNT(GXboxPendingMatchRules.GameClass)-1] = 0;
     GXboxPendingMatchRules.ScoreLimit = Max<INT>( 0, ScoreLimit );
-    GXboxPendingMatchRules.TimeLimit = Max<INT>( 0, TimeLimit );
+    GXboxPendingMatchRules.TimeLimit = XboxMenuGameUsesLives(GameClassName) ? 0 : Max<INT>( 0, TimeLimit );
     GXboxPendingMatchRules.MinPlayers = Max<INT>( 0, MinPlayers );
     GXboxPendingMatchRules.Skill = Max<INT>( 0, Skill );
     GXboxPendingMatchRules.DesiredBots = Max<INT>( 0, DesiredBots );
@@ -10013,7 +10316,7 @@ static void XboxMenuStartSplitScreen( UXboxViewport* Viewport )
         return;
 
     XboxSplitResetRuntime( Client, "StartSplitScreen" );
-    XboxSplitReadyReset( Viewport );
+    XboxSplitReadyReset( Viewport, 0 );
     XboxSplitReadyActivatePrimary( Viewport );
     GXboxMenu.Screen = XMS_SplitReady;
     GXboxMenu.SplitFocus = 0;
@@ -10313,8 +10616,11 @@ static const TCHAR* XboxInstantRulesProofRequestedPrefix()
     static INT DOMCached = -1;
     static INT ASCached = -1;
     static INT JBCached = -1;
+    static INT LMSCached = -1;
     static INT GenericCached = -1;
 
+    if( XboxSmokeMarkerExists( "XboxInstantMenuProof_LMS.ini", LMSCached ) )
+        return TEXT("LMS");
     if( XboxSmokeMarkerExists( "XboxInstantMenuProof_DM.ini", DMCached ) )
         return TEXT("DM");
     if( XboxSmokeMarkerExists( "XboxInstantMenuProof_CTF.ini", CTFCached ) )
@@ -10339,9 +10645,14 @@ static INT XboxInstantRulesProofFindGameTypeByPrefix( const TCHAR* Prefix )
     for( INT i=0; i<GameTypeCount; i++ )
     {
         const FXboxDiscoveredOption& Game = XboxMenuGameType( i );
+        if( appStricmp( Prefix, TEXT("LMS") ) == 0
+        &&  appStricmp( *Game.URLValue, TEXT("Botpack.LastManStanding") ) == 0 )
+            return i;
         if( appStricmp( *Game.MapPrefix, Prefix ) == 0 )
             return i;
     }
+    if( appStricmp( Prefix, TEXT("LMS") ) == 0 )
+        return INDEX_NONE;
     return GameTypeCount > 0 ? 0 : INDEX_NONE;
 }
 
@@ -10363,7 +10674,15 @@ static FXboxInstantRulesProofProfile XboxInstantRulesProofProfileForGame( const 
     Profile.TimeIndex = 1;
     Profile.PreferredMap = TEXT("");
 
-    if( appStricmp( *Game.MapPrefix, TEXT("DM") ) == 0 )
+    if( appStricmp( *Game.URLValue, TEXT("Botpack.LastManStanding") ) == 0 )
+    {
+        Profile.BotIndex = 2;
+        Profile.SkillIndex = 2;
+        Profile.ScoreIndex = 1;
+        Profile.TimeIndex = 0;
+        Profile.PreferredMap = TEXT("DM-Deck16][.unr");
+    }
+    else if( appStricmp( *Game.MapPrefix, TEXT("DM") ) == 0 )
     {
         Profile.BotIndex = 2;
         Profile.SkillIndex = 2;
@@ -10605,6 +10924,8 @@ static UBOOL XboxInstantRulesProofEvaluate( UXboxViewport* Viewport, INT GameTyp
     INT Skill = Profile.SkillIndex;
     UBOOL bObjective = XboxMenuGameUsesObjectiveRules( *Game.URLValue );
     UBOOL bTeamScore = XboxMenuGameUsesTeamScore( *Game.URLValue );
+    UBOOL bLives = XboxMenuGameUsesLives( *Game.URLValue );
+    UClass* ExpectedGameClass = XboxMenuLoadGameClass( *Game.URLValue );
     INT ExpectedFrag = bTeamScore || bObjective ? 0 : ScoreLimit;
     INT ExpectedGoal = bObjective ? 0 : (bTeamScore ? ScoreLimit : -9999);
     INT Frag = XboxGetObjectPropertyInt( GameObject, TEXT("FragLimit"), -9999 );
@@ -10614,21 +10935,26 @@ static UBOOL XboxInstantRulesProofEvaluate( UXboxViewport* Viewport, INT GameTyp
     INT NumBots = XboxGetObjectPropertyInt( GameObject, TEXT("NumBots"), -9999 );
     INT ActualTime = XboxGetObjectPropertyInt( GameObject, TEXT("TimeLimit"), -9999 );
     INT ActualSkill = XboxGetObjectPropertyInt( GameObject, TEXT("Difficulty"), -9999 );
+    INT ActualLives = XboxGetObjectPropertyInt( GameObject, TEXT("Lives"), -9999 );
+    FString ScoreBoardType;
+    XboxGetObjectPropertyString( GameObject, TEXT("ScoreBoardType"), ScoreBoardType );
     const TCHAR* UrlSkillText = Level ? Level->URL.GetOption( TEXT("Difficulty="), NULL ) : NULL;
     INT UrlSkill = UrlSkillText ? appAtoi( UrlSkillText ) : -9999;
     UBOOL bMapMatches = Level && Level->URL.Map.Len() && appStricmp( *Level->URL.Map, *SelectedMap.URLValue ) == 0;
     UBOOL bPass =
         bMapMatches &&
+        ExpectedGameClass && GameObject->IsA(ExpectedGameClass) &&
         Frag == ExpectedFrag &&
         ( ExpectedGoal == -9999 || Goal == ExpectedGoal ) &&
         ActualMinPlayers == MinPlayers &&
         InitialBots == DesiredBots &&
         NumBots == DesiredBots &&
-        ActualTime == TimeLimit &&
+        ActualTime == (bLives ? 0 : TimeLimit) &&
+        (!bLives || ActualLives == ScoreLimit) &&
         ActualSkill == Skill &&
         UrlSkill == Skill;
 
-    GXboxLog.Write( "XINSTANT MENU LIVE index=%d status=%s game=%s prefix=%s selectedMap=%s liveMap=%s mapMatch=%d liveGame=%s mode=%s selectedScore=%d frag=%d expectedFrag=%d goalTeam=%d expectedGoal=%d selectedBots=%d minPlayers=%d expectedMin=%d initialBots=%d expectedInitialBots=%d numBots=%d desiredBots=%d selectedSkill=%d gameDifficulty=%d urlDifficulty=%d selectedTime=%d timeLimit=%d expectedTime=%d",
+    GXboxLog.Write( "XINSTANT MENU LIVE index=%d status=%s game=%s prefix=%s selectedMap=%s liveMap=%s mapMatch=%d liveGame=%s classMatch=%d mode=%s selectedScore=%d frag=%d expectedFrag=%d lives=%d expectedLives=%d scoreboard=%s goalTeam=%d expectedGoal=%d selectedBots=%d minPlayers=%d expectedMin=%d initialBots=%d expectedInitialBots=%d numBots=%d desiredBots=%d selectedSkill=%d gameDifficulty=%d urlDifficulty=%d selectedTime=%d timeLimit=%d expectedTime=%d",
         GameType,
         bPass ? "PASS" : "FAIL",
         TCHAR_TO_ANSI(*Game.URLValue),
@@ -10637,10 +10963,14 @@ static UBOOL XboxInstantRulesProofEvaluate( UXboxViewport* Viewport, INT GameTyp
         Level && Level->URL.Map.Len() ? TCHAR_TO_ANSI(*Level->URL.Map) : "",
         bMapMatches ? 1 : 0,
         GameObject->GetClass() ? TCHAR_TO_ANSI(GameObject->GetClass()->GetName()) : "None",
-        bObjective ? "objective" : (bTeamScore ? "teamScore" : "frag"),
+        ExpectedGameClass && GameObject->IsA(ExpectedGameClass) ? 1 : 0,
+        bLives ? "lives" : (bObjective ? "objective" : (bTeamScore ? "teamScore" : "frag")),
         ScoreLimit,
         Frag,
         ExpectedFrag,
+        ActualLives,
+        bLives ? ScoreLimit : -9999,
+        ScoreBoardType.Len() ? TCHAR_TO_ANSI(*ScoreBoardType) : "",
         Goal,
         ExpectedGoal,
         DesiredBots,
@@ -10655,7 +10985,7 @@ static UBOOL XboxInstantRulesProofEvaluate( UXboxViewport* Viewport, INT GameTyp
         UrlSkill,
         TimeLimit,
         ActualTime,
-        TimeLimit );
+        bLives ? 0 : TimeLimit );
     return bPass;
 }
 
@@ -10817,6 +11147,8 @@ static void XboxInstantRulesProofSmokeTick( UXboxViewport* Viewport )
     APlayerPawn* Player = Viewport->Actor;
     ULevel* Level = Player ? Player->GetLevel() : NULL;
     UBOOL bFrontend = XboxIsFrontendLevel( Level );
+    UBOOL bLivesProof = GameTypeIndex >= 0 && GameTypeIndex < XboxMenuGameTypeCount()
+        && appStricmp( *XboxMenuGameType(GameTypeIndex).URLValue, TEXT("Botpack.LastManStanding") ) == 0;
     DOUBLE Now = appSeconds();
     FLOAT StageElapsed = StageStartTime > 0.0 ? (FLOAT)(Now - StageStartTime) : 0.0f;
 
@@ -10918,6 +11250,8 @@ static void XboxInstantRulesProofSmokeTick( UXboxViewport* Viewport )
 
     if( RulesStage == 4 && !bFrontend )
     {
+        if( bLivesProof )
+            Player->bShowScores = 1;
         if( !ReadySent && StageElapsed >= 3.0f && Player && !Player->bReadyToPlay )
         {
             XboxSoakForceStartMatch( Viewport, "instant-menu-ready" );
@@ -10936,6 +11270,8 @@ static void XboxInstantRulesProofSmokeTick( UXboxViewport* Viewport )
 
     if( RulesStage == 5 && !bFrontend )
     {
+        if( bLivesProof )
+            Player->bShowScores = 1;
         XboxInstantRulesProofDriveGameplay( Viewport, Now, FireDown, FireDownTime, LastFirePulse, MovementLogged );
         if( XboxInstantRulesProofIsGameEnded( Viewport ) )
         {
@@ -11220,7 +11556,7 @@ static void XboxSoakSmokeTick( UXboxViewport* Viewport )
     {
         GXboxMenu.Screen = XMS_PlayerSetup;
         GXboxMenu.PlayerFocus = 0;
-        XboxProfileOpen( Viewport );
+        XboxProfileOpen( Viewport, 0 );
         XboxMenuLoadPlayerClasses();
         INT CharacterCount = Max<INT>( GXboxPlayerClasses.Num(), 1 );
         GXboxMenu.PlayerClass = XboxMenuWrapInt( GXboxMenu.PlayerClass, 3, CharacterCount );
@@ -11434,7 +11770,7 @@ static void XboxMenuActivate( UXboxViewport* Viewport )
             case 4:
                 GXboxMenu.Screen = XMS_PlayerSetup;
                 GXboxMenu.PlayerFocus = 0;
-                XboxProfileOpen( Viewport );
+                XboxProfileOpen( Viewport, 0 );
                 GXboxLog.Write( "XMENU screen: Player Setup" );
                 break;
             case 5:
@@ -11560,6 +11896,7 @@ static void XboxMenuActivate( UXboxViewport* Viewport )
     {
         XboxMenuBack( Viewport );
     }
+
 }
 
 static void XboxMenuAdjustInstantAction( INT Delta )
@@ -11588,8 +11925,12 @@ static void XboxMenuAdjustInstantAction( INT Delta )
             GXboxMenu.InstantFragLimit = XboxMenuWrap( GXboxMenu.InstantFragLimit, Delta, ARRAY_COUNT(GXboxFragLimits) );
             break;
         case 5:
-            GXboxMenu.InstantTimeLimit = XboxMenuWrap( GXboxMenu.InstantTimeLimit, Delta, ARRAY_COUNT(GXboxTimeLimits) );
+        {
+            const FXboxDiscoveredOption& Game = XboxMenuGameType( GXboxMenu.InstantGameType );
+            if( !XboxMenuGameUsesLives(*Game.URLValue) )
+                GXboxMenu.InstantTimeLimit = XboxMenuWrap( GXboxMenu.InstantTimeLimit, Delta, ARRAY_COUNT(GXboxTimeLimits) );
             break;
+        }
     }
 
     GXboxLog.Write( "XMENU instant adjust row=%d delta=%d", GXboxMenu.InstantFocus, Delta );
@@ -11638,8 +11979,12 @@ static void XboxMenuAdjustSplitMapSelect( INT Delta )
             GXboxMenu.InstantFragLimit = XboxMenuWrap( GXboxMenu.InstantFragLimit, Delta, ARRAY_COUNT(GXboxFragLimits) );
             break;
         case 3:
-            GXboxMenu.InstantTimeLimit = XboxMenuWrap( GXboxMenu.InstantTimeLimit, Delta, ARRAY_COUNT(GXboxTimeLimits) );
+        {
+            const FXboxDiscoveredOption& Game = XboxMenuGameType( GXboxMenu.InstantGameType );
+            if( !XboxMenuGameUsesLives(*Game.URLValue) )
+                GXboxMenu.InstantTimeLimit = XboxMenuWrap( GXboxMenu.InstantTimeLimit, Delta, ARRAY_COUNT(GXboxTimeLimits) );
             break;
+        }
     }
 
     GXboxLog.Write( "%s map adjust row=%d delta=%d",
@@ -14976,6 +15321,7 @@ static void XboxMenuDrawInstantAction( UCanvas* Canvas )
     GXboxMenu.InstantGameType = Clamp<INT>( GXboxMenu.InstantGameType, 0, XboxMenuGameTypeCount()-1 );
     INT MapCount = XboxInstantMapList( GXboxMenu.InstantGameType );
     const FXboxDiscoveredOption& Game = XboxMenuGameType( GXboxMenu.InstantGameType );
+    UBOOL bLives = XboxMenuGameUsesLives( *Game.URLValue );
     const FXboxDiscoveredOption* Map = NULL;
     if( MapCount > 0 )
     {
@@ -14996,7 +15342,7 @@ static void XboxMenuDrawInstantAction( UCanvas* Canvas )
     else
         appStrcpy( FragValue, TEXT("NONE") );
 
-    INT TimeLimit = GXboxTimeLimits[Clamp<INT>(GXboxMenu.InstantTimeLimit, 0, ARRAY_COUNT(GXboxTimeLimits)-1)];
+    INT TimeLimit = bLives ? 0 : GXboxTimeLimits[Clamp<INT>(GXboxMenu.InstantTimeLimit, 0, ARRAY_COUNT(GXboxTimeLimits)-1)];
     if( TimeLimit > 0 )
         appSprintf( TimeValue, TEXT("%i MINUTES"), TimeLimit );
     else
@@ -15046,21 +15392,22 @@ static void XboxMenuDrawInstantAction( UCanvas* Canvas )
     FLOAT RowStep = Clamp<FLOAT>( (HintY - 24.0f - 126.0f) / 7.0f, 25.0f, 30.0f );
     for( INT i=0; i<ARRAY_COUNT(Labels); i++ )
     {
+        const TCHAR* RowLabel = (bLives && i == 4) ? TEXT("LIVES") : Labels[i];
         FLOAT Y = 126.0f + i * RowStep;
         if( i == GXboxMenu.InstantFocus )
         {
             XboxMenuDrawRect( Canvas, 42, Y-6, 350, Y+18, 12, 82, 166, 0.55f );
-            if( i < 6 )
+            if( i < 6 && !(bLives && i == 5) )
             {
                 XboxMenuText( Canvas, MenuFont, 192, Y, 180, 215, 245, TEXT("<") );
                 XboxMenuText( Canvas, MenuFont, 334, Y, 180, 215, 245, TEXT(">") );
             }
-            XboxMenuText( Canvas, MenuFont, 58, Y, 255, 255, 255, Labels[i] );
+            XboxMenuText( Canvas, MenuFont, 58, Y, 255, 255, 255, RowLabel );
             XboxMenuTextFit( Canvas, MenuFont, 210, Y, 120.0f, 255, 255, 255, Values[i] );
         }
         else
         {
-            XboxMenuText( Canvas, MenuFont, 58, Y, 140, 178, 212, Labels[i] );
+            XboxMenuText( Canvas, MenuFont, 58, Y, 140, 178, 212, RowLabel );
             XboxMenuTextFit( Canvas, MenuFont, 210, Y, 120.0f, 180, 205, 230, Values[i] );
         }
     }
@@ -15835,6 +16182,7 @@ static void XboxMenuDrawSplitMapSelect( UCanvas* Canvas )
     GXboxMenu.InstantGameType = Clamp<INT>( GXboxMenu.InstantGameType, 0, XboxMenuGameTypeCount()-1 );
     INT MapCount = XboxInstantMapList( GXboxMenu.InstantGameType );
     const FXboxDiscoveredOption& Game = XboxMenuGameType( GXboxMenu.InstantGameType );
+    UBOOL bLives = XboxMenuGameUsesLives( *Game.URLValue );
     const FXboxDiscoveredOption* Map = NULL;
     if( MapCount > 0 )
     {
@@ -15851,7 +16199,7 @@ static void XboxMenuDrawSplitMapSelect( UCanvas* Canvas )
     else
         appStrcpy( FragValue, TEXT("NONE") );
 
-    INT TimeLimit = GXboxTimeLimits[Clamp<INT>(GXboxMenu.InstantTimeLimit, 0, ARRAY_COUNT(GXboxTimeLimits)-1)];
+    INT TimeLimit = bLives ? 0 : GXboxTimeLimits[Clamp<INT>(GXboxMenu.InstantTimeLimit, 0, ARRAY_COUNT(GXboxTimeLimits)-1)];
     if( TimeLimit > 0 )
         appSprintf( TimeValue, TEXT("%i MINUTES"), TimeLimit );
     else
@@ -15865,7 +16213,6 @@ static void XboxMenuDrawSplitMapSelect( UCanvas* Canvas )
         TimeValue,
         TEXT("")
     };
-
     UBOOL bSystemLink = GXboxMenu.Screen == XMS_SystemLinkMapSelect;
     UBOOL bEditable = !bSystemLink || GXboxSystemLink.Role == XSLR_Host;
     if( bEditable )
@@ -15898,22 +16245,24 @@ static void XboxMenuDrawSplitMapSelect( UCanvas* Canvas )
 
     for( INT i=0; i<ARRAY_COUNT(Labels); i++ )
     {
+        const TCHAR* RowLabel = (bLives && i == 2) ? TEXT("LIVES") : Labels[i];
+        const TCHAR* RowValue = Values[i];
         FLOAT Y = 164.0f + i * 36.0f;
         if( bEditable && i == GXboxMenu.SplitFocus )
         {
             XboxMenuDrawRect( Canvas, 42, Y-6, 350, Y+18, 12, 82, 166, 0.55f );
-            if( i < 4 )
+            if( i < 4 && !(bLives && i == 3) )
             {
                 XboxMenuText( Canvas, MenuFont, 192, Y, 180, 215, 245, TEXT("<") );
                 XboxMenuText( Canvas, MenuFont, 334, Y, 180, 215, 245, TEXT(">") );
             }
-            XboxMenuText( Canvas, MenuFont, 58, Y, 255, 255, 255, Labels[i] );
-            XboxMenuTextFit( Canvas, MenuFont, 210, Y, 120.0f, 255, 255, 255, Values[i] );
+            XboxMenuText( Canvas, MenuFont, 58, Y, 255, 255, 255, RowLabel );
+            XboxMenuTextFit( Canvas, MenuFont, 210, Y, 120.0f, 255, 255, 255, RowValue );
         }
         else
         {
-            XboxMenuText( Canvas, MenuFont, 58, Y, 140, 178, 212, Labels[i] );
-            XboxMenuTextFit( Canvas, MenuFont, 210, Y, 120.0f, 180, 205, 230, Values[i] );
+            XboxMenuText( Canvas, MenuFont, 58, Y, 140, 178, 212, RowLabel );
+            XboxMenuTextFit( Canvas, MenuFont, 210, Y, 120.0f, 180, 205, 230, RowValue );
         }
     }
 
@@ -16937,7 +17286,8 @@ void UXboxViewport::PollController()
     if( Result == ERROR_SUCCESS )
     {
         ControllerConnected = 1;
-        if( XboxTournamentProgressWinSmokeEnabled() || XboxFullMenuProofRequested() != XFMP_None )
+        if( XboxTournamentProgressWinSmokeEnabled()
+        ||  XboxFullMenuProofRequested() != XFMP_None )
         {
             static UBOOL bTournamentProofInputLogged = 0;
             appMemzero( &ControllerState.Gamepad, sizeof(ControllerState.Gamepad) );

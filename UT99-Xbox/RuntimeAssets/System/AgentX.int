@@ -1,0 +1,5 @@
+[public]
+
+Object=(Name=AgentX.TmlArena,Class=Class,MetaClass=Engine.Mutator,Description="Tml Arena,   Just a weapon test.")
+
+Object=(Name=AgentX.AgentXArena,Class=Class,MetaClass=Engine.Mutator,Description="AgentX Arena,   Just a weapon test ATM!!!.")

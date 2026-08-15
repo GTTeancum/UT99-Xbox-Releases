@@ -65,6 +65,10 @@ SKELETAL_PROOF_STATES = (
     "death",
 )
 
+
+def is_frontend_live_proof(mode):
+    return mode in ("instant-lms", "split-smoke") or bool(mode and mode.startswith("tournament-"))
+
 CASES = [
     {
         "map": "DM-Deck16][",
@@ -251,6 +255,7 @@ def patch_match_ini(path, bots):
     lines = soak_log.read_lines(path)
     sections = (
         "Botpack.DeathMatchPlus",
+        "Botpack.LastManStanding",
         "Botpack.TeamGamePlus",
         "Botpack.CTFGame",
         "Botpack.Domination",
@@ -307,10 +312,17 @@ def prepare_base(args):
         "XboxSoakSmoke.ini",
         "XboxInstantMenuProofSmoke.ini",
         "XboxInstantMenuProof_DM.ini",
+        "XboxInstantMenuProof_LMS.ini",
         "XboxInstantMenuProof_CTF.ini",
         "XboxInstantMenuProof_DOM.ini",
         "XboxInstantMenuProof_AS.ini",
         "XboxInstantMenuProof_JB.ini",
+        "XboxTournamentSmoke.ini",
+        "XboxTournamentProofDOM.ini",
+        "XboxTournamentProofCTF.ini",
+        "XboxTournamentProofAS.ini",
+        "XboxTournamentProofCHAL.ini",
+        "XboxSplitSmoke.ini",
     ):
         path = os.path.join(stage, marker)
         if os.path.isfile(path):
@@ -321,7 +333,7 @@ def prepare_base(args):
     elif args.lighting_proof:
         with open(os.path.join(stage, "XboxLightingProof.ini"), "w") as handle:
             handle.write("; Deterministic map-lighting viewpoint qualification\n")
-    else:
+    elif not is_frontend_live_proof(args.frontend_loading_proof):
         with open(os.path.join(stage, "XboxCharacterSoak.ini"), "w") as handle:
             handle.write("; Log exact bot class, mesh, and skin during Xemu stress\n")
     if args.skeletal_state_proof:
@@ -352,6 +364,19 @@ def prepare_case(args, stage, case, run_dir):
             "issue": "XboxIssueMapSmoke.ini",
             "soak": "XboxSoakSmoke.ini",
             "instant-dm": "XboxInstantMenuProof_DM.ini",
+            "instant-lms": "XboxInstantMenuProof_LMS.ini",
+            "tournament-dm": "XboxTournamentSmoke.ini",
+            "tournament-dom": "XboxTournamentSmoke.ini",
+            "tournament-ctf": "XboxTournamentSmoke.ini",
+            "tournament-as": "XboxTournamentSmoke.ini",
+            "tournament-chal": "XboxTournamentSmoke.ini",
+            "split-smoke": "XboxSplitSmoke.ini",
+        }
+        ladder_marker_by_mode = {
+            "tournament-dom": "XboxTournamentProofDOM.ini",
+            "tournament-ctf": "XboxTournamentProofCTF.ini",
+            "tournament-as": "XboxTournamentProofAS.ini",
+            "tournament-chal": "XboxTournamentProofCHAL.ini",
         }
         marker_name = marker_by_mode[args.frontend_loading_proof]
         start_url_path = os.path.join(stage, "XboxStartURL.ini")
@@ -361,11 +386,16 @@ def prepare_case(args, stage, case, run_dir):
             handle.write("; Frontend-driven loading-spinner proof\n")
         url = "frontend-proof:" + marker_name
         proof_markers = [marker_name]
+        ladder_marker = ladder_marker_by_mode.get(args.frontend_loading_proof)
+        if ladder_marker:
+            with open(os.path.join(stage, ladder_marker), "w") as handle:
+                handle.write("; Select the requested Tournament ladder\n")
+            proof_markers.append(ladder_marker)
         if args.traversal_proof:
             proof_markers.append("XboxFlickerTraversal.ini")
         elif args.lighting_proof:
             proof_markers.append("XboxLightingProof.ini")
-        else:
+        elif not is_frontend_live_proof(args.frontend_loading_proof):
             proof_markers.append("XboxCharacterSoak.ini")
     else:
         url = build_url(case)
@@ -770,6 +800,23 @@ def run_case(args, stage, case, index, xiso_tool, config_path):
                 marker = current["skeletalFlickerAlerts"][-1]
                 break
 
+            if args.menu_proof_log_pattern and args.menu_proof_log_pattern in (accumulated or snapshot):
+                path = os.path.join(screenshot_dir, args.menu_proof_filename)
+                time.sleep(0.50)
+                reply = capture_screen(
+                    proc.pid,
+                    args.screenshot_dir,
+                    path,
+                    args.monitor_port,
+                )
+                if os.path.isfile(path):
+                    screenshots.append(path)
+                    marker = "captured menu proof: " + args.menu_proof_log_pattern
+                    ok = True
+                    break
+                marker = "menu proof capture failed: " + reply
+                break
+
             new_camera_event = False
             camera_events = [
                 event
@@ -1141,7 +1188,7 @@ def run_case(args, stage, case, index, xiso_tool, config_path):
                             with open(os.path.join(run_dir, "screendump_error.txt"), "a") as handle:
                                 handle.write(reply + "\n")
 
-            if frontend_loading_proof:
+            if frontend_loading_proof and not is_frontend_live_proof(args.frontend_loading_proof):
                 text = accumulated or snapshot
                 if (
                     len(loading_screenshots) >= args.loading_proof_screenshots
@@ -1281,6 +1328,7 @@ def run_case(args, stage, case, index, xiso_tool, config_path):
     state_coverage_complete = not missing_state_keys
     loading_proof_complete = (
         not frontend_loading_proof
+        or is_frontend_live_proof(args.frontend_loading_proof)
         or len(loading_screenshots) >= args.loading_proof_screenshots
     )
     lighting_proof_complete = (
@@ -1339,7 +1387,11 @@ def run_case(args, stage, case, index, xiso_tool, config_path):
         "frontendLoadingProof": frontend_loading_proof,
         "frontendLoadingProofMode": args.frontend_loading_proof or "",
         "loadingProofComplete": loading_proof_complete,
-        "loadingProofRequiredScreenshots": args.loading_proof_screenshots if frontend_loading_proof else 0,
+        "loadingProofRequiredScreenshots": (
+            args.loading_proof_screenshots
+            if frontend_loading_proof and not is_frontend_live_proof(args.frontend_loading_proof)
+            else 0
+        ),
         "loadingAnimationScreenshots": loading_screenshots,
         "loadingAnimationLastFrame": last_loading_frame,
         "allowedBotClasses": sorted(allowed_classes),
@@ -1482,8 +1534,13 @@ def main(argv):
     )
     parser.add_argument(
         "--frontend-loading-proof",
-        choices=("issue", "soak", "instant-dm"),
-        help="Boot the frontend, use a menu smoke marker to launch a map, and pass/fail on loading-wheel captures.",
+        choices=(
+            "issue", "soak", "instant-dm", "instant-lms",
+            "tournament-dm", "tournament-dom", "tournament-ctf",
+            "tournament-as", "tournament-chal",
+            "split-smoke",
+        ),
+        help="Boot the frontend and use a menu smoke marker to launch a map; instant-lms and tournament modes continue into live gameplay capture.",
     )
     parser.add_argument(
         "--loading-proof-screenshots",
@@ -1507,6 +1564,15 @@ def main(argv):
         "--skip-general-screenshots",
         action="store_true",
         help="Skip redundant live-start, midpoint, and final overview captures",
+    )
+    parser.add_argument(
+        "--menu-proof-log-pattern",
+        help="Capture the menu once this exact RAM-log pattern appears, then finish the case",
+    )
+    parser.add_argument(
+        "--menu-proof-filename",
+        default="menu_proof.png",
+        help="Screenshot filename used with --menu-proof-log-pattern",
     )
     parser.add_argument(
         "--lighting-proof",
@@ -1584,8 +1650,8 @@ def main(argv):
         raise RuntimeError("--traversal-bursts must be between 1 and 8")
     if args.traversal_frames <= 1 or args.traversal_frames > 16:
         raise RuntimeError("--traversal-frames must be between 2 and 16")
-    if args.camera_burst_limit <= 0 or args.camera_burst_limit > len(ROSTER):
-        raise RuntimeError("--camera-burst-limit must be between 1 and %d" % len(ROSTER))
+    if args.camera_burst_limit < 0 or args.camera_burst_limit > len(ROSTER):
+        raise RuntimeError("--camera-burst-limit must be between 0 and %d" % len(ROSTER))
     if args.camera_frames <= 0 or args.camera_frames > 12:
         raise RuntimeError("--camera-frames must be between 1 and 12")
     if args.state_frames <= 0 or args.state_frames > 6:

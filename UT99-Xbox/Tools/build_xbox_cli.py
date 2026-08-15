@@ -701,7 +701,7 @@ def copy_runtime_assets(build_root):
     if os.path.isdir(runtime_src):
         copied = 0
         runtime_system_dirs = ("System", "Textures")
-        runtime_root_dirs = ("Maps", "Music")
+        runtime_root_dirs = ("Maps", "Music", "Docs")
         if not os.path.isdir(system_dst):
             os.makedirs(system_dst)
         for subdir in runtime_system_dirs:
@@ -731,7 +731,7 @@ def copy_runtime_assets(build_root):
             shutil.copy2(credits, os.path.join(build_root, "CONTENT_CREDITS.txt"))
             copied += 1
 
-        remove_stale_runtime_asset_files(build_root, runtime_src, ("Maps", "Textures", "Sounds", "Music"))
+        remove_stale_runtime_asset_files(build_root, runtime_src, ("Maps", "Textures", "Sounds", "Music", "Docs"))
         for subdir in runtime_root_dirs:
             src_root = os.path.join(runtime_src, subdir)
             if not os.path.isdir(src_root):

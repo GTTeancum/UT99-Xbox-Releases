@@ -1,4 +1,4 @@
-Unreal Tournament Xbox 1.1 - Content Credits
+Unreal Tournament Xbox 1.2 - Content Credits
 =============================================
 
 This port is intended for owners of Unreal Tournament. Unreal Tournament and
@@ -150,6 +150,21 @@ OldSkool Amp'd Weapons 2.39
 - The OldSkool campaign framework, menus, backgrounds, and model packs are not
   distributed in this release.
 - https://unrealarchive.org/unreal-tournament/mutators/O/oldskool-ampd-v239_f1f653ad.html
+
+AgentX 0.99
+- Author: Unknown in the supplied readme and Unreal Archive metadata.
+- Included component: `AgentX.AgentXArena`; the separate test-only
+  `AgentX.TmlArena` entry is not exposed in the Xbox menu.
+- Original readme: `Docs/AgentX_099/axv099Readme.txt`.
+- Package SHA-1: `4e52e876ea392846f8a9de72ae6d30ba878bbcf0`.
+- https://unrealarchive.org/unreal-tournament/mutators/A/agentxut-099_44ff3c2a.html
+
+Akimbo Arena 1.0 build 3
+- Author: Necron_99.
+- Original readme and installer are retained in `Docs/AkimboArena`.
+- Package SHA-1: `0213b9efafd31f824717c09d9f06e66f4f171793`.
+- Original UMOD SHA-1: `52412fa11ea5553e5c5b854c0d85f9050e210ee8`.
+- https://unrealarchive.org/unreal-tournament/mutators/A/akimbo-arena_52412fa1.html
 
 
 Attribution corrections

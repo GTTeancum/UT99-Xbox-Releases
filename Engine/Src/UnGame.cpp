@@ -1629,7 +1629,6 @@ UBOOL UGameEngine::Browse( FURL URL, const TMap<FString,FString>* TravelInfo, FS
 	{
 		// Handle failure URL.
 #if TARGET_XBOX
-		XboxSystemLinkAbortTravelCleanup( URL.HasOption(TEXT("failed")) ? "Browse failed URL" : "Browse entry URL" );
 		if( !GEntry )
 		{
 			Error = TEXT("Entry level was released on Xbox");
@@ -1649,6 +1648,17 @@ UBOOL UGameEngine::Browse( FURL URL, const TMap<FString,FString>* TravelInfo, FS
 			ResetLoaders( GLevel->GetOuter(), 1, 0 );
 		}
 		NotifyLevelChange();
+#if TARGET_XBOX
+		// UC2004 releases connection-owned XNet addresses before unregistering the
+		// session key.  The stock failure path otherwise abandons the old level's
+		// driver for GC, which can reverse that order and leave a stale association.
+		if( GLevel && GLevel!=GEntry && GLevel->NetDriver )
+		{
+			delete GLevel->NetDriver;
+			GLevel->NetDriver = NULL;
+		}
+		XboxSystemLinkAbortTravelCleanup( URL.HasOption(TEXT("failed")) ? "Browse failed URL post net shutdown" : "Browse entry URL post net shutdown" );
+#endif
 		GLevel = GEntry;
 		GLevel->GetLevelInfo()->LevelAction = LEVACT_None;
 		check(Client && Client->Viewports.Num());
@@ -1948,14 +1958,19 @@ ULevel* UGameEngine::LoadMap( const FURL& URL, UPendingLevel* Pending, const TMa
 		}
 		if( GLevel->NetDriver )
 		{
+#if TARGET_XBOX
+			// UC2004 explicitly saves the System Link host/session across server
+			// travel.  A LAN-to-LAN transition is the equivalent signal in UT99;
+			// leaving LAN gameplay still performs the ordered final cleanup below.
+			const UBOOL bPreserveXboxSystemLinkSession = GLevel->URL.HasOption(TEXT("LAN")) && URL.HasOption(TEXT("LAN"));
+#endif
 			delete GLevel->NetDriver;
 			GLevel->NetDriver = NULL;
 #if TARGET_XBOX
-			// UC2004 releases connection-owned secure addresses in the Xbox
-			// connection destructor, then releases session keys in the net driver's
-			// LowLevelDestroy. Our frontend owns the session key, so mirror that
-			// lifetime by cleaning it up only after the old net driver is gone.
-			XboxSystemLinkAbortTravelCleanup( "LoadMap post net shutdown" );
+			if( bPreserveXboxSystemLinkSession )
+				debugf( NAME_Log, TEXT("XNET preserved System Link session across LAN travel old=%s new=%s"), *GLevel->URL.String(), *URL.String() );
+			else
+				XboxSystemLinkAbortTravelCleanup( "LoadMap post net shutdown" );
 #endif
 		}
 		if( GLevel->DemoRecDriver )
@@ -2648,10 +2663,28 @@ void UGameEngine::Draw( UViewport* Viewport, UBOOL Blit, BYTE* HitData, INT* Hit
 		if( bDrawDiag )
 			debugf( NAME_Log, TEXT("XDRAW draw=%d prerender-done"), DrawDiagCount );
 		Viewport->Canvas->Render = Render;
-		if( Viewport->Console )
+#if TARGET_XBOX
+		// UC2004 does not run the normal scripted loading-screen draw on Xbox.
+		// Our native renderer still needs one world frame to capture its loading
+		// background, but calling console/player/menu script here is unsafe: a
+		// TournamentConsole can DynamicLoadObject its LadderFonts while the map
+		// loader has an active object queue.  Keep these capture/fallback draws
+		// native-only and let ordinary frames resume script rendering.
+		const UBOOL bXboxNativeLoadingDraw = GXboxSuppressLoadActivityDraw || GXboxDrawingLoadActivity;
+		static INT XboxNativeLoadingDrawLogCount = 0;
+		if( bXboxNativeLoadingDraw && XboxNativeLoadingDrawLogCount < 8 )
+		{
+			XboxNativeLoadingDrawLogCount++;
+			debugf( NAME_Init, TEXT("Xbox: native-only loading frame suppressed scripted render") );
+		}
+#else
+		const UBOOL bXboxNativeLoadingDraw = 0;
+#endif
+		if( Viewport->Console && !bXboxNativeLoadingDraw )
 			Viewport->Console->PreRender( Frame );
 		Viewport->Canvas->Update( Frame );
-		Viewport->Actor->eventPreRender( Viewport->Canvas );
+		if( !bXboxNativeLoadingDraw )
+			Viewport->Actor->eventPreRender( Viewport->Canvas );
 #if defined(LEGEND) //MWP
 		INT SaveXB = Frame->XB, SaveYB = Frame->YB, SaveX = Frame->X, SaveY = Frame->Y;
 		Frame->XB += Viewport->Canvas->OrgX;
@@ -2674,10 +2707,10 @@ void UGameEngine::Draw( UViewport* Viewport, UBOOL Blit, BYTE* HitData, INT* Hit
 #endif
 		Viewport->RenDev->EndFlash();
 #if TARGET_XBOX
-		if( XboxViewportShouldPostRenderPlayer( Viewport ) )
+		if( !bXboxNativeLoadingDraw && XboxViewportShouldPostRenderPlayer( Viewport ) )
 #endif
 		Viewport->Actor->eventPostRender( Viewport->Canvas );
-		if( Viewport->Console
+		if( !bXboxNativeLoadingDraw && Viewport->Console
 #if TARGET_XBOX
 		&&	XboxViewportShouldPostRenderPlayer( Viewport )
 #endif
@@ -2687,7 +2720,8 @@ void UGameEngine::Draw( UViewport* Viewport, UBOOL Blit, BYTE* HitData, INT* Hit
 			Viewport->Console->eventPostRender( Viewport->Canvas );
 		}
 #if TARGET_XBOX
-		XboxMenuPostRender( Viewport, Viewport->Canvas );
+		if( !bXboxNativeLoadingDraw )
+			XboxMenuPostRender( Viewport, Viewport->Canvas );
 		if( ViewActor->Level && ViewActor->Level->LevelAction == LEVACT_Loading )
 			XboxDrawLoadingActivity( Viewport );
 #endif

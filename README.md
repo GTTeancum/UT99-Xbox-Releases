@@ -15,8 +15,10 @@ The v1.1.9b public test includes:
 - Instant Action, Tournament, Split Screen, and experimental System Link
 - Last Man Standing in Instant Action, Split Screen, and System Link
 - All fourteen standard Unreal Tournament mutators, plus AgentX Arena and Akimbo Arena
+- Fixed OldSkool Weapons minigun replacement and corrected its slow, low-pitched looping audio
 - Automatic widescreen detection from the Xbox dashboard setting with a wider gameplay view
 - Fixed texture, lighting, and UV corruption, including problems triggered by brightness, contrast, and gamma changes
+- Reduced intermittent texture pop-in and gameplay hitches caused by premature texture-cache recycling
 - Faster menu transitions without freezing the music or CityIntro for several seconds
 - Fixed startup failures in CTF-Phalanx, CTF-Spirito, CTF-Stormfront, CTF-Sundial, DM-CanyonFear, DM-Halberd, DM-Hood, and DM-Pantheon
 - Fixed the first Tournament match and verified progress advancement across all five ladders

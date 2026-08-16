@@ -2248,12 +2248,7 @@ UBOOL UXboxRenderDevice::SetTextureD3D( INT Stage, FTextureInfo& Info, DWORD Pol
             // Allocate from pool, then reuse oldest entries once the resident
             // set is warm. Stock D3D7 keeps fixed texture pools and replaces
             // old cache entries instead of endlessly creating new objects.
-            if( TexPoolNext >= XBOX_TEX_CACHE_SIZE )
-            {
-                FlushTexCache();
-                HashIndex = ((7 * (DWORD)Info.CacheID) + (DWORD)(Info.CacheID >> 32)) & (XBOX_TEX_CACHE_SIZE - 1);
-            }
-            if( TexPoolNext < XBOX_TEX_RESIDENT_LIMIT )
+            if( TexPoolNext < XBOX_TEX_RESIDENT_LIMIT && TexPoolNext < XBOX_TEX_CACHE_SIZE )
             {
                 Entry = &TexPool[TexPoolNext++];
             }

@@ -574,6 +574,7 @@ class UXboxAudioDevice : public UAudioSubsystem
         INT Id;
         USound* Sound;
         IDirectSoundBuffer* Buffer;
+        DWORD BaseRate;
         DOUBLE LastSeen;
     };
     FXboxLoopingSound LoopingSounds[16];
@@ -906,9 +907,10 @@ public:
             Loop.Buffer = CreateSoundBufferForSound( Sound, VoiceRate, VoiceBytes, VoiceChannels, VoiceBits, "loop voice" );
             if( !Loop.Buffer )
                 return 0;
-            if( VoiceRate )
-                BaseRate = VoiceRate;
+            Loop.BaseRate = VoiceRate ? VoiceRate : (BaseRate ? BaseRate : 22050);
         }
+        if( !Loop.BaseRate )
+            Loop.BaseRate = BaseRate ? BaseRate : 22050;
 
         Loop.Actor = Actor;
         Loop.Id = Id;
@@ -917,8 +919,9 @@ public:
 
         IDirectSoundBuffer* Buffer = Loop.Buffer;
         FLOAT ClampedPitch = Clamp( Pitch, 0.25f, 4.0f );
+        DWORD PlaybackRate = Max<DWORD>( 100, (DWORD)(Loop.BaseRate * ClampedPitch) );
         Buffer->SetVolume( XboxVolumeToDS( Clamp( Volume * ((FLOAT)SoundVolume / 255.0f), 0.0f, 1.0f ) ) );
-        Buffer->SetFrequency( Max<DWORD>( 100, (DWORD)(BaseRate * ClampedPitch) ) );
+        Buffer->SetFrequency( PlaybackRate );
 
         DWORD Status = 0;
         Buffer->GetStatus( &Status );
@@ -936,8 +939,10 @@ public:
             if( LoopingSoundLogCount < 24 )
             {
                 LoopingSoundLogCount++;
-                GXboxLog.Write( "XboxAudio: loop #%d sound=%s actor=0x%08X id=%d",
-                    LoopingSoundLogCount, TCHAR_TO_ANSI(Sound->GetName()), (DWORD)Actor, Id );
+                GXboxLog.Write( "XboxAudio: loop #%d sound=%s actorClass=%s actor=0x%08X id=%d baseRate=%u pitch=%.2f playbackRate=%u",
+                    LoopingSoundLogCount, TCHAR_TO_ANSI(Sound->GetName()),
+                    Actor->GetClass() ? TCHAR_TO_ANSI(Actor->GetClass()->GetName()) : "None", (DWORD)Actor, Id,
+                    (unsigned)Loop.BaseRate, Pitch, (unsigned)PlaybackRate );
             }
         }
         return 1;

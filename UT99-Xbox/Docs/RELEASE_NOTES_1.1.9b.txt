@@ -14,15 +14,21 @@ Visual fixes
   and gamma
 - Tested the fixes while following moving bots through several visually varied
   maps and repeatedly changing the display settings
+- Reduced intermittent texture pop-in and gameplay hitches caused by the
+  renderer recycling active texture-cache entries too early
 
 Mutators and game modes
 -----------------------
 
 - Restored all fourteen standard Unreal Tournament mutators to the Xbox menu
 - Added AgentX 0.99 and Akimbo Arena
+- Fixed OldSkool Weapons so its Unreal minigun replaces the standard Unreal
+  Tournament minigun
 - Added Last Man Standing to Instant Action, Split Screen, and System Link
 - Last Man Standing includes the expected lives setting, deathmatch maps, and
   no-time-limit rules
+- Fixed the OldSkool minigun's looping sound playing too slowly and at too low
+  a pitch
 
 Console maps
 ------------

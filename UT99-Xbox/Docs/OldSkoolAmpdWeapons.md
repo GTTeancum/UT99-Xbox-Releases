@@ -5,6 +5,7 @@ Amp'd 2.39:
 
 - `System/OLweapons.u`
 - `System/OLweapons.int`
+- `System/OldSkool.ini`
 - mutator class `olweapons.oldskool`
 
 The campaign framework, menus, backgrounds, model packs, and map-pack
@@ -29,3 +30,9 @@ separately; it must not make the UT package depend on those files.
 
 OldSkool Weapons is an arena-style inventory replacement. Do not combine it
 with another arena mutator such as Instagib.
+
+`OldSkool.ini` explicitly enables `bmini` for `olweapons.OldSkool`. The
+standalone package declares that field as a config property but leaves it
+disabled by default, which otherwise keeps the UT minigun instead of replacing
+it with `OLminigun` on Xbox where the original PC configuration window is not
+included.

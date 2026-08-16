@@ -109,7 +109,10 @@ struct FXboxWorldVertex2
 // Texture cache
 // ============================================================================
 enum { XBOX_TEX_CACHE_SIZE = 1024 };
-enum { XBOX_TEX_RESIDENT_LIMIT = 512 };
+// Keep every available identity slot usable. The byte budget and physical
+// memory checks below govern actual D3D residency; an unrelated 512-entry cap
+// caused needless release/re-upload churn while ample memory remained.
+enum { XBOX_TEX_RESIDENT_LIMIT = XBOX_TEX_CACHE_SIZE };
 enum { XBOX_TEX_LIVE_BUDGET = 16 * 1024 * 1024 };
 
 struct FXboxTexCacheEntry

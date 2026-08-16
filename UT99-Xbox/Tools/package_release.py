@@ -66,6 +66,7 @@ REQUIRED_FILES = (
     "System/JailBreak.u",
     "System/JBMadmen.ini",
     "System/OLweapons.u",
+    "System/OldSkool.ini",
     "System/RandomRelic.ini",
     "System/RocketArena.u",
     "System/UnrealTournament.ini",

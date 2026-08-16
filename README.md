@@ -8,6 +8,8 @@ Release and support page for the original Xbox port of *Unreal Tournament: Game 
 
 Version **1.1.9b** is a full public-test package, not a patch. Install it in a clean folder and do not merge an older release's System files or configuration into it.
 
+The current download was rebuilt from the latest source and verified complete after a fresh extraction, including the matching Xbox configuration, bundled maps, mutators, game modes, and supporting files.
+
 ## Current Status
 
 The v1.1.9b public test includes:

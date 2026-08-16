@@ -1,19 +1,44 @@
 # Unreal Tournament Xbox
 
-Release-only page for the original Xbox port of *Unreal Tournament: Game of the Year Edition*.
+Release and support page for the original Xbox port of *Unreal Tournament: Game of the Year Edition*
 
 <p>
-  <a href="https://github.com/GTTeancum/UT99-Xbox-Releases/releases/latest"><strong>Download the latest release</strong></a>
+  <a href="https://github.com/GTTeancum/UT99-Xbox-Releases/releases/tag/1.1.9b"><strong>Download the v1.1.9b public test for version 1.2</strong></a>
 </p>
+
+Version **1.1.9b** is a full public-test package, not a patch. Install it in a clean folder and do not merge an older release's System files or configuration into it.
+
+## Current Status
+
+The v1.1.9b public test includes:
+
+- Instant Action, Tournament, Split Screen, and experimental System Link
+- Last Man Standing in Instant Action, Split Screen, and System Link
+- All fourteen standard Unreal Tournament mutators, plus AgentX Arena and Akimbo Arena
+- Automatic widescreen detection from the Xbox dashboard setting with a wider gameplay view
+- Fixed texture, lighting, and UV corruption, including problems triggered by brightness, contrast, and gamma changes
+- Faster menu transitions without freezing the music or CityIntro for several seconds
+- Fixed startup failures in CTF-Phalanx, CTF-Spirito, CTF-Stormfront, CTF-Sundial, DM-CanyonFear, DM-Halberd, DM-Hood, and DM-Pantheon
+- Fixed the first Tournament match and verified progress advancement across all five ladders
+- More reliable System Link joining, reconnecting, map travel, lobby return, and subsequent matches
+- A version number in the bottom-right of the main-menu footer
+
+Known limitations:
+
+- System Link remains experimental while broader real-hardware testing continues
+- The HUD and menus remain horizontally stretched in widescreen
+- Safe Area Size currently scales the full picture instead of moving only the HUD
+- Four-player widescreen and more HDMI and capture-device combinations need testing
+- Co-op Tournament is not included and has been deferred until after version 1.2
 
 ## Feature Highlights
 
 - Full Unreal Tournament GOTY gameplay on original Xbox
-- Tournament, Instant Action, Jailbreak III Gold, split-screen, and System Link
+- Tournament, Instant Action, Jailbreak III Gold, Split Screen, and System Link
 - 39 converted PlayStation 2 and Dreamcast arena maps
-- PlayStation 2 character pack 3.0 and Master Chief
+- PlayStation 2 Character Pack 3.0 and Master Chief
 - Per-player profiles for names, characters, team preference, controls, and Tournament progress
-- Xbox-focused menus, controller presets, safe-zone controls, video adjustment, and dashboard artwork
+- Xbox-focused menus, controller presets, safe-area controls, video adjustment, and dashboard artwork
 
 ## Screenshots
 
@@ -26,49 +51,39 @@ Release-only page for the original Xbox port of *Unreal Tournament: Game of the 
   <img src="screenshots/ctf-phalanx.png" alt="CTF-Phalanx console map preview" width="280">
 </p>
 
-## Version 1.1 Includes
-
-- Original Xbox `default.xbe`, dashboard icon, save image, and tested System files
-- Xbox menu assets, controller icons, character portraits, and converted Xbox music
-- PlayStation 2 character pack 3.0, Master Chief, and matching skins
-- Jailbreak III Gold runtime files and original documentation
-- UT99 Console Map Pack PS2/DC 2026-05-29 with 39 converted console arena maps
-- CTF-Titania, DM-HangEmHigh, and DM-Halo-Derelict
-- OldSkool Amp'd Weapons 2.39 mutator
-
 ## Installation
 
 This package is for owners of *Unreal Tournament: Game of the Year Edition* on PC. It does not include the base PC game assets.
 
-1. Create a folder on your Xbox hard drive, for example `E:\Games\UnrealTournament\`.
-2. Copy everything from the 1.1 release into that folder.
-3. From your own Unreal Tournament GOTY PC installation, copy only these asset folders and merge them with the release:
-
-```text
-UnrealTournament\
-  Maps\
-    *.unr
-  Textures\
-    *.utx
-  Sounds\
-    *.uax
-  Music\
-    *.umx
-```
-
-4. Do **not** copy the PC `System` folder. Version 1.1 includes the tested Xbox System set and configuration.
-5. Launch `default.xbe`.
+1. Create a clean folder on the Xbox hard drive, such as `E:\Games\UnrealTournament\`
+2. Copy everything from the v1.1.9b package into that folder
+3. From your own Unreal Tournament GOTY PC installation, copy only `Maps`, `Textures`, `Sounds`, and `Music`, then merge those folders with the release
+4. Do not copy the PC `System` folder or an older release's System files and configuration
+5. Launch `default.xbe`
 
 The first press of Start after the intro flyby opens profile selection. Create or load a profile to enter the main menu.
 
-For an upgrade from 1.0 RC1, install 1.1 into a clean folder and then copy the four owned PC asset folders above. Do not merge the old RC1 System folder into 1.1.
+Widescreen follows the video setting in the Xbox dashboard automatically. There is no separate aspect-ratio option in the game.
+
+## Reporting Problems
+
+[Open an issue](https://github.com/GTTeancum/UT99-Xbox-Releases/issues) and include:
+
+- The map and game mode
+- Player and bot count
+- Display and widescreen settings
+- Whether the match was local or System Link
+- What happened immediately before the problem
+- Screenshots or a short video when the problem is visual
+
+Please upload `ut99.log` whenever possible. Use FTP to copy it from beside `default.xbe` on the Xbox to your PC. Open the GitHub issue editor, click inside the large description textbox, and drag `ut99.log` from File Explorer into that box. Wait for GitHub to insert the uploaded file link before submitting the issue.
 
 ## Notes
 
-- Jailbreak is available from Instant Action as `JAILBREAK`.
-- Console and community maps appear under their normal DM, CTF, DOM, and JB prefixes.
-- Keep the release's `Default.ini` and `UnrealTournament.ini`; both are required for Xbox menus, controls, audio, profiles, and bundled content.
-- Hardware System Link and extended long-play qualification remain ongoing.
+- Console and community maps appear under their normal DM, CTF, DOM, and JB prefixes
+- Keep the release's `Default.ini`, `DefUser.ini`, `UnrealTournament.ini`, and `User.ini`
+- The connection-problem icon remains active and can still appear when the game detects a genuine network problem
+- Install public-test updates into a clean folder before copying the four owned PC asset folders
 
 ## Credits
 
@@ -76,7 +91,7 @@ For an upgrade from 1.0 RC1, install 1.1 into a clean folder and then copy the f
 
 The converted PlayStation 2 and Dreamcast map set preserves work by Cliff Bleszinski, Dave Ewing, Eric "Ebolt" Boltjes, Cedric "Inoxx" Fiorentino, Juan Pancho "XceptOne" Eekels, Rich "Akuma" Eastwood, Alan "Talisman" Willard, and Warren Marshall. Per-map details are retained in `Docs/Console_Map_Pack_README.txt`.
 
-[Jailbreak III Gold](https://unrealarchive.org/unreal-tournament/gametypes/J/jailbreak-iii/index.html) is credited to Daikiki, ElBundee, Mychaeel, its original and Gold map-pack teams, Sioux "NYGrrrl" Blue, its mutator/interface authors, testers, and all additional contributors retained in the original documentation.
+[Jailbreak III Gold](https://unrealarchive.org/unreal-tournament/gametypes/J/jailbreak-iii/index.html) is credited to Daikiki, ElBundee, Mychaeel, its original and Gold map-pack teams, Sioux "NYGrrrl" Blue, its mutator and interface authors, testers, and all additional contributors retained in the original documentation.
 
 Community content:
 
@@ -86,7 +101,7 @@ Community content:
 - PlayStation 2 Character Pack 3.0: AlCapowned; original PS2 models by James Green and Epic Games
 - Advanced Model Support: Psychic_313
 - Master Chief conversion: author not identified in the supplied package metadata; Unreal Archive also lists it as Unknown
-- [OldSkool Amp'd Weapons 2.39](https://unrealarchive.org/unreal-tournament/mutators/O/oldskool-ampd-v239_f1f653ad.html): UsAaR33
+- AgentX and Akimbo retain the authorship and attribution supplied with their original packages
 
 Halo, Master Chief, and related content are credited to Bungie and Microsoft; the Derelict map lineage also credits Gearbox. Full attribution, source references, map authors, and original Jailbreak documentation are included in every release.
 

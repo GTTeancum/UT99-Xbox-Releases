@@ -100,6 +100,10 @@ struct CORE_API FObjectImport
 
 	// Functions.
 	FObjectImport()
+	:	PackageIndex	( 0          )
+	,	XObject			( NULL       )
+	,	SourceLinker	( NULL       )
+	,	SourceIndex		( INDEX_NONE )
 	{}
 	FObjectImport( UObject* InObject )
 	:	ClassPackage	( InObject->GetClass()->GetOuter()->GetFName())
@@ -124,6 +128,7 @@ struct CORE_API FObjectImport
 		{
 			I.SourceIndex = INDEX_NONE;
 			I.XObject     = NULL;
+			I.SourceLinker = NULL;
 		}
 		return Ar;
 

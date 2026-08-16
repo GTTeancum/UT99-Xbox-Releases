@@ -51,14 +51,6 @@ PS2_SURF_STREAM_SKIPS = {
     },
 }
 
-PS2_DROP_MOVER_BRUSH_MODELS = set([
-    # These exclusive-map mover brush models use a different cooked model
-    # layout than the three Rosetta maps.  Keep the mover actors, but sanitize
-    # their Brush refs to NULL rather than serializing cooked data as UModel.
-    "DM-Brickyard",
-])
-
-
 PS2_EXCLUSIVE_NAMES = set([
     "CTF-Phalanx",
     "CTF-Sepulchre",
@@ -83,18 +75,20 @@ IMPORT_PACKAGE_FIXES = {
 }
 
 
-IMPORT_CLASS_RENAMES = {
-    ("BotPack", "plant6"): "Effects",
-    ("BotPack", "Sconce"): "Effects",
-    ("BotPack", "TorchFlame"): "Effects",
-    ("BotPack", "Tree6"): "Effects",
-    ("BotPack", "Tree7"): "Effects",
+IMPORT_CLASS_FIXES = {
+    # The PS2 cook records these actors under BotPack even though the PC/Xbox
+    # classes live elsewhere.  Fix both the package and (where necessary) the
+    # class name; renaming only the object leaves an invalid BotPack import.
+    ("BotPack", "plant6"): ("Engine", "Effects"),
+    ("BotPack", "Sconce"): ("UnrealShare", "Sconce"),
+    ("BotPack", "TorchFlame"): ("UnrealShare", "TorchFlame"),
+    ("BotPack", "Tree6"): ("UnrealShare", "Tree6"),
+    ("BotPack", "Tree7"): ("UnrealShare", "Tree7"),
 }
 
 
 EXCLUDED_ACTOR_CLASSES = set([
     "Effects",
-    "TranslocDest",
 ])
 
 
@@ -212,26 +206,28 @@ def prepare_imports_and_names(raw_name_bytes, names, imports, exports):
         imports.append([0, 0, core_index, package_index, 0, name_index])
         return len(imports) - 1
 
-    pending_outer_fixes = []
+    pending_import_fixes = []
     for imp in list(imports):
         old_outer = outer_name(imp)
         if not old_outer:
             continue
         object_name = names[imp[5]]
-        renamed_class = IMPORT_CLASS_RENAMES.get((old_outer, object_name))
-        if renamed_class:
-            renamed_index, added = ensure_name(renamed_class)
+        class_fix = IMPORT_CLASS_FIXES.get((old_outer, object_name))
+        if class_fix:
+            new_outer, new_name = class_fix
+            renamed_index, added = ensure_name(new_name)
             extra_name_bytes.extend(added)
             imp[5] = renamed_index
+            pending_import_fixes.append((imp, new_outer))
             continue
         new_outer = IMPORT_PACKAGE_FIXES.get((old_outer, object_name))
         if new_outer:
-            pending_outer_fixes.append((imp, new_outer))
+            pending_import_fixes.append((imp, new_outer))
 
     package_imports = {}
-    for _imp, new_outer in pending_outer_fixes:
+    for _imp, new_outer in pending_import_fixes:
         package_imports[new_outer] = ensure_package_import(new_outer)
-    for imp, new_outer in pending_outer_fixes:
+    for imp, new_outer in pending_import_fixes:
         imp[4] = -(package_imports[new_outer] + 1)
 
     return raw_name_bytes + bytes(extra_name_bytes), names, [tuple(row) for row in imports]
@@ -1256,26 +1252,13 @@ def extract_object_property_refs(data, names, pos, end, wanted_names):
 
 
 def find_referenced_brush_models(data, names, imports, exports, stack_offsets):
-    if CURRENT_MAP_NAME in PS2_DROP_MOVER_BRUSH_MODELS:
-        return set()
-    refs = set()
-    for export in exports:
-        if export["index"] not in stack_offsets:
-            continue
-        cls = class_name(names, imports, exports, export)
-        if is_static_brush_actor(cls):
-            continue
-        if not (CLASS_METADATA and is_subclass(CLASS_METADATA, cls, "Brush")):
-            continue
-        offset = stack_offsets[export["index"]]
-        payload_pos = stack_body_payload_offset(data, export, offset)
-        if payload_pos is None:
-            continue
-        for ref in extract_object_property_refs(
-            data, names, payload_pos, offset + export["serial_size"], ["Brush"]):
-            if ref > 0 and ref <= len(exports):
-                refs.add(ref - 1)
-    return refs
+    # PS2 mover UModels reference editor Polys objects.  This converter does
+    # not reconstruct those objects and deliberately writes Polys=NULL in
+    # every recovered model.  Attaching such a model to a Mover makes UE1's
+    # FMovingBrushTracker dereference Brush->Polys during ClientInit.  Do not
+    # retain mover-only models until their Polys payload can also be recovered;
+    # the normal bad-export sanitation below will NULL each actor's Brush tag.
+    return set()
 
 
 def infer_ps2_stack_offsets(data, names, exports):

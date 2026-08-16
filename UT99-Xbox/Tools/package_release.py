@@ -96,6 +96,17 @@ UNREAL_PACKAGE_SUFFIXES = (
     ".utx",
 )
 
+QUALIFIED_CONSOLE_MAPS = frozenset((
+    "CTF-Phalanx.unr",
+    "CTF-Spirito.unr",
+    "CTF-Stormfront.unr",
+    "CTF-Sundial.unr",
+    "DM-CanyonFear.unr",
+    "DM-Halberd.unr",
+    "DM-Hood.unr",
+    "DM-Pantheon.unr",
+))
+
 
 def fail(message):
     raise RuntimeError(message)
@@ -143,7 +154,7 @@ def parse_console_maps(readme):
     return names
 
 
-def copy_console_maps(rc1_root, package_root, docs_root):
+def copy_console_maps(build_root, rc1_root, package_root, docs_root):
     readme = os.path.join(rc1_root, "Docs", "Console_Map_Pack_README.txt")
     ensure_file(readme, "console map readme")
     shutil.copy2(readme, os.path.join(docs_root, "Console_Map_Pack_README.txt"))
@@ -152,7 +163,14 @@ def copy_console_maps(rc1_root, package_root, docs_root):
     if not os.path.isdir(maps_dst):
         os.makedirs(maps_dst)
     for name in parse_console_maps(readme):
-        source = os.path.join(rc1_root, "Maps", name)
+        build_source = os.path.join(build_root, "Maps", name)
+        rc1_source = os.path.join(rc1_root, "Maps", name)
+        if os.path.isfile(build_source):
+            source = build_source
+        elif name in QUALIFIED_CONSOLE_MAPS:
+            fail("Qualified console map is missing from canonical build: " + build_source)
+        else:
+            source = rc1_source
         ensure_file(source, "console map")
         shutil.copy2(source, os.path.join(maps_dst, name))
 
@@ -541,7 +559,7 @@ def main():
         ensure_file(source, "release documentation")
         shutil.copy2(source, os.path.join(docs_root, name))
 
-    copy_console_maps(rc1_root, package_root, docs_root)
+    copy_console_maps(build_root, rc1_root, package_root, docs_root)
     copy_jailbreak_docs(args.jailbreak_archive, docs_root)
     mirrored_count = validate_build_mirror(build_root, package_root)
     map_count = validate_package(package_root, args.version)

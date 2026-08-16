@@ -24,6 +24,13 @@ Mutators and game modes
 - Last Man Standing includes the expected lives setting, deathmatch maps, and
   no-time-limit rules
 
+Console maps
+------------
+
+- Fixed startup failures in CTF-Phalanx, CTF-Spirito, CTF-Stormfront,
+  CTF-Sundial, DM-CanyonFear, DM-Halberd, DM-Hood, and DM-Pantheon
+- Rechecked all eight maps in live matches with bots
+
 System Link (experimental)
 --------------------------
 

@@ -5,6 +5,16 @@ An Xbox port of Unreal Tournament 1999 (v1.40) targeting original Xbox hardware.
 > **This repository contains only the Xbox-specific code authored for this port.**
 > The UT99 v1.40 source code (Epic Games IP) is not included and must be obtained separately.
 
+## Current Release
+
+Version **1.1.9b** is the public test build for the upcoming 1.2 release. The latest replacement package:
+
+- Fixes OldSkool Weapons so its Unreal minigun replaces the standard Unreal Tournament minigun
+- Corrects looping minigun audio that could play at half speed and pitch
+- Reduces intermittent texture pop-in and gameplay hitches caused by premature texture-cache recycling
+
+Downloads, installation instructions, and public issue reporting are maintained in the [UT99 Xbox Releases repository](https://github.com/GTTeancum/UT99-Xbox-Releases).
+
 ---
 
 ## Hardware Target

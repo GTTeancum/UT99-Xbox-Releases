@@ -11,8 +11,10 @@ The current public test includes:
 - Instant Action, Tournament, Split Screen, and experimental System Link
 - Last Man Standing in Instant Action, Split Screen, and System Link
 - All fourteen standard mutators, plus AgentX Arena and Akimbo Arena
+- Fixed OldSkool Weapons minigun replacement and corrected its slow, low-pitched looping audio
 - Automatic widescreen detection from the Xbox dashboard setting with a wider gameplay view
 - Texture, lighting, and UV fixes, including stability while changing brightness, contrast, and gamma
+- Reduced intermittent texture pop-in and gameplay hitches caused by premature texture-cache recycling
 - Faster menu transitions without freezing the music or CityIntro
 - Fixed startup failures in CTF-Phalanx, CTF-Spirito, CTF-Stormfront, CTF-Sundial, DM-CanyonFear, DM-Halberd, DM-Hood, and DM-Pantheon
 - Tournament first-match and ladder-advance fixes across all five ladders

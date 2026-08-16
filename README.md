@@ -6,6 +6,8 @@ A native port of Unreal Tournament 1999 Game of the Year Edition for modded orig
 
 Version **1.1.9b** is the public test build for the upcoming 1.2 release. It is playable on original Xbox hardware and in Xemu, with the complete frontend, controller input, hardware-accelerated rendering, music and sound, local multiplayer, Tournament, and Xbox networking in place.
 
+The current download was rebuilt from the latest source and verified complete after a fresh extraction, including the matching Xbox configuration, bundled maps, mutators, game modes, and supporting files.
+
 The current public test includes:
 
 - Instant Action, Tournament, Split Screen, and experimental System Link

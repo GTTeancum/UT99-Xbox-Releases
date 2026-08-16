@@ -13,6 +13,8 @@ Version **1.1.9b** is the public test build for the upcoming 1.2 release. The la
 - Corrects looping minigun audio that could play at half speed and pitch
 - Reduces intermittent texture pop-in and gameplay hitches caused by premature texture-cache recycling
 
+The current download was rebuilt from the latest source and verified complete after a fresh extraction, including the matching Xbox configuration, bundled maps, mutators, game modes, and supporting files.
+
 Downloads, installation instructions, and public issue reporting are maintained in the [UT99 Xbox Releases repository](https://github.com/GTTeancum/UT99-Xbox-Releases).
 
 ---

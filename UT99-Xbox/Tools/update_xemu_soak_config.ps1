@@ -8,6 +8,10 @@ param(
     [string]$EepromSource = 'C:\Games\Emulators\Xemu\EEPROM\eeprom.bin',
     [string]$HddPath = 'C:\Games\Emulators\Xemu\UT99Test\HDD\ut99_hdd.qcow2',
     [string]$DvdPath = 'C:\Games\Emulators\Xemu\UT99Soak\ut99_xemu_soak_current.iso',
+    [ValidateSet('native', 'auto', '4x3', '16x9')]
+    [string]$DisplayAspectRatio = 'auto',
+    [ValidateSet('640x480', '720x480', '1280x720', '1280x800', '1280x960', '1920x1080', '2560x1440', '2560x1600', '2560x1920', '3840x2160')]
+    [string]$DisplayWindowSize = '1280x960',
     [switch]$WriteToml
 )
 
@@ -66,6 +70,15 @@ port2_driver = 'usb-xbox-gamepad'
 port3_driver = 'usb-xbox-gamepad'
 port4_driver = 'usb-xbox-gamepad'
 
+[display.window]
+startup_size = '$DisplayWindowSize'
+last_width = $($DisplayWindowSize.Split('x')[0])
+last_height = $($DisplayWindowSize.Split('x')[1])
+
+[display.ui]
+fit = 'scale'
+aspect_ratio = '$DisplayAspectRatio'
+
 [display.debug.video]
 advanced_tree_state = true
 
@@ -94,4 +107,6 @@ if( $WriteToml )
     DvdPath = $DvdPath
     HddPath = $HddPath
     EepromPath = $EepromPath
+    DisplayAspectRatio = $DisplayAspectRatio
+    DisplayWindowSize = $DisplayWindowSize
 }

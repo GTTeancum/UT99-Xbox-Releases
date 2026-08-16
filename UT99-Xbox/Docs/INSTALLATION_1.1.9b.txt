@@ -1,0 +1,49 @@
+Unreal Tournament Xbox v1.1.9b Public Test - Installation
+==========================================================
+
+This is a public test build for the upcoming version 1.2 release.
+
+Requirements
+------------
+
+- A modded original Xbox capable of launching unsigned XBE files.
+- A legally owned Unreal Tournament Game of the Year PC installation.
+
+Installation
+------------
+
+1. Create a clean `UnrealTournament` folder on the Xbox.
+2. Copy every file and folder from this public test into that folder.
+3. From your PC GOTY installation, copy these four asset folders into the same
+   Xbox folder and merge them with the included folders:
+   - Maps
+   - Music
+   - Sounds
+   - Textures
+4. Launch `default.xbe`.
+
+Do not copy the PC `System` folder. This public test includes the correct Xbox
+System files, configuration, menus, community packages, and executable.
+Replacing them with files from another build can cause startup failures or
+content mismatches.
+
+The first press of Start after the intro flyby opens profile selection. Create
+or load a profile to enter the main menu.
+
+Updating an existing installation
+---------------------------------
+
+Install v1.1.9b into a clean folder, then copy the four owned PC asset folders
+listed above. Do not copy an older release's System folder or configuration
+files over this public test.
+
+Widescreen
+----------
+
+Widescreen follows the Xbox dashboard's video setting automatically. There is
+no separate aspect-ratio option in the game.
+
+Support and feedback
+--------------------
+
+https://github.com/GTTeancum/UT99-Xbox-Releases/issues

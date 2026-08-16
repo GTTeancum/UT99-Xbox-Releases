@@ -1130,10 +1130,17 @@ def run_case(args, stage, case, index, xiso_tool, config_path):
                 and len(lighting_screenshots) < args.lighting_proof_screenshots
             ):
                 lighting_events = XLIGHTCAM_RE.findall(accumulated or snapshot)
+                if args.lighting_proof_slot is not None and lighting_events:
+                    # A targeted geometry comparison must capture the camera
+                    # currently reported by the guest, not an older matching
+                    # slot retained in the accumulated RAM log.
+                    lighting_events = lighting_events[-1:]
                 for draw, slot, count, map_name, would_clear in lighting_events:
                     if int(draw) < 120:
                         continue
                     slot_index = int(slot)
+                    if args.lighting_proof_slot is not None and slot_index != args.lighting_proof_slot:
+                        continue
                     if slot_index in captured_lighting_slots:
                         continue
                     safe_map = re.sub(r"[^A-Za-z0-9_-]+", "_", map_name)
@@ -1481,6 +1488,18 @@ def main(argv):
     parser.add_argument("--stall-seconds", type=float, default=150.0)
     parser.add_argument("--boot-timeout", type=float, default=240.0)
     parser.add_argument("--mute-audio", action="store_true", help="Launch Xemu with QEMU audio disabled.")
+    parser.add_argument(
+        "--xemu-aspect-ratio",
+        choices=("native", "auto", "4x3", "16x9"),
+        default="auto",
+        help="Force Xemu's host presentation aspect ratio in the generated runtime config.",
+    )
+    parser.add_argument(
+        "--xemu-window-size",
+        choices=("640x480", "720x480", "1280x720", "1280x800", "1280x960", "1920x1080", "2560x1440", "2560x1600", "2560x1920", "3840x2160"),
+        default="1280x960",
+        help="Set Xemu's starting host window size in the generated runtime config.",
+    )
     parser.add_argument("--minimum-tick", type=int, default=300)
     parser.add_argument("--min-steady-fps", type=float, default=15.0)
     parser.add_argument("--max-steady-texture-uploads", type=int, default=32)
@@ -1586,6 +1605,11 @@ def main(argv):
         help="Number of distinct lighting-proof viewpoints required per map",
     )
     parser.add_argument(
+        "--lighting-proof-slot",
+        type=int,
+        help="Capture only this zero-based deterministic lighting-proof viewpoint.",
+    )
+    parser.add_argument(
         "--traversal-proof",
         action="store_true",
         help="Spectate a navigating bot and capture temporal frame bursts while moving",
@@ -1644,6 +1668,13 @@ def main(argv):
             raise RuntimeError("--loading-proof-screenshots must be between 1 and 12")
     if args.lighting_proof_screenshots <= 0 or args.lighting_proof_screenshots > 16:
         raise RuntimeError("--lighting-proof-screenshots must be between 1 and 16")
+    if args.lighting_proof_slot is not None:
+        if not args.lighting_proof:
+            raise RuntimeError("--lighting-proof-slot requires --lighting-proof")
+        if args.lighting_proof_slot < 0 or args.lighting_proof_slot > 7:
+            raise RuntimeError("--lighting-proof-slot must be between 0 and 7")
+        if args.lighting_proof_screenshots != 1:
+            raise RuntimeError("--lighting-proof-slot requires --lighting-proof-screenshots 1")
     if args.traversal_proof and args.lighting_proof:
         raise RuntimeError("--traversal-proof and --lighting-proof are mutually exclusive")
     if args.traversal_bursts <= 0 or args.traversal_bursts > 8:

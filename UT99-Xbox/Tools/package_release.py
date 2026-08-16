@@ -18,6 +18,7 @@ XBOX_DIR = os.path.dirname(SCRIPT_DIR)
 ROOT_DIR = os.path.dirname(XBOX_DIR)
 
 RUNTIME_DIRS = (
+    "Docs",
     "Maps",
     "MenuAssets",
     "Music",
@@ -39,8 +40,9 @@ REQUIRED_FILES = (
     "SaveImage.xbx",
     "TitleMeta.xbx",
     "CONTENT_CREDITS.txt",
-    "Docs/INSTALLATION_1.1.txt",
-    "Docs/RELEASE_NOTES_1.1.txt",
+    "Docs/AgentX_099/axv099Readme.txt",
+    "Docs/AkimboArena/AkimboArena.txt",
+    "Docs/AkimboArena/akimboarena.umod",
     "Docs/Console_Map_Pack_README.txt",
     "Docs/JailbreakIII/JailbreakIII-Gold.txt",
     "Maps/CTF-Titania.unr",
@@ -51,6 +53,10 @@ REQUIRED_FILES = (
     "Music/halochant.umx",
     "Sounds/JBAudio.uax",
     "System/AdvancedModelSupport.u",
+    "System/AgentX.int",
+    "System/AgentX.u",
+    "System/AkimboArena.int",
+    "System/AkimboArena.u",
     "System/ChaosUT.u",
     "System/Default.ini",
     "System/DefUser.ini",
@@ -58,7 +64,9 @@ REQUIRED_FILES = (
     "System/HaloMasterChief.int",
     "System/HaloMasterChiefSkins.utx",
     "System/JailBreak.u",
+    "System/JBMadmen.ini",
     "System/OLweapons.u",
+    "System/RandomRelic.ini",
     "System/RocketArena.u",
     "System/UnrealTournament.ini",
     "System/User.ini",
@@ -80,6 +88,12 @@ FORBIDDEN_SUFFIXES = (
     ".obj",
     ".pdb",
     ".tmp",
+)
+UNREAL_PACKAGE_SUFFIXES = (
+    ".u",
+    ".uax",
+    ".umx",
+    ".utx",
 )
 
 
@@ -166,9 +180,76 @@ def iter_files(root):
             yield os.path.join(current, name)
 
 
-def validate_package(package_root):
+def validate_build_mirror(build_root, package_root):
+    """Prove that every selected canonical-build file reached the package."""
+    source_files = []
+    for name in RUNTIME_ROOT_FILES:
+        source_files.append((name, os.path.join(build_root, name)))
+    for name in RUNTIME_DIRS:
+        source_root = os.path.join(build_root, name)
+        if not os.path.isdir(source_root):
+            continue
+        for source in iter_files(source_root):
+            relative = os.path.relpath(source, build_root).replace(os.sep, "/")
+            source_files.append((relative, source))
+
     missing = []
-    for relative in REQUIRED_FILES:
+    mismatched = []
+    for relative, source in source_files:
+        target = os.path.join(package_root, relative.replace("/", os.sep))
+        if not os.path.isfile(target):
+            missing.append(relative)
+        elif (
+            os.path.getsize(source) != os.path.getsize(target)
+            or sha256_file(source) != sha256_file(target)
+        ):
+            mismatched.append(relative)
+    if missing:
+        fail("Canonical build files omitted from package: " + ", ".join(missing))
+    if mismatched:
+        fail("Packaged build files differ from source: " + ", ".join(mismatched))
+    return len(source_files)
+
+
+def validate_config_packages(package_root):
+    """Resolve network-critical configured packages to shipped Unreal files."""
+    available = {}
+    for path in iter_files(package_root):
+        base, suffix = os.path.splitext(os.path.basename(path))
+        if suffix.lower() in UNREAL_PACKAGE_SUFFIXES:
+            available.setdefault(base.lower(), []).append(path)
+
+    config_path = os.path.join(package_root, "System", "Default.ini")
+    configured = []
+    with open(config_path, "r") as stream:
+        for raw_line in stream:
+            line = raw_line.strip()
+            if not line or line.startswith((";", "#")) or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            key = key.strip().lower()
+            value = value.strip()
+            if key == "serverpackages":
+                configured.append(value)
+            elif key == "serveractors":
+                configured.append(value.split(".", 1)[0])
+
+    unresolved = sorted(
+        set(name for name in configured if name and name.lower() not in available),
+        key=str.lower,
+    )
+    if unresolved:
+        fail("Configured Unreal packages are not shipped: " + ", ".join(unresolved))
+    return len(set(name.lower() for name in configured if name))
+
+
+def validate_package(package_root, version):
+    missing = []
+    required_files = REQUIRED_FILES + (
+        "Docs/INSTALLATION_{}.txt".format(version),
+        "Docs/RELEASE_NOTES_{}.txt".format(version),
+    )
+    for relative in required_files:
         path = os.path.join(package_root, relative.replace("/", os.sep))
         if not os.path.isfile(path):
             missing.append(relative)
@@ -190,6 +271,13 @@ def validate_package(package_root):
             forbidden.append(relative)
     if forbidden:
         fail("Development artifacts are present: " + ", ".join(forbidden))
+
+    empty = []
+    for path in iter_files(package_root):
+        if os.path.getsize(path) == 0:
+            empty.append(os.path.relpath(path, package_root).replace(os.sep, "/"))
+    if empty:
+        fail("Zero-byte release files are present: " + ", ".join(empty))
 
     relative_paths = [
         os.path.relpath(path, package_root).replace(os.sep, "/")
@@ -388,9 +476,30 @@ def validate_archive(package_root, archive_path, payload_hashes):
     return len(expected)
 
 
+def validate_fresh_extraction(archive_path, version):
+    """Extract the final ZIP and repeat package/manifest checks from disk."""
+    temp_root = tempfile.mkdtemp(prefix="ut99-release-extract-audit-")
+    try:
+        with zipfile.ZipFile(archive_path, "r") as archive:
+            corrupt = archive.testzip()
+            if corrupt is not None:
+                fail("ZIP CRC failure: " + corrupt)
+            archive.extractall(temp_root)
+        extracted_root = os.path.join(
+            temp_root,
+            "UT99-Xbox-" + version,
+        )
+        ensure_dir(extracted_root, "freshly extracted release root")
+        validate_package(extracted_root, version)
+        validate_config_packages(extracted_root)
+        return len(validate_manifest(extracted_root)) + 1
+    finally:
+        shutil.rmtree(temp_root)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--version", default="1.1")
+    parser.add_argument("--version", default="1.1.9b")
     parser.add_argument("--build", default=os.path.join(ROOT_DIR, "build"))
     parser.add_argument("--rc1-root", required=True)
     parser.add_argument("--jailbreak-archive", required=True)
@@ -422,24 +531,34 @@ def main():
             copy_tree(source, os.path.join(package_root, name))
 
     docs_root = os.path.join(package_root, "Docs")
-    os.makedirs(docs_root)
-    for name in ("INSTALLATION_1.1.txt", "RELEASE_NOTES_1.1.txt"):
+    if not os.path.isdir(docs_root):
+        os.makedirs(docs_root)
+    for name in (
+        "INSTALLATION_{}.txt".format(args.version),
+        "RELEASE_NOTES_{}.txt".format(args.version),
+    ):
         source = os.path.join(XBOX_DIR, "Docs", name)
         ensure_file(source, "release documentation")
         shutil.copy2(source, os.path.join(docs_root, name))
 
     copy_console_maps(rc1_root, package_root, docs_root)
     copy_jailbreak_docs(args.jailbreak_archive, docs_root)
-    map_count = validate_package(package_root)
+    mirrored_count = validate_build_mirror(build_root, package_root)
+    map_count = validate_package(package_root, args.version)
+    configured_package_count = validate_config_packages(package_root)
     manifest_count = write_manifest(package_root)
     payload_hashes = validate_manifest(package_root)
     write_zip(package_root, archive_path)
     archive_count = validate_archive(package_root, archive_path, payload_hashes)
+    extracted_count = validate_fresh_extraction(archive_path, args.version)
 
     print("Release package: " + package_root)
+    print("Mirrored canonical-build files: {}".format(mirrored_count))
     print("Bundled maps: {}".format(map_count))
+    print("Resolved configured packages: {}".format(configured_package_count))
     print("Manifest entries: {}".format(manifest_count))
     print("Verified archive files: {}".format(archive_count))
+    print("Fresh-extraction verified files: {}".format(extracted_count))
     print("Archive: " + archive_path)
     print("Archive bytes: {}".format(os.path.getsize(archive_path)))
     print("Archive SHA256: " + sha256_file(archive_path))

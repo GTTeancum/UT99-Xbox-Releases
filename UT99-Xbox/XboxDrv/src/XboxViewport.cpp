@@ -15138,6 +15138,7 @@ static void XboxMenuDrawChrome( UCanvas* Canvas, const TCHAR* Section, UBOOL bSh
 
 static void XboxMenuDrawMain( UCanvas* Canvas )
 {
+    static const TCHAR* VersionLabel = TEXT("v1.1.9b");
     static const TCHAR* Items[] =
     {
         TEXT("TOURNAMENT"),
@@ -15151,6 +15152,22 @@ static void XboxMenuDrawMain( UCanvas* Canvas )
     XboxMenuDrawChromeCommands( Canvas, TEXT("MAIN MENU"),
         "button_a.xui", TEXT("SELECT"),
         "button_x.xui", TEXT("LOAD PROFILE") );
+
+    UFont* VersionFont = Canvas->SmallFont ? Canvas->SmallFont : Canvas->MedFont;
+    INT VersionXL = 0;
+    INT VersionYL = 0;
+    XboxMenuTextSize( Canvas, VersionFont, VersionLabel, VersionXL, VersionYL );
+    FLOAT VersionX = Max<FLOAT>( 38.0f, Canvas->ClipX - 38.0f - (FLOAT)VersionXL );
+    FLOAT VersionY = XboxMenuCenteredTextY
+    (
+        Canvas,
+        VersionFont,
+        XboxMenuFooterTop(Canvas),
+        XboxMenuFooterContentBottom(Canvas),
+        VersionLabel
+    );
+    XboxMenuText( Canvas, VersionFont, VersionX, VersionY, 135, 170, 205, VersionLabel );
+
     UFont* MainFont = Canvas->MedFont;
     if( Canvas->Frame )
     {

@@ -8,7 +8,7 @@ does not depend on scattered chat context.
 
 ## 1.2 Release Scope
 
-**1̲.̲** **Widescreen:** implementation complete and Xemu-qualified on 2026-08-15; final real-Xbox/TV sign-off remains. Following UC2004's original-Xbox path, the renderer reads the dashboard widescreen flag, sets the Xbox anamorphic presentation flag, and applies pixel aspect only to the 3D horizontal projection. The 4:3 path is unchanged. Live-bot gameplay, HUD, main menu, loading, and two-player split-screen presentation passed at 16:9; evidence is recorded below.
+**1̲.̲** **Widescreen:** implementation complete but presentation validation reopened on 2026-08-15. Explicit Xemu 4:3 and 16:9 host-aspect controls confirm correct Hor+ world projection, but also show that the 2D HUD remains anamorphically stretched and that the existing 92% safe-area setting shrinks the entire rendered scene. Do not call this Xemu-qualified or release-ready until those presentation decisions are resolved and the corrected result passes again. Final real-Xbox/TV sign-off also remains.
 **2̲.̲** **Flicker and UV fixes:** complete and signed off by Steve on 2026-08-13.
 **3̲.̲** **Mutators:** complete and Xemu-qualified on 2026-08-13, including Steve's manual menu review. The Xbox selector now exposes the full stock mutator set plus OldSkool Weapons, AgentX Arena, and Akimbo Arena; details and evidence are recorded below.
 **4̲.̲** **Last Man Standing:** complete and visually qualified on Xemu on 2026-08-13, including Steve's manual review of its Instant Action, split-screen, and System Link exposure. `Botpack.LastManStanding` uses DM arenas, a Lives setting, and no time limit. Menu-driven proof on Deck16 loaded the actual `LastManStanding` class with two bots and five lives; the stock scoreboard displayed “Be the last one alive!” and its Lives column dropped a competitor from 5 to 4 during play. Evidence: `UT99-Xbox/build_cli/xemu_item4_lms_20260813_green`.
@@ -361,10 +361,18 @@ does not depend on scattered chat context.
      and `wide=1 projX=287.4 projY=383.1` with dashboard widescreen enabled.
      This preserves vertical FOV and widens the horizontal view by the expected
      4:3 pixel-aspect factor.
-   - Xemu qualification passed with moving bots on Deck16 in both modes. The
-     widescreen main menu remained proportioned and readable, and the dedicated
-     two-player layout proof passed with two rendered and two skipped viewport
-     objects. Evidence:
+   - The earlier Xemu runs proved the guest-side projection branch but did not
+     explicitly control Xemu's separate host aspect ratio. Forced host-aspect
+     reruns on 2026-08-15 used a 1280x960 window for 4:3 and a 1280x720 window
+     for 16:9. Matched deterministic camera slot 1 produced the same camera
+     location and rotation in both modes. Cropping the center 75% of the 16:9
+     image back to 4:3 yielded 0.948 luminance correlation with the 4:3 control,
+     confirming correct Hor+ world geometry. The same evidence also exposed a
+     horizontally stretched 2D HUD and the existing `SafeAreaSize=92` whole-
+     scene border, so presentation qualification remains open. Current evidence:
+     `UT99-Xbox/build_cli/item1_geometry_4x3_slot1_20260815` and
+     `UT99-Xbox/build_cli/item1_geometry_16x9_slot1_20260815`. Earlier branch,
+     menu, split-screen, and soak evidence remains under:
      `UT99-Xbox/build_cli/item1_widescreen_4x3_final_20260815`,
      `UT99-Xbox/build_cli/item1_widescreen_16x9_final_20260815`,
      `UT99-Xbox/build_cli/item1_widescreen_menu_final_20260815`, and
@@ -375,9 +383,10 @@ does not depend on scattered chat context.
      is `50F694FAD2044CBD1A7723FB545AFC4C59E044A0D2FAD50A9745A6D4BCDFBC81`.
    - A separate four-dummy split stress attempt was not counted as a pass: the
      stock `ChallengeHUD` script repeatedly logged `Accessed None` for dummy
-     HUDs and prevented the harness from completing. Two-player widescreen
-     presentation is qualified; four-player stress and real-Xbox/TV output
-     remain explicit sign-off checks.
+     HUDs and prevented the harness from completing. The two-player layout path
+     previously passed, but its aspect-correct presentation must be rechecked
+     with the single-player HUD/menu work. Four-player stress and real-Xbox/TV
+     output remain explicit sign-off checks.
 
 8. Menu transition latency
    - Added by Steve on 2026-08-13 after manual qualification of Mutators and

@@ -283,6 +283,10 @@ def write_xemu_config(args, iso_path):
         args.hdd,
         "-DvdPath",
         iso_path,
+        "-DisplayAspectRatio",
+        getattr(args, "xemu_aspect_ratio", "auto"),
+        "-DisplayWindowSize",
+        getattr(args, "xemu_window_size", "1280x960"),
     ]
     result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     if result.returncode != 0:

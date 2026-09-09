@@ -19,7 +19,6 @@ work; `Codex` marks verification follow-ups.
 4. **User — DEFERRED** - Fix interface clipping at the top and bottom of CRT displays (#9).
 5. **User — DEFERRED** - Fix the broken frontend after exiting split-screen (#9).
 6. **User — DEFERRED** - Persist match settings across game restarts (#9).
-7. **User — IN PROGRESS** - Port the HaloUT Elite character and a Halo weapons mutator to Xbox, using HaloUT on ModDB.
 8. **User — IN PROGRESS** - Review all code with a fine-tooth comb for efficiency, performance, and speed.
 9. **User** - Implement Co-op Tournament, using LAN co-op on ModDB as a possible template.
 10. **User — PARTIAL / PENDING REVIEW** - Finish widescreen HUD and safe-area presentation, then obtain real-Xbox/TV sign-off.
@@ -94,14 +93,6 @@ here; implementation details are in the [issue-fix report](ISSUE_FIXES_2026-09-0
       GitHub reports.
 
 ## User-entered priorities
-
-### UT99-OPEN-007 - HaloUT Elite and weapons
-
-- [ ] Port the HaloUT Elite character to Xbox using the existing PS2 skeletal
-      model architecture used by Master Chief; verify animation, skins, weapon
-      attachment and carcass behavior through that shared path.
-- [ ] Port a Halo weapons mutator to Xbox.
-- [ ] Use HaloUT on ModDB as the source/reference.
 
 ### UT99-OPEN-008 - Full code efficiency review
 

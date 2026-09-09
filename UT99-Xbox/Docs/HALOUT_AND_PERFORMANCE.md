@@ -108,16 +108,17 @@ AI and network qualification remain open; this is not yet a release package.
 - Full code review is ongoing. These findings do not constitute review of all
   engine, platform, audio, networking, script and build-tool code.
 
-## Remaining integration
+## Remaining qualification
 
-- Expose Elite and HaloWeapons in the fixed Xbox menu lists with an appropriate
-  character portrait and package-presence checks; the .int registry alone is
-  insufficient for this frontend.
-- Qualify first-person scale/orientation, firing intervals, lowering, zoom,
-  starting inventory, assault display updates, pickups and network behavior.
-- Finish team/carcass presentation and preserve original HaloUT credits with
-  any staged runtime package. Current development packages are under build_cli;
-  HaloUT is not yet included in RuntimeAssets or a release archive.
+The Elite and three non-reload weapons are integrated and user-approved.
+Menu discovery, the blue face-on portrait, weapon framing and recoil, opaque
+AR display and loading audio have Xemu evidence in
+[the presentation validation](HALO_PRESENTATION_VALIDATION_2026-09-09.md).
+The approved HaloUTXbox.u is stored in RuntimeAssets; release validation
+requires it, its .int and Elite portrait, alongside EpicCustomModels.u.
+
+- Qualify the integrated characters and weapons on original Xbox hardware,
+  including pickups, repeated travel, carcasses and network behavior.
 - Continue the full code review and isolate split-screen timing with two,
   three and four players, including non-neutral display calibration, shared
   skeletal actors, LOD changes and repeated travel. Hardware acceptance remains

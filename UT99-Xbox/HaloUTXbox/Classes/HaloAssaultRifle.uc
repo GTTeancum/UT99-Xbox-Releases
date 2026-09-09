@@ -31,21 +31,23 @@ var int DisplayedAmmo, DisplayedHeading;
 #exec MESH ORIGIN MESH=AssaultWorld X=0 Y=17.965234 Z=6.045636 YAW=-64.453125
 #exec ANIM IMPORT ANIM=AssaultAnims ANIMFILE=Models\Assault.psa IMPORTSEQS=1 COMPRESS=1
 #exec ANIM DIGEST ANIM=AssaultAnims
-#exec MESH DEFAULTANIM MESH=AssaultView ANIM=AssaultAnims
+#exec ANIM IMPORT ANIM=AssaultViewAnims ANIMFILE=Models\AssaultView.psa IMPORTSEQS=1 COMPRESS=1
+#exec ANIM DIGEST ANIM=AssaultViewAnims
+#exec MESH DEFAULTANIM MESH=AssaultView ANIM=AssaultViewAnims
 #exec MESH DEFAULTANIM MESH=AssaultWorld ANIM=AssaultAnims
 #exec TEXTURE IMPORT NAME=AssaultSkin FILE=Textures\AssaultSkin.pcx GROUP=Skins
 #exec TEXTURE IMPORT NAME=Compass FILE=Textures\Compass.pcx GROUP=Skins
 #exec TEXTURE IMPORT NAME=AmmoDisplay FILE=Textures\AmmoDisplay.pcx GROUP=Skins
 #exec AUDIO IMPORT NAME=AssaultFire FILE=Sounds\AssaultFire.wav GROUP=Weapons
 #exec MESHMAP SETTEXTURE MESHMAP=AssaultView NUM=0 TEXTURE=AssaultSkin
-#exec MESHMAP SETTEXTURE MESHMAP=AssaultView NUM=1 TEXTURE=Compass
-#exec MESHMAP SETTEXTURE MESHMAP=AssaultView NUM=2 TEXTURE=AmmoDisplay
+#exec MESHMAP SETTEXTURE MESHMAP=AssaultView NUM=1 TEXTURE=AmmoDisplay
+#exec MESHMAP SETTEXTURE MESHMAP=AssaultView NUM=2 TEXTURE=Compass
 #exec MESHMAP SETTEXTURE MESHMAP=AssaultView NUM=3 TEXTURE=AmmoDisplay
 #exec MESHMAP SETTEXTURE MESHMAP=AssaultView NUM=4 TEXTURE=AmmoDisplay
 #exec MESHMAP SETTEXTURE MESHMAP=AssaultView NUM=5 TEXTURE=AmmoDisplay
 #exec MESHMAP SETTEXTURE MESHMAP=AssaultWorld NUM=0 TEXTURE=AssaultSkin
-#exec MESHMAP SETTEXTURE MESHMAP=AssaultWorld NUM=1 TEXTURE=Compass
-#exec MESHMAP SETTEXTURE MESHMAP=AssaultWorld NUM=2 TEXTURE=AmmoDisplay
+#exec MESHMAP SETTEXTURE MESHMAP=AssaultWorld NUM=1 TEXTURE=AmmoDisplay
+#exec MESHMAP SETTEXTURE MESHMAP=AssaultWorld NUM=2 TEXTURE=Compass
 #exec MESHMAP SETTEXTURE MESHMAP=AssaultWorld NUM=3 TEXTURE=AmmoDisplay
 #exec MESHMAP SETTEXTURE MESHMAP=AssaultWorld NUM=4 TEXTURE=AmmoDisplay
 #exec MESHMAP SETTEXTURE MESHMAP=AssaultWorld NUM=5 TEXTURE=AmmoDisplay
@@ -66,15 +68,18 @@ simulated function Tick(float DeltaTime)
     }
     if (Heading != DisplayedHeading)
     {
-        MultiSkins[1] = CompassFaces[Heading];
+        MultiSkins[2] = CompassFaces[Heading];
         DisplayedHeading = Heading;
     }
 }
 
 defaultproperties
 {
-    PlayerViewScale=0.45
-    PlayerViewOffset=(X=8.0,Y=-3.8,Z=-7.7)
+    PlayerViewScale=0.30
+    PlayerViewOffset=(X=8.0,Y=-4.5,Z=-5.6)
+    ShakeMag=10.0
+    ShakeTime=0.04
+    ShakeVert=0.1
     DisplayedAmmo=-1
     DisplayedHeading=-1
     Digits(0)=Texture'HaloUTXbox.Display.Digit0'

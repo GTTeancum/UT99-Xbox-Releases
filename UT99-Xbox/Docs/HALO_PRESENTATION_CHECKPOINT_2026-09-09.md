@@ -1,5 +1,7 @@
 # Halo presentation checkpoint — paused for usage limits
 
+Historical checkpoint. Resumed work is complete; see [final validation](HALO_PRESENTATION_VALIDATION_2026-09-09.md).
+
 User requested stopping work and committing/pushing the dirty workspace. This
 checkpoint includes other existing dirty work and is not a release approval.
 

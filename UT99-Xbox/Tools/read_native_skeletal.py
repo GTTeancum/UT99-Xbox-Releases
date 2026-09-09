@@ -60,8 +60,9 @@ def read_mesh(path, mesh_name):
     origin = struct.unpack('<3f', raw(12))
     rotation = struct.unpack('<3i', raw(12))
     raw(8); array(4)
-    for size in (2,2,8,2,4):
-        array(size)
+    array(2); array(2)
+    faces = np.frombuffer(array(8), dtype='<u2').reshape(-1,4).copy()
+    array(2); array(4)
     materials = np.frombuffer(array(8), dtype='<u4').reshape(-1,2).copy()
     array(8)
     raw(32); array(2); raw(4); array(10)
@@ -81,6 +82,6 @@ def read_mesh(path, mesh_name):
     adjustment = struct.unpack('<12f',raw(48))
     if pos != end:
         raise ValueError('Unexpected trailing skeletal data')
-    return dict(scale=scale,origin=origin,rotation=rotation,points=points,bones=bones,materials=materials,
+    return dict(scale=scale,origin=origin,rotation=rotation,points=points,bones=bones,materials=materials,faces=faces,
                 influence_spans=influence_spans,influences=influences,local_points=local_points,
                 animation=animation,weapon_bone=bone,weapon_adjustment=adjustment)

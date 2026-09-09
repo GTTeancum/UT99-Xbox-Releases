@@ -134,6 +134,14 @@ DM-Halo-Derelict
 Player models and character packages
 ------------------------------------
 
+HaloUT Elite and weapons
+- Source: Project Torlan's HaloUT release for Unreal Tournament 2004.
+- Halo characters, weapons and original artwork: Bungie and Microsoft.
+- Xbox conversion uses the existing Advanced Model Support skeletal path.
+- Includes Elite and the Assault Rifle, Pistol and Plasma Rifle, using the
+  non-reload UT-style weapon behavior.
+- https://www.moddb.com/mods/halout/downloads/halout-allfiles-in-one1
+
 PS2 Character Pack 3.0
 - Pack and conversion: AlCapowned
 - Original PlayStation 2 models: James Green (Epic Games)

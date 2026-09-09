@@ -39,18 +39,84 @@ def preserve_rifle_display_materials(path):
     """
     data = bytearray(path.read_bytes())
     pos = 0
+    offsets = {}
     while pos < len(data):
         name, kind, size, count = struct.unpack_from('<20s3i', data, pos)
         pos += 32
+        offsets[name.rstrip(b'\0')] = (pos,size,count)
         if name.rstrip(b'\0') == b'MATT0000':
             if size != 88 or count != 6:
                 raise ValueError('Unexpected assault rifle material layout')
             for material in range(1, 6):
                 # ActorX uses MTT bits, not runtime EPolyFlags: translucent
                 # type 2 plus unlit 16. UCC translates these on import.
-                struct.pack_into('<I', data, pos + material*size + 68, 18)
+                # Slot 2 is the screen backing; it must occlude the world.
+                struct.pack_into('<I', data, pos + material*size + 68, 16 if material == 2 else 18)
         pos += size*count
+    # The original alpha-blended backing did not write depth. With a solid
+    # backing, its compass (authored slightly behind it) needs to sit in front.
+    pp,ps,pc = offsets[b'PNTS0000']
+    wp,ws,wc = offsets[b'VTXW0000']
+    fp,fs,fc = offsets[b'FACE0000']
+    compass_points = set()
+    for face in range(fc):
+        a,b,c,material = struct.unpack_from('<HHHB',data,fp+face*fs)
+        if material == 1:
+            compass_points.update(struct.unpack_from('<H',data,wp+w*ws)[0] for w in (a,b,c))
+    for point in compass_points:
+        offset = pp+point*ps+4
+        struct.pack_into('<f',data,offset,struct.unpack_from('<f',data,offset)[0]+1.0)
+    # UE1 submits these sections in material order. Draw the opaque backing
+    # before the non-depth-writing compass, or it paints over the compass.
+    mp,ms,mc = offsets[b'MATT0000']
+    first = bytes(data[mp+ms:mp+2*ms])
+    data[mp+ms:mp+2*ms] = data[mp+2*ms:mp+3*ms]
+    data[mp+2*ms:mp+3*ms] = first
+    for slot in (1,2):
+        struct.pack_into('<i',data,mp+slot*ms+64,slot)
+    for face in range(fc):
+        offset = fp+face*fs+6
+        if data[offset] in (1,2):
+            data[offset] = 3-data[offset]
+    for wedge in range(wc):
+        offset = wp+wedge*ws+12
+        if data[offset] in (1,2):
+            data[offset] = 3-data[offset]
     path.write_bytes(data)
+
+
+def make_rifle_view_animation(source, destination):
+    """Keep authored motion, reducing only whole-rifle firing recoil to 6.2%.
+
+    The close, handless view magnifies the original root kick. A separate
+    animation leaves third-person motion, internal bones and timing intact.
+    """
+    import numpy as np
+    from scipy.spatial.transform import Rotation, Slerp
+    data = chunks(source)
+    kind, size, count, rows = data['ANIMINFO']
+    sequences = [rows[i*size:(i+1)*size] for i in range(count)]
+    idle = next(r for r in sequences if r[:64].split(b'\0')[0].lower() == b'idle')
+    bones = struct.unpack_from('<i', idle, 128)[0]
+    idle_first = struct.unpack_from('<i', idle, 160)[0]
+    kk, ks, kc, keys = data['ANIMKEYS']
+    keys = bytearray(keys)
+    reference = np.array(struct.unpack_from('<8f', keys, idle_first*bones*ks))
+    for row in sequences:
+        if row[:64].split(b'\0')[0].lower() not in (b'fire',b'altfire',b'fireloop'):
+            continue
+        first, frames = struct.unpack_from('<ii', row, 160)
+        for frame in range(first,first+frames):
+            offset = frame*bones*ks
+            key = np.array(struct.unpack_from('<8f',keys,offset))
+            key[:3] = reference[:3] + .062*(key[:3]-reference[:3])
+            key[3:7] = Slerp([0,1],Rotation.from_quat([reference[3:7],key[3:7]]))([.062]).as_quat()[0]
+            struct.pack_into('<8f', keys, offset, *key)
+    data['ANIMKEYS'] = kk,ks,kc,keys
+    with destination.open('wb') as out:
+        for name,(kind,size,count,payload) in data.items():
+            out.write(struct.pack('<20s3i',name.encode(),kind,size,count))
+            out.write(payload)
 
 
 def preserve_animation_keys(path):
@@ -288,6 +354,7 @@ def main():
         shutil.copy2(export / 'Haloweapons/Sound' / (original + '.wav'), package / 'Sounds' / (name + '.wav'))
     for name in ('Elite', 'Assault', 'Pistol', 'Plasma'):
         preserve_animation_keys(package / 'Models' / (name + '.psa'))
+    make_rifle_view_animation(package/'Models/Assault.psa', package/'Models/AssaultView.psa')
     # P8 and a bounded resolution keep character texture residency small on 64MB.
     for name, source in textures.items():
         image = Image.open(source).convert('RGB')
@@ -328,7 +395,7 @@ def main():
     (compiler / 'HaloMeshConversion.json').write_text(json.dumps(normalize(output), indent=2))
     from audit_animation_import import audit
     pose_audits = [audit(package / 'Models' / (name + '.psa'), output, name + 'Anims')
-                   for name in ('Elite', 'Assault', 'Pistol', 'Plasma')]
+                   for name in ('Elite', 'Assault', 'AssaultView', 'Pistol', 'Plasma')]
     (compiler / 'HaloAnimationPoseAudit.json').write_text(json.dumps(pose_audits, indent=2))
     for report in pose_audits:
         # UCC removes nearly redundant keys even at full retention. Bound that

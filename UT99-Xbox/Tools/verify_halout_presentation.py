@@ -50,7 +50,7 @@ def run(args):
         specs += [(label+'_'+weapon,player,'HaloUTXbox.Halo'+weapon) for weapon in ['AssaultRifle','Pistol','PlasmaRifle']]
     specs += [('elite_Enforcer','HaloUTXbox.Elite','Botpack.Enforcer')]
     if args.cases: specs = [s for s in specs if s[0] in args.cases]
-    summaries = []
+    summaries = json.loads((evidence/'summary.json').read_text()) if (evidence/'summary.json').exists() else []
     for name,player,weapon in specs:
         out = evidence/name; out.mkdir(exist_ok=True)
         captures = out/'native'; captures.mkdir(exist_ok=True)
@@ -94,8 +94,11 @@ def run(args):
                             else: print(name+' capture error '+detail,flush=True)
                     if not player and 'portrait' in captured:
                         complete=True;break
-                    if player and len(captured)==3 and 'FIRSTPERSONPROOF loading-begin' in log:
-                        tail=log.split('FIRSTPERSONPROOF loading-begin')[-1]
+                    # The repeated pre-travel marker survives a non-atomic RAM
+                    # mirror read at the transition; the single begin line can
+                    # be overwritten. Still require actual audio stop/restart.
+                    if player and len(captured)==3 and 'FIRSTPERSONPROOF loading-pending' in log:
+                        tail=log.split('FIRSTPERSONPROOF loading-pending')[-1]
                         if 'loading silence off' in tail and 'native music stream started' in tail:
                             complete=True;break
                     time.sleep(.2)
@@ -107,11 +110,11 @@ def run(args):
         log='\n'.join(lines)
         audio_ok=True
         if player:
-            tail=log.split('FIRSTPERSONPROOF loading-begin')[-1]
+            tail=log.split('FIRSTPERSONPROOF loading-pending')[-1]
             audio_ok='loading buffers musicPlaying=0 stream=0 activeEffects=0' in tail
             assert weapon in log and player in log, 'Wrong player/weapon identity'
         summary=dict(case=name,completed=complete,audioBuffersStopped=audio_ok,captures=captured,elapsed=time.monotonic()-started)
-        summaries.append(summary)
+        summaries = [s for s in summaries if s['case'] != name] + [summary]
         (evidence/'summary.json').write_text(json.dumps(summaries,indent=2))
         print('RESULT '+json.dumps(summary),flush=True)
         if not complete or not audio_ok:raise RuntimeError('Proof failed: '+name)

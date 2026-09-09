@@ -22,7 +22,7 @@ class HaloPlasmaRifle extends HaloWeapon;
 defaultproperties
 {
     PlayerViewScale=0.4
-    PlayerViewOffset=(X=32.0,Y=-10.0,Z=-15.0)
+    PlayerViewOffset=(X=26.0,Y=-14.0,Z=-20.0)
     ItemName="HaloUT Plasma Rifle"
     PickupMessage="You got the HaloUT Plasma Rifle."
     WeaponDescription="HaloUT UT-style plasma rifle. Both triggers fire plasma bolts."

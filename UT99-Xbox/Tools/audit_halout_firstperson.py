@@ -20,15 +20,27 @@ def audit(package, classes):
         # multiplies by 0.9/FOV. At 90 degrees these cancel, yielding UT units.
         offset[1] *= -1
         mesh = read_mesh(package,name+'View')
+        if name == 'Assault':
+            counts = np.bincount(mesh['faces'][:,3])
+            if len(counts) != 6 or counts[1] != 22 or counts[2] != 4:
+                raise ValueError('Rifle backing must precede compass in compiled face sections')
+            # ActorX material bits differ from EPolyFlags. Check the compiled
+            # result so an opaque/modulated display cannot silently return.
+            for flags, slot in mesh['materials']:
+                if slot == 1 and (int(flags) & 0x00400004) != 0x00400000:
+                    raise ValueError('Rifle display backing must be opaque and unlit')
+                if slot in (2,3,4,5) and int(flags) & 0x00400004 != 0x00400004:
+                    raise ValueError('Rifle display must be translucent and unlit')
         axes = mesh_axes(mesh['rotation'])
         if (-axes[:,1])[0] < .99:
             raise ValueError(name+' barrel does not point along camera forward')
-        native = read_animation(package,name+'Anims')
+        animation = name+('ViewAnims' if name == 'Assault' else 'Anims')
+        native = read_animation(package,animation)
         samples, nearest, center = 0, float('inf'), 0
         for seq in native['sequences']:
             if seq['name'].lower() not in ('idle','fire'): continue
             for frame in range(seq['frames']):
-                points = pose(package,name+'View',name+'Anims',seq['name'],frame/seq['rate'])
+                points = pose(package,name+'View',animation,seq['name'],frame/seq['rate'])
                 points = (points-mesh['origin']) @ axes.T*scale+offset
                 nearest = min(nearest,float(points[:,0].min()))
                 projected = points[:,1:]/np.maximum(points[:,0,None],.001)

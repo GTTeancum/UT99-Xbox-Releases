@@ -8291,18 +8291,22 @@ static void XboxMenuTickPendingFrontendOpen( UXboxViewport* Viewport )
         (unsigned)XboxMenuAvailPhysKB() );
 }
 
-static void XboxMenuSmokeTick( UXboxViewport* Viewport )
+static void XboxHaloPortraitProofTick( UXboxViewport* Viewport )
 {
     static INT HaloPortraitProof = -1;
     static UBOOL HaloPortraitShown = 0;
-    if( HaloPortraitProof < 0 )
+    // Early UpdateInput calls can precede the first loaded player/level.
+    // Do not cache a missing disc marker before the runtime is ready.
+    if( HaloPortraitProof < 0 && Viewport && Viewport->Actor && Viewport->Actor->Level )
         HaloPortraitProof = GetFileAttributesA( "D:\\XboxHaloPortraitProof.ini" ) != 0xFFFFFFFF;
-    if( HaloPortraitProof && Viewport && Viewport->Actor )
+    if( HaloPortraitProof > 0 && Viewport && Viewport->Actor )
     {
         if( !HaloPortraitShown )
         {
             XboxMenuOpen( Viewport );
-            XboxMenuLoadPlayerClasses();
+            // Load the saved profile before overriding the proof selection;
+            // DrawPlayerSetup otherwise restores Othello over this choice.
+            XboxMenuLoadPlayerState();
             for( INT i=0; i<GXboxPlayerClasses.Num(); i++ )
                 if( appStricmp( *GXboxPlayerClasses(i).URLValue, TEXT("HaloUTXbox.Elite") ) == 0 )
                 {
@@ -8316,6 +8320,10 @@ static void XboxMenuSmokeTick( UXboxViewport* Viewport )
         }
         return;
     }
+}
+
+static void XboxMenuSmokeTick( UXboxViewport* Viewport )
+{
     static INT SmokeStage = 0;
     static DOUBLE SmokeStartTime = 0.0;
 
@@ -17034,6 +17042,8 @@ void XboxMenuPostRender( UViewport* Viewport, UCanvas* Canvas )
 {
     guard(XboxMenuPostRender);
     UXboxViewport* XboxViewport = Cast<UXboxViewport>(Viewport);
+    // Frontend rendering continues while ordinary gameplay input is paused.
+    XboxHaloPortraitProofTick( XboxViewport );
     INT WheelViewportIndex = XboxViewport ? Clamp<INT>( XboxViewportIndex(XboxViewport), 0, 3 ) : 0;
     if( !Viewport || !Canvas )
         return;

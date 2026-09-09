@@ -11,6 +11,7 @@ import tempfile
 import zipfile
 
 import stage_jailbreak
+from audit_package_dependencies import validate_system_dependencies
 
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -60,6 +61,7 @@ REQUIRED_FILES = (
     "System/ChaosUT.u",
     "System/Default.ini",
     "System/DefUser.ini",
+    "System/EpicCustomModels.u",
     "System/HaloMasterChief.u",
     "System/HaloMasterChief.int",
     "System/HaloMasterChiefSkins.utx",
@@ -76,7 +78,6 @@ REQUIRED_FILES = (
 )
 RETIRED_FILES = (
     "System/BossVoiceFix313.u",
-    "System/epiccustommodels.u",
     "System/SkeletalCharsFix313.u",
     "System/UTPS2Baked.u",
 )
@@ -263,6 +264,7 @@ def validate_config_packages(package_root):
 
 
 def validate_package(package_root, version):
+    validate_system_dependencies(os.path.join(package_root, "System"))
     missing = []
     required_files = REQUIRED_FILES + (
         "Docs/INSTALLATION_{}.txt".format(version),

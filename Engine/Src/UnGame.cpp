@@ -197,7 +197,15 @@ static const FMeshAnimSeq* XboxFindSkeletalProofSequence
 	return NULL;
 }
 
-static void XboxApplySkeletalStateProof( ULevel* Level )
+static FLOAT XboxSkeletalProofFrame( FLOAT Elapsed, INT NumFrames, FLOAT Rate, UBOOL Loop )
+{
+	if( NumFrames <= 1 || Rate <= 0.0f )
+		return 0.0f;
+	FLOAT Frame = Max(Elapsed,0.0f) * Rate / NumFrames;
+	return Loop ? Frame-appFloor(Frame) : Min(Frame,1.0f-1.0f/NumFrames);
+}
+
+static void XboxApplySkeletalStateProof( ULevel* Level, FLOAT DeltaSeconds )
 {
 	if( !XboxSkeletalStateProofEnabled() || !Level || !Level->GetLevelInfo() )
 		return;
@@ -220,28 +228,73 @@ static void XboxApplySkeletalStateProof( ULevel* Level )
 	if( !Target )
 		return;
 
-	enum { STATE_TICKS = 120, STATE_LOG_INTERVAL = 15 };
+	enum { STATE_LOG_INTERVAL = 15 };
 	static APawn* LastTarget = NULL;
 	static INT ProofTick = 0;
+	static INT ProofStateIndex = 0;
+	static FLOAT StateElapsed = 0.0f;
 	static INT LastStateIndex = INDEX_NONE;
 	static FRotator ProofRotation(0,0,0);
 	if( Target != LastTarget )
 	{
 		LastTarget = Target;
 		ProofTick = 0;
+		ProofStateIndex = 0;
+		StateElapsed = 0.0f;
 		LastStateIndex = INDEX_NONE;
 		ProofRotation = Target->Rotation;
+		// A state proof must not freeze the bot under a lift or against a wall.
+		// Choose the map's most open player start; gameplay capture never uses
+		// this path and continues to follow ordinary bot navigation.
+		FLOAT BestClearance = -1.0f;
+		AActor* BestStart = NULL;
+		for( INT ActorIndex=0; ActorIndex<Level->Actors.Num(); ActorIndex++ )
+		{
+			AActor* Start = Level->Actors(ActorIndex);
+			if( !Start || !Start->IsA(APlayerStart::StaticClass()) )
+				continue;
+			const FVector Focus = Start->Location + FVector(0,0,24);
+			const FVector Directions[4] = { FVector(1,0,0), FVector(-1,0,0), FVector(0,1,0), FVector(0,-1,0) };
+			FLOAT Clearance = 1.0f;
+			for( INT Direction=0; Direction<4; Direction++ )
+			{
+				FCheckResult Hit;
+				Level->SingleLineCheck( Hit, Target, Focus + Directions[Direction]*180.0f, Focus, TRACE_VisBlocking );
+				Clearance = Min( Clearance, Hit.Time );
+			}
+			if( Clearance > BestClearance )
+			{
+				BestClearance = Clearance;
+				BestStart = Start;
+			}
+		}
+		if( BestStart && Level->FarMoveActor(Target,BestStart->Location,0,0) )
+			ProofRotation = FRotator(0,0,0);
 	}
 
-	const INT StateIndex = (ProofTick / STATE_TICKS) % ARRAY_COUNT(GXboxSkeletalProofStates);
-	const INT StateTick = ProofTick % STATE_TICKS;
-	const FXboxSkeletalProofState& State = GXboxSkeletalProofStates[StateIndex];
+	static INT AllAnimationProof = -1;
+	if( AllAnimationProof < 0 )
+		AllAnimationProof = GetFileAttributesA( "D:\\XboxAllAnimationProof.ini" ) != 0xFFFFFFFF;
+	const INT StateCount = AllAnimationProof ? Target->Mesh->AnimSeqs.Num() : ARRAY_COUNT(GXboxSkeletalProofStates);
+	if( StateCount <= 0 )
+		return;
+	const INT StateIndex = ProofStateIndex % StateCount;
+	FXboxSkeletalProofState ExactState;
+	appMemzero( &ExactState, sizeof(ExactState) );
+	if( AllAnimationProof )
+	{
+		ExactState.Label = *Target->Mesh->AnimSeqs(StateIndex).Name;
+		ExactState.Candidates[0] = ExactState.Label;
+	}
+	const FXboxSkeletalProofState& State = AllAnimationProof ? ExactState : GXboxSkeletalProofStates[StateIndex];
 	FName SequenceName = NAME_None;
 	const FString TargetClassName = Target->GetClass() ? Target->GetClass()->GetFullName() : FString(TEXT("None"));
 	const FString TargetMeshName = Target->Mesh ? Target->Mesh->GetFullName() : FString(TEXT("None"));
 	if( ProofTick == 0 )
 		debugf( NAME_Log, TEXT("XSKELSTATE stage=sequence-begin class=%s"), *TargetClassName );
 	const FMeshAnimSeq* Sequence = XboxFindSkeletalProofSequence( Target->Mesh, State, SequenceName );
+	const FLOAT CycleSeconds = Sequence && Sequence->NumFrames > 1 && Sequence->Rate > 0.0f
+		? Sequence->NumFrames / Sequence->Rate : 0.0f;
 	if( ProofTick == 0 )
 		debugf( NAME_Log, TEXT("XSKELSTATE stage=sequence-end found=%i"), Sequence ? 1 : 0 );
 
@@ -256,20 +309,31 @@ static void XboxApplySkeletalStateProof( ULevel* Level )
 	if( Sequence )
 	{
 		Target->AnimSequence = SequenceName;
-		Target->AnimFrame = Min( (StateTick + 1.0f) / STATE_TICKS, 0.98f );
+		// Match PlayAnim/LoopAnim's Rate/NumFrames normalization using elapsed
+		// simulation seconds. A fixed 120-tick sweep changes every clip's speed.
+		// Match the sustained movement/idle families used by LoopAnim.
+		// Jump, landing, hit, gesture and death clips are one-shot motions.
+		const TCHAR* Name = *SequenceName;
+		const UBOOL Loop = appStrnicmp(Name,TEXT("Run"),3)==0
+			|| appStrnicmp(Name,TEXT("Walk"),4)==0 || appStrnicmp(Name,TEXT("Back"),4)==0
+			|| appStrnicmp(Name,TEXT("Strafe"),6)==0 || appStrnicmp(Name,TEXT("Duck"),4)==0
+			|| appStrnicmp(Name,TEXT("Swim"),4)==0 || appStrnicmp(Name,TEXT("Tread"),5)==0
+			|| appStrnicmp(Name,TEXT("Breath"),6)==0 || appStrnicmp(Name,TEXT("Chat"),4)==0
+			|| appStrnicmp(Name,TEXT("Still"),5)==0;
+		Target->AnimFrame = XboxSkeletalProofFrame(StateElapsed,Sequence->NumFrames,Sequence->Rate,Loop);
 		Target->AnimRate = 0.0f;
 		Target->TweenRate = 0.0f;
-		Target->bAnimLoop = StateIndex != ARRAY_COUNT(GXboxSkeletalProofStates)-1;
+		Target->bAnimLoop = Loop;
 	}
 	if( ProofTick == 0 )
 		debugf( NAME_Log, TEXT("XSKELSTATE stage=pose-end") );
 
-	if( StateIndex != LastStateIndex || (StateTick % STATE_LOG_INTERVAL) == 0 )
+	if( StateIndex != LastStateIndex || (ProofTick % STATE_LOG_INTERVAL) == 0 )
 	{
 		debugf
 		(
 			NAME_Log,
-			TEXT("XSKELSTATE tick=%i class=%s mesh=%s state=%s seq=%s frame=%.4f numframes=%i rate=%.2f found=%i"),
+			TEXT("XSKELSTATE tick=%i class=%s mesh=%s state=%s seq=%s frame=%.4f numframes=%i rate=%.2f found=%i elapsed=%.4f cycleSeconds=%.4f speed=1.0 loop=%i"),
 			(INT)GTicks,
 			*TargetClassName,
 			*TargetMeshName,
@@ -278,11 +342,21 @@ static void XboxApplySkeletalStateProof( ULevel* Level )
 			Sequence ? Target->AnimFrame : 0.0f,
 			Sequence ? Sequence->NumFrames : 0,
 			Sequence ? Sequence->Rate : 0.0f,
-			Sequence ? 1 : 0
+			Sequence ? 1 : 0,
+			StateElapsed,
+			CycleSeconds,
+			Target->bAnimLoop
 		);
 		LastStateIndex = StateIndex;
 	}
 	ProofTick++;
+	StateElapsed += Max(DeltaSeconds,0.0f);
+	// Keep a useful inspection window without stretching long or short clips.
+	if( StateElapsed >= Max(2.0f,CycleSeconds+0.5f) )
+	{
+		StateElapsed = 0.0f;
+		ProofStateIndex++;
+	}
 }
 
 static void XboxMemMark( const TCHAR* Label )
@@ -1544,6 +1618,9 @@ void UGameEngine::CancelPending()
 	guard(UGameEngine::CancelPending);
 	if( GPendingLevel )
 	{
+#if TARGET_XBOX
+		if( Audio ) Audio->Exec( TEXT("XAUDIOSETLOADING 0") );
+#endif
 		delete GPendingLevel;
 		GPendingLevel = NULL;
 	}
@@ -1782,9 +1859,29 @@ void UGameEngine::NotifyLevelChange()
 //
 // Load a map.
 //
+#if TARGET_XBOX
+// Loading can paint the old viewport and run script notifications. Keep audio
+// blocked for the entire load, including early failures, rather than just
+// stopping the buffers once and allowing those callbacks to restart them.
+struct FXboxLoadAudioSilence
+{
+    UAudioSubsystem* Audio;
+    FXboxLoadAudioSilence( UAudioSubsystem* InAudio ) : Audio(InAudio)
+    {
+        if( Audio ) Audio->Exec( TEXT("XAUDIOSETLOADING 1") );
+    }
+    ~FXboxLoadAudioSilence()
+    {
+        if( Audio ) Audio->Exec( TEXT("XAUDIOSETLOADING 0") );
+    }
+};
+#endif
 ULevel* UGameEngine::LoadMap( const FURL& URL, UPendingLevel* Pending, const TMap<FString,FString>* TravelInfo, FString& Error )
 {
 	guard(UGameEngine::LoadMap);
+#if TARGET_XBOX
+	FXboxLoadAudioSilence LoadAudioSilence( Audio );
+#endif
 	Error = TEXT("");
 	debugf( NAME_Log, TEXT("LoadMap: %s"), *URL.String() );
 #if TARGET_XBOX
@@ -2457,7 +2554,16 @@ void UGameEngine::Draw( UViewport* Viewport, UBOOL Blit, BYTE* HitData, INT* Hit
 	APawn* XboxCharacterProofTarget = NULL;
 	APlayerPawn* XboxCharacterProofViewer = NULL;
 	static FName XboxCharacterProofTargetName = NAME_None;
-	if( GetFileAttributesA( "D:\\XboxCharacterSoak.ini" ) != 0xFFFFFFFF )
+	static INT XboxCharacterSoakEnabled = -1;
+	static INT XboxGameplayRecording = -1;
+	static INT XboxWeaponCloseup = -1;
+	if( XboxWeaponCloseup < 0 )
+		XboxWeaponCloseup = GetFileAttributesA( "D:\\XboxWeaponCloseup.ini" ) != 0xFFFFFFFF;
+	if( XboxGameplayRecording < 0 )
+		XboxGameplayRecording = GetFileAttributesA( "D:\\XboxGameplayRecording.ini" ) != 0xFFFFFFFF;
+	if( XboxCharacterSoakEnabled < 0 )
+		XboxCharacterSoakEnabled = GetFileAttributesA( "D:\\XboxCharacterSoak.ini" ) != 0xFFFFFFFF;
+	if( XboxCharacterSoakEnabled )
 	{
 		XboxCharacterProofViewer = Cast<APlayerPawn>( Viewport->Actor );
 		ULevel* ProofLevel = XboxCharacterProofViewer ? XboxCharacterProofViewer->GetLevel() : NULL;
@@ -2531,25 +2637,35 @@ void UGameEngine::Draw( UViewport* Viewport, UBOOL Blit, BYTE* HitData, INT* Hit
 		// calculated below and must not make the observed pawn owner-invisible.
 		XboxCharacterProofViewer->ViewTarget = NULL;
 		XboxCharacterProofViewer->bBehindView = 0;
-		const FLOAT DesiredDistance = 72.0f;
+		const FLOAT DesiredDistance = XboxWeaponCloseup ? 60.0f : (XboxGameplayRecording ? 140.0f : 72.0f);
 		FVector TargetFocus = XboxCharacterProofTarget->Location;
-		TargetFocus.Z += Max( XboxCharacterProofTarget->EyeHeight * 0.55f, 12.0f );
+		// Centre a right-side proof on the body so feet and extended death/swim
+		// poses remain visible. The older head-height close-up cropped them.
+		if( !XboxGameplayRecording )
+			TargetFocus.Z += Max( XboxCharacterProofTarget->EyeHeight * 0.55f, 12.0f );
 		FRotator TargetRotation = XboxCharacterProofTarget->Rotation;
 		FVector Forward = TargetRotation.Vector();
 		Forward.Z = 0.0f;
 		Forward = Forward.SafeNormal();
-		const FVector Right(-Forward.Y,Forward.X,0.0f);
-		const FVector CameraCandidates[4] =
+		if( XboxWeaponCloseup )
 		{
-			TargetFocus + Forward * DesiredDistance + FVector(0,0,6),
+			TargetFocus += Forward * 10.0f;
+			TargetFocus.Z += Max( XboxCharacterProofTarget->EyeHeight * 0.55f, 12.0f );
+		}
+		const FVector Right(-Forward.Y,Forward.X,0.0f);
+		const FVector CameraCandidates[6] =
+		{
+			TargetFocus + (XboxGameplayRecording ? (Right + Forward * 0.35f).SafeNormal() : Forward) * DesiredDistance + FVector(0,0,6),
 			TargetFocus + Right * DesiredDistance + FVector(0,0,6),
-			TargetFocus - Right * DesiredDistance + FVector(0,0,6),
-			TargetFocus - Forward * DesiredDistance + FVector(0,0,6)
+			TargetFocus + (XboxGameplayRecording ? (Right - Forward * 0.35f).SafeNormal() : -Right) * DesiredDistance + FVector(0,0,6),
+			TargetFocus + (XboxGameplayRecording ? (Right + Forward).SafeNormal() : -Forward) * DesiredDistance + FVector(0,0,6),
+			TargetFocus + (Right - Forward).SafeNormal() * DesiredDistance + FVector(0,0,6),
+			TargetFocus + Right * DesiredDistance + FVector(0,0,48)
 		};
 		INT CameraCandidate = 0;
 		FLOAT BestCameraTime = -1.0f;
 		FCheckResult CameraHit;
-		for( INT CandidateIndex=0; CandidateIndex<4; CandidateIndex++ )
+		for( INT CandidateIndex=0; CandidateIndex<(XboxGameplayRecording ? ARRAY_COUNT(CameraCandidates) : 4); CandidateIndex++ )
 		{
 			XboxCharacterProofTarget->GetLevel()->SingleLineCheck
 			(
@@ -2557,7 +2673,8 @@ void UGameEngine::Draw( UViewport* Viewport, UBOOL Blit, BYTE* HitData, INT* Hit
 				XboxCharacterProofTarget,
 				CameraCandidates[CandidateIndex],
 				TargetFocus,
-				TRACE_VisBlocking
+				TRACE_VisBlocking,
+				FVector(6,6,6)
 			);
 			if( CameraHit.Time > BestCameraTime )
 			{
@@ -2573,7 +2690,7 @@ void UGameEngine::Draw( UViewport* Viewport, UBOOL Blit, BYTE* HitData, INT* Hit
 		}
 		const FLOAT CameraFraction = BestCameraTime >= 0.98f
 			? 1.0f
-			: Clamp( BestCameraTime - 0.08f, 0.30f, 0.90f );
+			: Max( BestCameraTime - 0.08f, 0.0f );
 		ViewActor = XboxCharacterProofViewer;
 		ViewLocation = TargetFocus
 			+ (CameraCandidates[CameraCandidate] - TargetFocus) * CameraFraction;
@@ -2844,6 +2961,7 @@ void UGameEngine::SetClientTravel( UPlayer* Player, const TCHAR* NextURL, UBOOL 
 	FString RequestedURL = NextURL;
 
 #if TARGET_XBOX
+	if( Audio ) Audio->Exec( TEXT("XAUDIOSETLOADING 1") );
 	XboxMenuPreClientTravelCleanup();
 #endif
 	UViewport* Viewport    = CastChecked<UViewport>( Player );
@@ -3050,6 +3168,10 @@ void UGameEngine::Tick( FLOAT DeltaSeconds )
 		FString Error;
 		Browse( FURL(&LastURL,*Viewport->TravelURL,Viewport->TravelType), &TravelInfo, Error );
 		Viewport->TravelURL=TEXT("");
+#if TARGET_XBOX
+		// Browse can reject travel before reaching LoadMap's scope guard.
+		if( Audio && !GPendingLevel ) Audio->Exec( TEXT("XAUDIOSETLOADING 0") );
+#endif
 
 		return;
 	}
@@ -3068,6 +3190,9 @@ void UGameEngine::Tick( FLOAT DeltaSeconds )
 		{
 			// Pending connect failed.
 			guard(PendingFailed);
+#if TARGET_XBOX
+			if( Audio ) Audio->Exec( TEXT("XAUDIOSETLOADING 0") );
+#endif
 			SetProgress( LocalizeError("ConnectionFailed"), *GPendingLevel->Error, 4.0 );
 			debugf( NAME_Log, LocalizeError("Pending"), *GPendingLevel->URL.String(), *GPendingLevel->Error );
 			delete GPendingLevel;
@@ -3142,7 +3267,7 @@ void UGameEngine::Tick( FLOAT DeltaSeconds )
 #if TARGET_XBOX
 	// Proof-only deterministic animation selection happens after game simulation
 	// so bot AI cannot replace the requested state before the frame is rendered.
-	XboxApplySkeletalStateProof( GLevel );
+	XboxApplySkeletalStateProof( GLevel, DeltaSeconds );
 	XboxApplySkaarjSkinProof( GLevel );
 #endif
 

@@ -2862,7 +2862,10 @@ void URender::OccludeFrame( FSceneNode* Frame )
 	SetupDynamics( Frame, (Viewport->Actor->bBehindView || Frame->Parent!=NULL) ? NULL : Viewport->Actor->ViewTarget ?  Viewport->Actor->ViewTarget : Viewport->Actor );
 	OccludeBsp( Frame );
 #if TARGET_XBOX
-	if( Frame->Parent == NULL && GetFileAttributesA( "D:\\XboxCharacterSoak.ini" ) != 0xFFFFFFFF )
+	static INT XboxCharacterQueueAuditEnabled = -1;
+	if( XboxCharacterQueueAuditEnabled < 0 )
+		XboxCharacterQueueAuditEnabled = GetFileAttributesA( "D:\\XboxCharacterSoak.ini" ) != 0xFFFFFFFF;
+	if( Frame->Parent == NULL && XboxCharacterQueueAuditEnabled )
 	{
 		static AActor* LastXboxQueuedActor = NULL;
 		static UBOOL LastXboxQueued = 0;

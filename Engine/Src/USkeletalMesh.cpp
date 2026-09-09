@@ -41,6 +41,9 @@ struct CFSkeletalHeader
 	FName          CachedSeq;
 	INT            CachedLodVerts;
 	UBOOL          CachedBonesValid;
+	AActor*        CachedAnimOwner;
+	UAnimation*    CachedAnimation;
+	UBOOL          CachedLoop;
 	FName          AuditSeq;
 	FLOAT          AuditFrame;
 	FVector        AuditMin;
@@ -270,6 +273,13 @@ static void SkelGetKeyParams
 	}
 
 	const UBOOL WrapKey = KeyA >= KeyCount - 1;
+	// One-shot tracks hold their final key. Only a looping track may blend
+	// its last key back to the first during the remaining duration.
+	if( WrapKey && !Loop )
+	{
+		KeyB = KeyA;
+		return;
+	}
 	KeyB = WrapKey ? 0 : KeyA + 1;
 	const FLOAT Interval = WrapKey
 		? Duration - Track.KeyTime(KeyA)
@@ -409,8 +419,15 @@ static FCoords SkelBuildClassicWeaponCoords
 )
 {
 	const FVector Pivot = (WeaponCoords.Origin - MeshOrigin).TransformPointBy( MeshCoords );
-	const FVector XPoint = (WeaponCoords.Origin + WeaponCoords.XAxis - MeshOrigin).TransformPointBy( MeshCoords );
-	const FVector YPoint = (WeaponCoords.Origin + WeaponCoords.YAxis - MeshOrigin).TransformPointBy( MeshCoords );
+	// Posed bases transform local points using dot products against their rows,
+	// exactly as SkelPivotTransformPoint does for the skin. A local unit axis
+	// therefore transforms to a COLUMN of that matrix, not one of its rows.
+	// Reading the rows inverted the bone rotation and moved the weapon's own
+	// grip offset away from the animated hand as the arm turned.
+	const FVector WeaponX = SkelPivotTransformVector( WeaponCoords, FVector(1,0,0) );
+	const FVector WeaponY = SkelPivotTransformVector( WeaponCoords, FVector(0,1,0) );
+	const FVector XPoint = (WeaponCoords.Origin + WeaponX - MeshOrigin).TransformPointBy( MeshCoords );
+	const FVector YPoint = (WeaponCoords.Origin + WeaponY - MeshOrigin).TransformPointBy( MeshCoords );
 
 	FCoords Attachment;
 	Attachment.Origin = Pivot;
@@ -1121,6 +1138,21 @@ void USkeletalMesh::GetFrame
 	}
 
 	AActor* AnimOwner = Owner->bAnimByOwner && Owner->Owner ? Owner->Owner : Owner;
+#if TARGET_XBOX
+	if( SkelAuditEnabled() )
+	{
+		APawn* PlaybackPawn = Cast<APawn>(AnimOwner);
+		static INT LastPlaybackLogTick = -1;
+		if( PlaybackPawn && PlaybackPawn->bViewTarget && (INT)GTicks-LastPlaybackLogTick >= 15 )
+		{
+			const FMeshAnimSeq* Playback = GetAnimSeq(AnimOwner->AnimSequence);
+			debugf(NAME_Log,TEXT("XSKELPLAY tick=%i actor=%s seq=%s frame=%.4f normRate=%.4f numframes=%i seqRate=%.4f loop=%i"),
+				(INT)GTicks,AnimOwner->GetFullName(),*AnimOwner->AnimSequence,AnimOwner->AnimFrame,
+				AnimOwner->AnimRate,Playback ? Playback->NumFrames : 0,Playback ? Playback->Rate : 0.0f,(INT)AnimOwner->bAnimLoop);
+			LastPlaybackLogTick = (INT)GTicks;
+		}
+	}
+#endif
 	const INT VertsRequested = Min( LODRequest + SpecialVerts, FrameVerts );
 	INT VertexCount = VertsRequested;
 	LODRequest = Max( 0, VertexCount - SpecialVerts );
@@ -1145,6 +1177,7 @@ void USkeletalMesh::GetFrame
 			+ FrameVerts * sizeof(FVector)
 			+ BoneCount * sizeof(FVector)
 			+ BoneCount * sizeof(FAnimationQuat)
+			+ BoneCount * sizeof(FCoords)
 		);
 		Header = (CFSkeletalHeader*)Mem;
 		Header->CachedMesh = this;
@@ -1152,6 +1185,9 @@ void USkeletalMesh::GetFrame
 		Header->CachedSeq = NAME_None;
 		Header->CachedLodVerts = 0;
 		Header->CachedBonesValid = 0;
+		Header->CachedAnimOwner = NULL;
+		Header->CachedAnimation = NULL;
+		Header->CachedLoop = 0;
 		Header->AuditSeq = NAME_None;
 		Header->AuditFrame = 0.0f;
 		Header->AuditMin = FVector(0,0,0);
@@ -1170,14 +1206,22 @@ void USkeletalMesh::GetFrame
 	FVector* CachedVerts = (FVector*)(Mem + sizeof(CFSkeletalHeader));
 	FVector* CachedPositions = CachedVerts + FrameVerts;
 	FAnimationQuat* CachedOrientations = (FAnimationQuat*)(CachedPositions + BoneCount);
-	const INT SequenceIndex = SkelFindSequenceIndex( Animation, AnimOwner->AnimSequence );
-	const FMeshAnimSeq* Seq = GetAnimSeq( AnimOwner->AnimSequence );
-	FCoords* PosedBases = BoneCount
-		? (FCoords*)appAlloca( BoneCount * sizeof(FCoords) )
-		: NULL;
+	FCoords* PosedBases = (FCoords*)(CachedOrientations + BoneCount);
 
-	if( BoneCount )
+	// Local-space vertices and bone bases do not depend on the viewing player.
+	// Retain both in the existing per-owner cache; viewport transforms and the
+	// weapon attachment transform below still run for every view. A closer
+	// view may request more LOD vertices and must populate those before reuse.
+	if( BoneCount && (!Header->CachedBonesValid
+		|| Header->CachedAnimOwner != AnimOwner
+		|| Header->CachedAnimation != Animation
+		|| Header->CachedLoop != (UBOOL)AnimOwner->bAnimLoop
+		|| Header->CachedSeq != AnimOwner->AnimSequence
+		|| Header->CachedFrame != AnimOwner->AnimFrame
+		|| Header->CachedLodVerts < VertexCount) )
 	{
+		const INT SequenceIndex = SkelFindSequenceIndex( Animation, AnimOwner->AnimSequence );
+		const FMeshAnimSeq* Seq = GetAnimSeq( AnimOwner->AnimSequence );
 		if( AnimOwner->AnimFrame >= 0.0f || !Header->CachedBonesValid )
 		{
 			SkelSampleLocalPose
@@ -1246,8 +1290,11 @@ void USkeletalMesh::GetFrame
 		SkelBuildPose( this, CachedPositions, CachedOrientations, PosedBases );
 		SkelSkinVertices( this, CachedVerts, VertexCount, PosedBases );
 		Header->CachedLodVerts = VertexCount;
+		Header->CachedAnimOwner = AnimOwner;
+		Header->CachedAnimation = Animation;
+		Header->CachedLoop = AnimOwner->bAnimLoop;
 	}
-	else
+	else if( !BoneCount )
 	{
 		for( INT VertexIndex=0; VertexIndex<VertexCount; VertexIndex++ )
 			CachedVerts[VertexIndex] = SkeletalPoints(VertexIndex);
@@ -1282,6 +1329,9 @@ void USkeletalMesh::GetFrame
 		if( SkelAuditEnabled() && Header->AuditPoseCount%120 == 1 )
 		{
 			const FCoords WeaponPivot = ClassicWeaponCoords.Inverse();
+			const FVector SocketX = SkelPivotTransformVector(AdjustedWeaponBone,FVector(1,0,0)).TransformVectorBy(Coords).SafeNormal();
+			const FVector SocketY = SkelPivotTransformVector(AdjustedWeaponBone,FVector(0,1,0)).TransformVectorBy(Coords).SafeNormal();
+			const FVector SocketZ = SkelPivotTransformVector(AdjustedWeaponBone,FVector(0,0,1)).TransformVectorBy(Coords).SafeNormal();
 			debugf
 			(
 				NAME_Log,
@@ -1295,10 +1345,30 @@ void USkeletalMesh::GetFrame
 				WeaponPivot.Origin.Y,
 				WeaponPivot.Origin.Z
 			);
+			debugf(NAME_Log,TEXT("XSKELSOCKET axes camera x=(%.3f,%.3f,%.3f) y=(%.3f,%.3f,%.3f) z=(%.3f,%.3f,%.3f)"),
+				SocketX.X,SocketX.Y,SocketX.Z,SocketY.X,SocketY.Y,SocketY.Z,SocketZ.X,SocketZ.Y,SocketZ.Z);
 		}
 #endif
 	}
 
+#if TARGET_XBOX
+	if( SkelAuditEnabled() && Owner->IsA(AWeapon::StaticClass()) && BoneCount && Header->AuditPoseCount%120 == 1 )
+	{
+		for( INT BoneIndex=0; BoneIndex<BoneCount; BoneIndex++ )
+		{
+			if( appStricmp(*RefSkeleton(BoneIndex).Name,TEXT("Bone_Flash")) == 0 )
+			{
+				const FVector Muzzle = (PosedBases[BoneIndex].Origin-Origin).TransformPointBy(Coords);
+				const FVector Root = (PosedBases[0].Origin-Origin).TransformPointBy(Coords);
+				const FVector Direction = (Muzzle-Root).SafeNormal();
+				debugf(NAME_Log,TEXT("XSKELMUZZLE mesh=%s seq=%s directionCamera=(%.3f,%.3f,%.3f) root=(%.2f,%.2f,%.2f) muzzle=(%.2f,%.2f,%.2f)"),
+					GetFullName(),*AnimOwner->AnimSequence,Direction.X,Direction.Y,Direction.Z,
+					Root.X,Root.Y,Root.Z,Muzzle.X,Muzzle.Y,Muzzle.Z);
+				break;
+			}
+		}
+	}
+#endif
 	for( INT VertexIndex=0; VertexIndex<VertexCount; VertexIndex++ )
 	{
 		*ResultVerts = (CachedVerts[VertexIndex] - Origin).TransformPointBy( Coords );

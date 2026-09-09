@@ -97,7 +97,7 @@ static const UBOOL GDeferMidSceneRealtimeTextureUpdates = 1;
 static const UBOOL GUseDrawPrimitiveUP = 1;
 static const UBOOL GShowXboxPerfOverlay = 0;
 static DOUBLE GRD_FrameStartSeconds = 0.0;
-static DOUBLE GRD_LastFrameStartSeconds = 0.0;
+static DOUBLE GRD_LastDisplayFrameSeconds = 0.0;
 static DOUBLE GRD_LastPerfLogSeconds = 0.0;
 static DOUBLE GRD_FpsWindowSeconds = 0.0;
 static INT    GRD_FpsWindowFrames = 0;
@@ -1796,9 +1796,6 @@ void UXboxRenderDevice::Lock( FPlane InFlashScale, FPlane InFlashFog, FPlane Scr
         EvictTexCacheForUpload( 0 );
     DOUBLE NowSeconds = appSeconds();
     GRD_FrameStartSeconds = NowSeconds;
-    if( GRD_LastFrameStartSeconds > 0.0 )
-        GRD_LastFrameMS = (FLOAT)((NowSeconds - GRD_LastFrameStartSeconds) * 1000.0);
-    GRD_LastFrameStartSeconds = NowSeconds;
 
     FlashScale = InFlashScale;
     FlashFog   = InFlashFog;
@@ -1950,14 +1947,24 @@ void UXboxRenderDevice::Unlock( UBOOL Blit )
     FlushDTBatch( "Unlock" );
 
     DOUBLE BeforeOverlaySeconds = appSeconds();
-    GRD_FpsWindowFrames++;
-    if( GRD_LastFrameMS > 0.0f )
-        GRD_FpsWindowSeconds += (DOUBLE)GRD_LastFrameMS * 0.001;
-    if( GRD_FpsWindowSeconds >= 0.50 )
+    // Split-screen calls Unlock for each viewport but presents only the last.
+    // Count displayed frames, including time spent drawing the other players.
+    if( Blit )
     {
-        GRD_DisplayFPS = (FLOAT)((DOUBLE)GRD_FpsWindowFrames / GRD_FpsWindowSeconds);
-        GRD_FpsWindowFrames = 0;
-        GRD_FpsWindowSeconds = 0.0;
+        if( GRD_LastDisplayFrameSeconds > 0.0 )
+        {
+            DOUBLE DisplayFrameSeconds = BeforeOverlaySeconds - GRD_LastDisplayFrameSeconds;
+            GRD_LastFrameMS = (FLOAT)(DisplayFrameSeconds * 1000.0);
+            GRD_FpsWindowFrames++;
+            GRD_FpsWindowSeconds += DisplayFrameSeconds;
+        }
+        GRD_LastDisplayFrameSeconds = BeforeOverlaySeconds;
+        if( GRD_FpsWindowSeconds >= 0.50 )
+        {
+            GRD_DisplayFPS = (FLOAT)((DOUBLE)GRD_FpsWindowFrames / GRD_FpsWindowSeconds);
+            GRD_FpsWindowFrames = 0;
+            GRD_FpsWindowSeconds = 0.0;
+        }
     }
 
     if( !SceneOpen )
@@ -1979,7 +1986,11 @@ void UXboxRenderDevice::Unlock( UBOOL Blit )
     DOUBLE BeforePresentSeconds = appSeconds();
     GRD_LastRenderMS = (FLOAT)((BeforePresentSeconds - GRD_FrameStartSeconds) * 1000.0);
 
-    XboxRenderApplyDisplayPostProcess( this );
+    // This pass copies and corrects the entire backbuffer. Running it on an
+    // intermediate viewport repeats the correction on earlier players and
+    // spends full-screen bandwidth for every local player.
+    if( Blit )
+        XboxRenderApplyDisplayPostProcess( this );
     if( GRD_LoadingBackgroundCaptureRequested )
         XboxRenderCaptureLoadingBackgroundNow( this );
 
@@ -1993,7 +2004,7 @@ void UXboxRenderDevice::Unlock( UBOOL Blit )
 
     if( GRD_LastPerfLogSeconds == 0.0 )
         GRD_LastPerfLogSeconds = AfterPresentSeconds;
-    if( AfterPresentSeconds - GRD_LastPerfLogSeconds >= 2.0 )
+    if( Blit && AfterPresentSeconds - GRD_LastPerfLogSeconds >= 2.0 )
     {
         GXboxLog.Write( "PERF fps=%.1f frameMS=%.2f renderMS=%.2f presentMS=%.2f wide=%d projX=%.1f projY=%.1f DCS=%d DGP=%d DT=%d prim=%d verts=%d dgpBatch=%d/%d dtBatch=%d/%d vbLocks=%d vbWraps=%d up=%d/%d vbKB=%d state=%d/%d texBind=%d texNew=%d texUp=%d texDef=%d splits=%d liveKB=%d texKB=%d availKB=%u clampBad=%d clampOk=%d nobase=%d",
             GRD_DisplayFPS, GRD_LastFrameMS, GRD_LastRenderMS, GRD_LastPresentMS,
@@ -3082,6 +3093,22 @@ void UXboxRenderDevice::DrawComplexSurface( FSceneNode* Frame, FSurfaceInfo& Sur
     if( !Device || !Frame || !Surface.Texture )
         return;
 
+    // Reuse one scratch buffer across this surface's polygons and passes.
+    // Small BSP polygons should not pay for several 512-vertex stack arrays.
+    // Allocate an oversized polygon only once, outside the polygon loops:
+    // alloca inside a loop would accumulate until the entire surface returns.
+    INT ScratchPoints = 16;
+    for( FSavedPoly* ScratchPoly = Facet.Polys; ScratchPoly; ScratchPoly = ScratchPoly->Next )
+        if( ScratchPoly->NumPts > ScratchPoints && ScratchPoly->NumPts <= XBOX_MAX_VERTS )
+            ScratchPoints = ScratchPoly->NumPts;
+    union
+    {
+        FXboxWorldVertex Single[16];
+        FXboxWorldVertex2 Multi[16];
+    } InlineScratch;
+    void* SurfaceScratch = ScratchPoints <= 16 ? (void*)&InlineScratch
+        : appAlloca(ScratchPoints * sizeof(FXboxWorldVertex2));
+
     if( RenderHotFrame( FrameCounter ) && RenderHotTrace() )
         GXboxLog.Write( "DCS begin f=%d dcs=%d tex=%08X:%08X light=0x%08X macro=0x%08X fog=0x%08X flags=0x%08X",
             FrameCounter, GRD_FrameDCS,
@@ -3189,7 +3216,7 @@ void UXboxRenderDevice::DrawComplexSurface( FSceneNode* Frame, FSurfaceInfo& Sur
                 continue;
             }
 
-            FXboxWorldVertex2 Verts[XBOX_MAX_VERTS];
+            FXboxWorldVertex2* Verts = (FXboxWorldVertex2*)SurfaceScratch;
             for( INT i = 0; i < Poly->NumPts; i++ )
             {
                 Verts[i].x    = Poly->Pts[i]->Point.X;
@@ -3240,7 +3267,7 @@ void UXboxRenderDevice::DrawComplexSurface( FSceneNode* Frame, FSurfaceInfo& Sur
                 continue;
             }
 
-            FXboxWorldVertex Verts[XBOX_MAX_VERTS];
+            FXboxWorldVertex* Verts = (FXboxWorldVertex*)SurfaceScratch;
             for( INT i = 0; i < Poly->NumPts; i++ )
             {
                 FLOAT u = Facet.MapCoords.XAxis | (*(FVector*)Poly->Pts[i] - Facet.MapCoords.Origin);
@@ -3277,7 +3304,7 @@ void UXboxRenderDevice::DrawComplexSurface( FSceneNode* Frame, FSurfaceInfo& Sur
                     if( Poly->NumPts < 3 || Poly->NumPts > XBOX_MAX_VERTS )
                         continue;
 
-                    FXboxWorldVertex Verts[XBOX_MAX_VERTS];
+                    FXboxWorldVertex* Verts = (FXboxWorldVertex*)SurfaceScratch;
                     for( INT i = 0; i < Poly->NumPts; i++ )
                     {
                         FLOAT u = Facet.MapCoords.XAxis | (*(FVector*)Poly->Pts[i] - Facet.MapCoords.Origin);
@@ -3312,7 +3339,7 @@ void UXboxRenderDevice::DrawComplexSurface( FSceneNode* Frame, FSurfaceInfo& Sur
                     if( Poly->NumPts < 3 || Poly->NumPts > XBOX_MAX_VERTS )
                         continue;
 
-                    FXboxWorldVertex Verts[XBOX_MAX_VERTS];
+                    FXboxWorldVertex* Verts = (FXboxWorldVertex*)SurfaceScratch;
                     for( INT i = 0; i < Poly->NumPts; i++ )
                     {
                         FLOAT u = Facet.MapCoords.XAxis | (*(FVector*)Poly->Pts[i] - Facet.MapCoords.Origin);
@@ -3350,7 +3377,7 @@ void UXboxRenderDevice::DrawComplexSurface( FSceneNode* Frame, FSurfaceInfo& Sur
                 if( Poly->NumPts < 3 || Poly->NumPts > XBOX_MAX_VERTS )
                     continue;
 
-                FXboxWorldVertex FogVerts[XBOX_MAX_VERTS];
+                FXboxWorldVertex* FogVerts = (FXboxWorldVertex*)SurfaceScratch;
                 for( INT i = 0; i < Poly->NumPts; i++ )
                 {
                     FLOAT u = Facet.MapCoords.XAxis | (*(FVector*)Poly->Pts[i] - Facet.MapCoords.Origin);
@@ -3385,6 +3412,15 @@ void UXboxRenderDevice::DrawComplexSurface( FSceneNode* Frame, FSurfaceInfo& Sur
 // DrawGouraudPolygon ??? mesh/actor rendering
 // Port of D3D7 lines 904-957.
 // ============================================================================
+static inline INT XboxRenderColorByte( FLOAT Light )
+{
+    // A saturated color is nonnegative, so truncation is exactly floor.
+    // Avoid the out-of-line CRT floor call for each channel of each vertex.
+    if( !(Light > 0.0f) ) return 0;
+    if( Light >= 1.0f ) return 255;
+    return (INT)(Light * 255.0f);
+}
+
 void UXboxRenderDevice::DrawGouraudPolygon( FSceneNode* Frame, FTextureInfo& Info, FTransTexture** Pts, int NumPts, DWORD PolyFlags, FSpanBuffer* Span )
 {
     guard(UXboxRenderDevice::DrawGouraudPolygon);
@@ -3408,7 +3444,34 @@ void UXboxRenderDevice::DrawGouraudPolygon( FSceneNode* Frame, FTextureInfo& Inf
             FrameCounter, GRD_FrameDGP, NumPts, Info.Format,
             (DWORD)(Info.CacheID >> 32), (DWORD)Info.CacheID, PolyFlags );
 
-    FXboxWorldVertex Verts[XBOX_MAX_VERTS];
+    RenderDiagPrim( NumPts, PolyFlags, "DGP" );
+    INT TriVerts = (NumPts - 2) * 3;
+    UBOOL bCanBatch = !Info.bRealtimeChanged && TriVerts <= XBOX_DGP_BATCH_VERTS;
+    if( bCanBatch && GRD_DGPBatchActive &&
+        (GRD_DGPBatchCacheID != Info.CacheID || GRD_DGPBatchPolyFlags != PolyFlags || GRD_DGPBatchVerts + TriVerts > XBOX_DGP_BATCH_VERTS) )
+        FlushDGPBatch( "DGP-state" );
+
+    if( !bCanBatch )
+        FlushDGPBatch( "DGP-fallback" );
+
+    if( !GRD_DGPBatchActive )
+    {
+        if( !SetTextureD3D( 0, Info, PolyFlags ) )
+            return;
+        SetBlending( PolyFlags );
+        SetCachedVertexShader( XBOX_FVF_WORLDVERTEX );
+        GRD_DGPBatchActive = bCanBatch;
+        GRD_DGPBatchCacheID = Info.CacheID;
+        GRD_DGPBatchPolyFlags = PolyFlags;
+    }
+
+    // Most calls contain one triangle. Avoid a 12 KB fixed stack frame and
+    // its page probes on every polygon; clipped fans retain the full limit.
+    FXboxWorldVertex InlineVerts[8];
+    FXboxWorldVertex* Verts = NumPts <= ARRAY_COUNT(InlineVerts)
+        ? InlineVerts : (FXboxWorldVertex*)appAlloca(NumPts * sizeof(FXboxWorldVertex));
+    // SetTextureD3D above establishes the current texture's UV scales before
+    // vertex conversion, including the first triangle after a material change.
     for( INT i = 0; i < NumPts; i++ )
     {
         Verts[i].x     = Pts[i]->Point.X;
@@ -3428,29 +3491,11 @@ void UXboxRenderDevice::DrawGouraudPolygon( FSceneNode* Frame, FTextureInfo& Inf
         {
             Verts[i].color = D3DCOLOR_ARGB(
                 255,
-                Clamp( appFloor(Pts[i]->Light.X * 255.f), 0, 255 ),
-                Clamp( appFloor(Pts[i]->Light.Y * 255.f), 0, 255 ),
-                Clamp( appFloor(Pts[i]->Light.Z * 255.f), 0, 255 )
+                XboxRenderColorByte(Pts[i]->Light.X),
+                XboxRenderColorByte(Pts[i]->Light.Y),
+                XboxRenderColorByte(Pts[i]->Light.Z)
             );
         }
-    }
-
-    RenderDiagPrim( NumPts, PolyFlags, "DGP" );
-    INT TriVerts = (NumPts - 2) * 3;
-    UBOOL bCanBatch = !Info.bRealtimeChanged && TriVerts <= XBOX_DGP_BATCH_VERTS;
-    if( bCanBatch && GRD_DGPBatchActive &&
-        (GRD_DGPBatchCacheID != Info.CacheID || GRD_DGPBatchPolyFlags != PolyFlags || GRD_DGPBatchVerts + TriVerts > XBOX_DGP_BATCH_VERTS) )
-        FlushDGPBatch( "DGP-state" );
-
-    if( bCanBatch && !GRD_DGPBatchActive )
-    {
-        if( !SetTextureD3D( 0, Info, PolyFlags ) )
-            return;
-        SetBlending( PolyFlags );
-        SetCachedVertexShader( XBOX_FVF_WORLDVERTEX );
-        GRD_DGPBatchActive = 1;
-        GRD_DGPBatchCacheID = Info.CacheID;
-        GRD_DGPBatchPolyFlags = PolyFlags;
     }
 
     if( bCanBatch && GRD_DGPBatchActive && GRD_DGPBatchCacheID == Info.CacheID && GRD_DGPBatchPolyFlags == PolyFlags )
@@ -3465,11 +3510,6 @@ void UXboxRenderDevice::DrawGouraudPolygon( FSceneNode* Frame, FTextureInfo& Inf
     }
     else
     {
-        FlushDGPBatch( "DGP-fallback" );
-        if( !SetTextureD3D( 0, Info, PolyFlags ) )
-            return;
-        SetBlending( PolyFlags );
-        SetCachedVertexShader( XBOX_FVF_WORLDVERTEX );
         if( RenderHotFrame( FrameCounter ) && RenderHotTrace() )
             GXboxLog.Write( "RDRAW begin op=DGP f=%d dgp=%d prim=%d pts=%d stride=%d flags=0x%08X",
                 FrameCounter, GRD_FrameDGP, GRD_FramePrims + 1, NumPts, (INT)sizeof(FXboxWorldVertex), PolyFlags );

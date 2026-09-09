@@ -710,9 +710,13 @@ void URender::DrawLodMesh
 
 	// Dynamic Face array setup. All faces with valid LOD level get their 3 wedges LOD-processed/morphed,
 	// and these get flagged as processed using the (full sized) WedgePool table.	
-	TArray<FMeshFaceSort> FacePool;
-	TArray<FMeshWedge>    WedgePool;
-	WedgePool.AddZeroed( Mesh->Wedges.Num() );
+	// These buffers live only until Mark.Pop(). Using the render scratch stack
+	// avoids heap growth/reallocation for every actor in every local viewport.
+	FMeshFaceSort* FacePool = New<FMeshFaceSort>(GMem, Mesh->Faces.Num());
+	INT FaceCount = 0;
+	FMeshWedge* WedgePool = DoLOD
+		? NewZeroed<FMeshWedge>(GMem, Mesh->Wedges.Num())
+		: (Mesh->Wedges.Num() ? &Mesh->Wedges(0) : NULL);
 	// Minor kludge: *if* UV==0 and ivertex==0 it will assume an uninitialized one.
 
 	INT MatIndex = -1;
@@ -750,7 +754,7 @@ void URender::DrawLodMesh
 						FMeshWedge Wedge = Mesh->Wedges(iStartWedge); 
 
 						// Uninitialized wedge ?
-						if( *(DWORD*)&WedgePool(iStartWedge) == 0) 
+						if( *(DWORD*)&WedgePool[iStartWedge] == 0)
 						{
 							INT iWedge = iStartWedge;
 
@@ -781,11 +785,11 @@ void URender::DrawLodMesh
 									}
 								}
 							}
-							WedgePool(iStartWedge) = Wedge; // Cache it, including the possibly morphed UV.
+							WedgePool[iStartWedge] = Wedge; // Cache it, including the possibly morphed UV.
 						}
 						else
 						{
-							Wedge = WedgePool(iStartWedge);
+							Wedge = WedgePool[iStartWedge];
 						}
 						V[w] = &Samples[Wedge.iVertex];
 
@@ -812,14 +816,14 @@ void URender::DrawLodMesh
 							V[2]->Light.X = -1;
 
 							// This face is visible. Add to the list.
-							INT FaceTop = FacePool.Num();
-							FacePool.Add();
-							FacePool(FaceTop).Face = &Face;
+							INT FaceTop = FaceCount;
+							FaceCount++;
+							FacePool[FaceTop].Face = &Face;
 
 							//Set the sort key ONLY if we're in software.
 							if (SoftwareRendering)
 							{
-								FacePool(FaceTop).Key
+								FacePool[FaceTop].Key
 								=	NotWeaponHeuristic
 								?	appRound( V[0]->Point.Z + V[1]->Point.Z + V[2]->Point.Z )
 								:	appRound( FDistSquared(V[0]->Point,Hack)*FDistSquared(V[1]->Point,Hack)*FDistSquared(V[2]->Point,Hack) );
@@ -848,9 +852,6 @@ void URender::DrawLodMesh
 				FMeshWedge Wedge0 = Mesh->Wedges(iStartWedge0); 
 				FMeshWedge Wedge1 = Mesh->Wedges(iStartWedge1); 
 				FMeshWedge Wedge2 = Mesh->Wedges(iStartWedge2); 
-				WedgePool(iStartWedge0) = Wedge0;
-				WedgePool(iStartWedge1) = Wedge1; 
-				WedgePool(iStartWedge2) = Wedge2;
 				V[0] = &Samples[Wedge0.iVertex]; 
 				V[1] = &Samples[Wedge1.iVertex]; 
 				V[2] = &Samples[Wedge2.iVertex];  
@@ -875,14 +876,14 @@ void URender::DrawLodMesh
 						V[2]->Light.X = -1; 
 
 						// This face is visible. Add to the list.
-						INT FaceTop = FacePool.Num();
-						FacePool.Add();
-						FacePool(FaceTop).Face = &Face;
+						INT FaceTop = FaceCount;
+						FaceCount++;
+						FacePool[FaceTop].Face = &Face;
 
 						//Set the sort key ONLY if we're in software.
 						if (SoftwareRendering)
 						{
-							FacePool(FaceTop).Key
+							FacePool[FaceTop].Key
 							=	NotWeaponHeuristic
 							?	appRound( V[0]->Point.Z + V[1]->Point.Z + V[2]->Point.Z )
 							:	appRound( FDistSquared(V[0]->Point,Hack)*FDistSquared(V[1]->Point,Hack)*FDistSquared(V[2]->Point,Hack) );
@@ -901,7 +902,7 @@ void URender::DrawLodMesh
 		Owner,
 		Mesh,
 		VertexSubset,
-		FacePool.Num(),
+		FaceCount,
 		MeshOutcode,
 		Samples,
 		Coords
@@ -936,7 +937,7 @@ void URender::DrawLodMesh
 			Owner->GetFullName(),
 			Mesh->GetFullName(),
 			VertexSubset,
-			FacePool.Num(),
+			FaceCount,
 			MeshOutcode,
 			Frame->Mirror,
 			Owner->DrawScale,
@@ -952,7 +953,7 @@ void URender::DrawLodMesh
 	// Render triangles.
 	//
 
-	if( FacePool.Num() )
+	if( FaceCount )
 	{
 		guardSlow(Render);
 		// Fatness.
@@ -963,7 +964,7 @@ void URender::DrawLodMesh
 		// Sort by depth.
 		if( SoftwareRendering ) 
 		{
-			appQsort( &FacePool(0), FacePool.Num(), sizeof(FacePool(0)), (QSORT_COMPARE)CompareFaceKey );
+			appQsort( &FacePool[0], FaceCount, sizeof(FacePool[0]), (QSORT_COMPARE)CompareFaceKey );
 		}
 
 		// Lock the textures.
@@ -990,7 +991,13 @@ void URender::DrawLodMesh
 		else if( Owner->Level->EnvironmentMap )
 			EnvironmentMap = Owner->Level->EnvironmentMap;
 		if( EnvironmentMap==NULL )
+		{
+			for( INT TextureIndex=0; TextureIndex<Mesh->Textures.Num(); TextureIndex++ )
+				if( Textures[TextureIndex] ) Textures[TextureIndex]->Unlock(TextureInfo[TextureIndex]);
+			STAT(unclock(GStat.MeshTime));
+			Mark.Pop();
 			return;
+		}
 		check(EnvironmentMap);
 		EnvironmentMap->Lock( EnvironmentInfo, Frame->Viewport->CurrentTime, -1, Frame->Viewport->RenDev );
 
@@ -1033,16 +1040,16 @@ void URender::DrawLodMesh
 		STAT(unclock(GStat.MeshLightTime));
 
 		// Draw the triangles.
-		STAT(GStat.MeshPolyCount+=FacePool.Num());
+		STAT(GStat.MeshPolyCount+=FaceCount);
 
 		// Reset cached material indicator.
 		MatIndex = -1;
 		FTextureInfo* Info = NULL; 
 
-		for( i=0; i<FacePool.Num(); i++ )
+		for( i=0; i<FaceCount; i++ )
 		{
 			// Set up the triangle.
-			FMeshFace &Face = *FacePool(i).Face;
+			FMeshFace &Face = *FacePool[i].Face;
 
 			// Update material if changed since last face.
 			if ( MatIndex != Face.MaterialIndex )
@@ -1058,9 +1065,9 @@ void URender::DrawLodMesh
 			// Set up texture coords.
 			FTransTexture* Pts[6];
 			// Vertex 0,1,2 unrolled assignment.
-			FMeshWedge Wedge0 = WedgePool( Face.iWedge[0] );
-			FMeshWedge Wedge1 = WedgePool( Face.iWedge[1] );
-			FMeshWedge Wedge2 = WedgePool( Face.iWedge[2] );
+			FMeshWedge Wedge0 = WedgePool[ Face.iWedge[0] ];
+			FMeshWedge Wedge1 = WedgePool[ Face.iWedge[1] ];
+			FMeshWedge Wedge2 = WedgePool[ Face.iWedge[2] ];
 			Pts[0]    = &Samples[ Wedge0.iVertex ];
 			Pts[1]    = &Samples[ Wedge1.iVertex ];
 			Pts[2]    = &Samples[ Wedge2.iVertex ];

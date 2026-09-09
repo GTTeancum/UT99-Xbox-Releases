@@ -318,6 +318,7 @@ void MainLoop( UEngine* Engine )
 	UBOOL bXboxStartSmokeEnabled = bXboxSoakEnabled || (GetFileAttributesA( "D:\\XboxStartURL.ini" ) != 0xFFFFFFFF);
 	UBOOL bXboxCharacterSoakEnabled = GetFileAttributesA( "D:\\XboxCharacterSoak.ini" ) != 0xFFFFFFFF;
 	UBOOL bXboxSkeletalStateProofEnabled = GetFileAttributesA( "D:\\XboxSkeletalStateProof.ini" ) != 0xFFFFFFFF;
+	const UBOOL bXboxGameplayRecording = GetFileAttributesA( "D:\\XboxGameplayRecording.ini" ) != 0xFFFFFFFF;
 	UBOOL bXboxSmokeMatchEndLogged = 0;
 	DWORD XboxSoakCameraNextTime = 0;
 	INT XboxSoakCameraNextTick = 0;
@@ -384,7 +385,7 @@ void MainLoop( UEngine* Engine )
 
 				DWORD CameraNow = GetTickCount();
 				ULevel* SoakLevel = SoakActor->GetLevel();
-				if( SoakLevel && SoakLevel->GetLevelInfo() )
+				if( !bXboxGameplayRecording && SoakLevel && SoakLevel->GetLevelInfo() )
 				{
 					for( APawn* Bot = SoakLevel->GetLevelInfo()->PawnList; Bot; Bot = Bot->nextPawn )
 					{
@@ -409,7 +410,7 @@ void MainLoop( UEngine* Engine )
 					}
 					if( LiveBotCount )
 					{
-						const INT WantedBot = XboxSoakCameraIndex % LiveBotCount;
+						const INT WantedBot = bXboxGameplayRecording ? 0 : XboxSoakCameraIndex % LiveBotCount;
 						INT BotIndex = 0;
 						for( APawn* Bot = SoakLevel->GetLevelInfo()->PawnList; Bot; Bot = Bot->nextPawn )
 						{
@@ -433,7 +434,7 @@ void MainLoop( UEngine* Engine )
 						if( bXboxSkeletalStateProofEnabled )
 							XboxSoakCameraNextTick = TickCount + 1500;
 						else
-							XboxSoakCameraNextTime = CameraNow + 20000;
+							XboxSoakCameraNextTime = CameraNow + (bXboxGameplayRecording ? 100 : 20000);
 					}
 				}
 				if( XboxSoakCameraActiveIndex >= 0 && XboxSoakCameraActiveClass.Len() && (TickCount % 60) == 0 )
@@ -448,6 +449,25 @@ void MainLoop( UEngine* Engine )
 
 		// Tick the engine
 		Engine->Tick( DeltaTime );
+
+		// Average actual work over a window; a single sampled frame can land on
+		// an upload or timer and is not representative of steady gameplay.
+		static DOUBLE PerfWindowStart = 0.0;
+		static DOUBLE PerfWorkSeconds = 0.0;
+		static INT PerfSamples = 0;
+		DOUBLE WorkEnd = appSeconds();
+		if( PerfWindowStart == 0.0 ) PerfWindowStart = NewTime;
+		PerfWorkSeconds += WorkEnd - NewTime;
+		PerfSamples++;
+		if( WorkEnd - PerfWindowStart >= 5.0 )
+		{
+			GXboxLog.Write( "XFRAME samples=%d meanWorkMS=%.3f wallFPS=%.2f",
+				PerfSamples, (FLOAT)(1000.0 * PerfWorkSeconds / PerfSamples),
+				(FLOAT)(PerfSamples / (WorkEnd - PerfWindowStart)) );
+			PerfWindowStart = WorkEnd;
+			PerfWorkSeconds = 0.0;
+			PerfSamples = 0;
+		}
 
 		if( bBoundaryTick )
 			GXboxLog.Write( "MainLoop: post-tick %d", TickCount + 1 );

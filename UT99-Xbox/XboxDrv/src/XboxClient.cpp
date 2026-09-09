@@ -230,13 +230,20 @@ void UXboxClient::Tick()
     if( bSplit )
     {
         static DOUBLE LastSplitPerfLogSeconds = 0.0;
+        static DOUBLE SplitDrawTotalSeconds = 0.0;
+        static INT SplitPerfFrames = 0;
         DOUBLE NowSeconds = appSeconds();
+        SplitDrawTotalSeconds += NowSeconds - SplitDrawStart;
+        SplitPerfFrames++;
         if( LastSplitPerfLogSeconds == 0.0 || NowSeconds - LastSplitPerfLogSeconds >= 2.0 )
         {
-            GXboxLog.Write( "XSPLIT PERF viewports=%d drawn=%d skipped=%d last=%d drawMS=%.2f",
+            GXboxLog.Write( "XSPLIT PERF viewports=%d drawn=%d skipped=%d last=%d drawMS=%.2f meanDrawMS=%.3f samples=%d",
                 Viewports.Num(), SplitDrawn, SplitSkipped, LastRenderViewport,
-                (FLOAT)((NowSeconds - SplitDrawStart) * 1000.0) );
+                (FLOAT)((NowSeconds - SplitDrawStart) * 1000.0),
+                (FLOAT)(SplitDrawTotalSeconds * 1000.0 / SplitPerfFrames), SplitPerfFrames );
             LastSplitPerfLogSeconds = NowSeconds;
+            SplitDrawTotalSeconds = 0.0;
+            SplitPerfFrames = 0;
         }
     }
     if( bBoundaryTick )

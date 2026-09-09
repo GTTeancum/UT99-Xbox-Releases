@@ -19,6 +19,12 @@ for the official console releases. Original game: Epic Games and Digital
 Extremes. Refer to `Docs/Console_Map_Pack_README.txt` for the complete map list,
 source platform, title, player count, and per-map author attribution.
 
+The Phalanx and Sundial embedded world textures are recovered from the original
+PS2 disc's retained mipmaps and palettes, with their original world scale.
+EpicCustomModels.u is restored from the previously distributed RC1 System set;
+this Epic Games package supplies the meshes imported by MultiMesh and
+RocketArenaMultiMesh, including indirect PS2 character dependencies.
+
 Authors represented in that map pack:
 - Cliff Bleszinski
 - Dave Ewing

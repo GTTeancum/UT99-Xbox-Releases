@@ -568,6 +568,8 @@ class UXboxAudioDevice : public UAudioSubsystem
     UBOOL           MusicPaused;
     UBOOL           MusicFailed;
     UBOOL           SuppressEffects;
+    UBOOL           LoadingSilenced;
+    TCHAR           DeferredNativeMusic[96];
     struct FXboxLoopingSound
     {
         AActor* Actor;
@@ -576,6 +578,9 @@ class UXboxAudioDevice : public UAudioSubsystem
         IDirectSoundBuffer* Buffer;
         DWORD BaseRate;
         DOUBLE LastSeen;
+        FLOAT LastLinearVolume;
+        DWORD LastPlaybackRate;
+        UBOOL VolumeValid;
     };
     FXboxLoopingSound LoopingSounds[16];
     INT             LoopingSoundLogCount;
@@ -623,6 +628,8 @@ public:
         MusicPaused      = 0;
         MusicFailed      = 0;
         SuppressEffects  = 0;
+        LoadingSilenced  = 0;
+        DeferredNativeMusic[0] = 0;
         appMemzero( LoopingSounds, sizeof(LoopingSounds) );
         LoopingSoundLogCount = 0;
     }
@@ -780,8 +787,45 @@ public:
             SetMusicPaused( appAtoi(Cmd) ? 1 : 0 );
             return 1;
         }
+        if( ParseCommand( &Cmd, TEXT("XAUDIOSETLOADING") ) )
+        {
+            const UBOOL bLoading = appAtoi(Cmd) ? 1 : 0;
+            if( bLoading && !LoadingSilenced )
+                DeferredNativeMusic[0] = 0;
+            LoadingSilenced = bLoading;
+            if( LoadingSilenced )
+            {
+                StopAllEffects();
+                StopMusic();
+                INT ActiveEffects = 0;
+                for( TObjectIterator<USound> It; It; ++It )
+                    if( It->Handle )
+                    {
+                        DWORD Status = 0;
+                        ((IDirectSoundBuffer*)It->Handle)->GetStatus( &Status );
+                        if( Status & DSBSTATUS_PLAYING ) ActiveEffects++;
+                    }
+                GXboxLog.Write( "XboxAudio: loading buffers musicPlaying=%d stream=%d activeEffects=%d",
+                    MusicPlaying ? 1 : 0, MusicStream ? 1 : 0, ActiveEffects );
+            }
+            GXboxLog.Write( "XboxAudio: loading silence %s", LoadingSilenced ? "on" : "off" );
+            if( !LoadingSilenced && DeferredNativeMusic[0] )
+            {
+                TCHAR DeferredCommand[128];
+                appSprintf( DeferredCommand, TEXT("XAUDIOSTARTNATIVE %s"), DeferredNativeMusic );
+                DeferredNativeMusic[0] = 0;
+                Exec( DeferredCommand, Ar );
+            }
+            return 1;
+        }
         if( ParseCommand( &Cmd, TEXT("XAUDIOSTARTNATIVE") ) )
         {
+            if( LoadingSilenced )
+            {
+                appStrncpy( DeferredNativeMusic, Cmd, ARRAY_COUNT(DeferredNativeMusic) );
+                DeferredNativeMusic[ARRAY_COUNT(DeferredNativeMusic)-1] = 0;
+                return 1;
+            }
             TCHAR MusicName[64];
             appMemzero( MusicName, sizeof(MusicName) );
             if( !ParseToken( Cmd, MusicName, ARRAY_COUNT(MusicName), 0 ) || !MusicName[0] )
@@ -920,8 +964,19 @@ public:
         IDirectSoundBuffer* Buffer = Loop.Buffer;
         FLOAT ClampedPitch = Clamp( Pitch, 0.25f, 4.0f );
         DWORD PlaybackRate = Max<DWORD>( 100, (DWORD)(Loop.BaseRate * ClampedPitch) );
-        Buffer->SetVolume( XboxVolumeToDS( Clamp( Volume * ((FLOAT)SoundVolume / 255.0f), 0.0f, 1.0f ) ) );
-        Buffer->SetFrequency( PlaybackRate );
+        const FLOAT LinearVolume = Clamp( Volume * ((FLOAT)SoundVolume / 255.0f), 0.0f, 1.0f );
+        // Ambient voices survive between updates. Avoid repeated logarithms
+        // and DSP parameter submissions while their audible settings agree.
+        if( !Loop.VolumeValid || Loop.LastLinearVolume != LinearVolume )
+        {
+            if( SUCCEEDED(Buffer->SetVolume(XboxVolumeToDS(LinearVolume))) )
+            {
+                Loop.LastLinearVolume = LinearVolume;
+                Loop.VolumeValid = 1;
+            }
+        }
+        if( Loop.LastPlaybackRate != PlaybackRate && SUCCEEDED(Buffer->SetFrequency(PlaybackRate)) )
+            Loop.LastPlaybackRate = PlaybackRate;
 
         DWORD Status = 0;
         Buffer->GetStatus( &Status );
@@ -1003,6 +1058,8 @@ public:
     void Update( FPointRegion Region, FCoords& Listener )
     {
         guard(UXboxAudioDevice::Update);
+        if( LoadingSilenced )
+            return;
 
         if( Viewport && Viewport->Actor )
         {
@@ -1277,7 +1334,7 @@ public:
     {
         guard(UXboxAudioDevice::PlaySound);
 
-        if( !DirectSound || !Sound )
+        if( LoadingSilenced || !DirectSound || !Sound )
             return 0;
 
         if( XboxMenuWantsEffectSuppression() && !XboxMenuAllowsEffectSound( Id ) )

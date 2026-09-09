@@ -21,6 +21,8 @@ from collections import defaultdict
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import convert_console_maps as console_maps
 import convert_seekfree_console_maps as seekfree
+from package_properties import read_tags
+from recover_ps2_map_textures import recover_textures, build_texture
 
 
 PACKAGE_MAGIC = b"\xC1\x83\x2A\x9E"
@@ -597,7 +599,7 @@ def extract_ps2_frontend_preview(map_name):
     return best
 
 
-def sanitize_level_tail(level_tail, valid_actor_refs):
+def sanitize_level_tail(level_tail, valid_actor_refs, reach_remap=None):
     pos = 0
     for _ in range(4):
         pos = skip_fstring(level_tail, pos)
@@ -610,13 +612,15 @@ def sanitize_level_tail(level_tail, valid_actor_refs):
     reach_count_pos = pos
     reach_count, pos = seekfree.read_compact_index(level_tail, pos)
     rows = []
-    for _ in range(reach_count):
+    for old_index in range(reach_count):
         row_start = pos
         pos += 4
         start_ref, pos = seekfree.read_compact_index(level_tail, pos)
         end_ref, pos = seekfree.read_compact_index(level_tail, pos)
         pos += 13
         if start_ref in valid_actor_refs and end_ref in valid_actor_refs:
+            if reach_remap is not None:
+                reach_remap[old_index] = len(rows)
             rows.append(level_tail[row_start:pos])
 
     out = bytearray(level_tail[:reach_count_pos])
@@ -641,7 +645,7 @@ def sanitize_level_tail(level_tail, valid_actor_refs):
     return bytes(out), reach_count, len(rows)
 
 
-def build_synthetic_level(names, imports, exports, level_tail, valid_actor_indices=None):
+def build_synthetic_level(names, imports, exports, level_tail, valid_actor_indices=None, reach_remap=None):
     global CURRENT_LEVELINFO_REF
     actor_refs = []
     levelinfo_ref = None
@@ -665,7 +669,7 @@ def build_synthetic_level(names, imports, exports, level_tail, valid_actor_indic
             actor_refs.append(export["index"] + 1)
     if levelinfo_ref is not None:
         actor_refs.insert(0, levelinfo_ref)
-    level_tail, _old_reach_count, _new_reach_count = sanitize_level_tail(level_tail, set(actor_refs))
+    level_tail, _old_reach_count, _new_reach_count = sanitize_level_tail(level_tail, set(actor_refs), reach_remap)
 
     out = bytearray()
     out += seekfree.write_compact_index(name_index(names, "None"))  # No tagged UObject properties.
@@ -1700,6 +1704,36 @@ def names_needed_for_actor_properties(metadata, class_names):
     return needed
 
 
+def remap_navigation_paths(body, names, export, reach_remap):
+    """ReachSpecs is compacted when excluded actors are removed. Rewrite all
+    three index arrays together, retaining order and the -1 termination rule.
+    """
+    pos = stack_body_payload_offset(body, export, 0)
+    tags = list(read_tags(body, names, pos, len(body)))
+    arrays = {name: {} for name in ("Paths", "upstreamPaths", "PrunedPaths")}
+    out = bytearray(body[:pos])
+    for tag in tags:
+        if tag["name"] in arrays:
+            if tag["kind"] != TYPE_IDS["IntProperty"] or len(tag["value"]) != 4:
+                raise ValueError("Invalid navigation index property")
+            arrays[tag["name"]][tag["index"]] = struct.unpack("<i", tag["value"])[0]
+        else:
+            out += body[tag["start"]:tag["end"]]
+    for name, values in arrays.items():
+        kept = []
+        for i in range(16):
+            old = values.get(i, -1)
+            if old == -1:
+                break
+            if old in reach_remap:
+                kept.append(reach_remap[old])
+        for i in range(16):
+            value = kept[i] if i < len(kept) else -1
+            out += encode_tag(names, {"name": name, "type": "IntProperty"}, struct.pack("<i", value), i)
+    out += seekfree.write_compact_index(name_index(names, "None"))
+    return bytes(out)
+
+
 def convert_ps2_package(data):
     global CLASS_METADATA, CURRENT_LEVELINFO_REF, CURRENT_SCREENSHOT_PALETTE, CURRENT_SCREENSHOT_PALETTE_REF
     CURRENT_LEVELINFO_REF = 0
@@ -1708,6 +1742,7 @@ def convert_ps2_package(data):
     if CLASS_METADATA is None:
         CLASS_METADATA = load_class_metadata()
     fields, names, name_end, imports, _import_end, exports, export_end = seekfree.parse_seekfree(data)
+    recovered_textures, recovered_palettes = recover_textures(CURRENT_MAP_NAME, data, names, exports)
     raw_name_bytes, names, imports = prepare_imports_and_names(data[:name_end], names, imports, exports)
     actor_class_names = set()
     for export in exports:
@@ -1722,12 +1757,14 @@ def convert_ps2_package(data):
     raw_name_bytes, names = ensure_names(
         raw_name_bytes,
         names,
-        ["Screenshot", "Palette", "Palette1", "UBits", "VBits", "USize", "VSize", "UClamp", "VClamp"])
+        ["Screenshot", "Palette", "Palette1", "UBits", "VBits", "USize", "VSize", "UClamp", "VClamp", "Scale"])
     raw_name_bytes, normalized_name_flags = normalize_name_load_flags(raw_name_bytes, len(names))
     name_end = len(raw_name_bytes)
     stack_offsets, unresolved_stacks = infer_ps2_stack_offsets(data, names, exports)
     level_tail_info = find_level_tail(data, names, imports, exports)
     level_tail = data[level_tail_info["start"]:level_tail_info["end"]]
+    reach_remap = {}
+    level_body = build_synthetic_level(names, imports, exports, level_tail, set(stack_offsets), reach_remap)
     needed_model_refs = set([level_tail_info["model_ref"] - 1])
     needed_model_refs.update(find_referenced_brush_models(data, names, imports, exports, stack_offsets))
     import_table = seekfree.build_import_table(imports)
@@ -1743,6 +1780,11 @@ def convert_ps2_package(data):
         "level_tail": level_tail_info,
         "recovered_models": [],
         "name_flags_normalized": normalized_name_flags,
+        "navigation": {"original_reachspecs": level_tail_info["reach_count"], "retained_reachspecs": len(reach_remap)},
+        "recovered_textures": [
+            {"name": t["name"], "source_offset": t["source_offset"], "palette_offset": t["palette_offset"],
+             "size": list(t["mips"][0][:2]), "mips": len(t["mips"])}
+            for t in recovered_textures.values()],
     }
     bad_export_refs = set()
     for export in exports:
@@ -1750,7 +1792,8 @@ def convert_ps2_package(data):
             continue
         cls = class_name(names, imports, exports, export)
         if should_drop_early_export(cls, export):
-            bad_export_refs.add(export["index"])
+            if export["index"] not in recovered_textures and export["index"] not in recovered_palettes:
+                bad_export_refs.add(export["index"])
         elif cls in ("Model", "Polys") and export["index"] not in needed_model_refs:
             bad_export_refs.add(export["index"])
         elif export["object_flags"] & RF_HAS_STACK:
@@ -1776,9 +1819,18 @@ def convert_ps2_package(data):
         new_size = size
 
         if export["object_name"] == "MyLevel":
-            body = build_synthetic_level(names, imports, exports, level_tail, set(stack_offsets.keys()))
+            body = level_body
             new_size = len(body)
             size_map[index] = new_size
+            offset_map[index] = name_end + len(bodies)
+            bodies += body
+            continue
+        elif cls == "Package" and size <= 4:
+            # Texture groups contain only UObject's None property terminator.
+            # Their logical PC offset points into unrelated seek-free bytes.
+            # Recovered textures now load these outers, exposing stale copies.
+            body = seekfree.write_compact_index(name_index(names, "None"))
+            size_map[index] = len(body)
             offset_map[index] = name_end + len(bodies)
             bodies += body
             continue
@@ -1801,7 +1853,7 @@ def convert_ps2_package(data):
             continue
         elif cls == "Texture":
             serial_offset = name_end + len(bodies)
-            body = None
+            body = build_texture(recovered_textures[index], names, serial_offset) if index in recovered_textures else None
             if export["object_name"] == "Screenshot":
                 preview = extract_ps2_frontend_preview(CURRENT_MAP_NAME)
                 if preview:
@@ -1828,7 +1880,9 @@ def convert_ps2_package(data):
             bodies += body
             continue
         elif cls == "Palette":
-            if export["index"] + 1 == CURRENT_SCREENSHOT_PALETTE_REF and CURRENT_SCREENSHOT_PALETTE:
+            if index in recovered_palettes:
+                body = recovered_palettes[index]
+            elif export["index"] + 1 == CURRENT_SCREENSHOT_PALETTE_REF and CURRENT_SCREENSHOT_PALETTE:
                 body = build_palette_from_rgb(names, CURRENT_SCREENSHOT_PALETTE)
             else:
                 body = build_empty_palette(names)
@@ -1904,6 +1958,8 @@ def convert_ps2_package(data):
                 else:
                     body = data[old_offset:payload_pos] + sanitize_object_property_refs(
                         data, names, payload_pos, old_offset + size, bad_export_refs)
+                if is_subclass(CLASS_METADATA, cls, "NavigationPoint"):
+                    body = remap_navigation_paths(body, names, export, reach_remap)
                 new_size = len(body)
                 size_map[index] = new_size
                 offset_map[index] = name_end + len(bodies)

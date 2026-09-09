@@ -21,6 +21,10 @@ public:
     void Precache( INT HintCount )
     {
         guardSlow(FArchiveFileReader::Precache);
+        // Nested package exports seek away and restore their caller's position.
+        // Keep bytes already in the read buffer; Serialize refills at its end.
+        if( Pos >= BufferBase && Pos < BufferBase+BufferCount )
+            return;
         checkSlow(Pos==BufferBase+BufferCount);
         BufferBase = Pos;
         BufferCount = Min( Min( HintCount, (INT)(ARRAY_COUNT(Buffer) - (Pos&(ARRAY_COUNT(Buffer)-1))) ), Size-Pos );
@@ -33,6 +37,11 @@ public:
     void Seek( INT InPos )
     {
         check(InPos>=0); check(InPos<=Size);
+        if( InPos >= BufferBase && InPos <= BufferBase+BufferCount )
+        {
+            Pos = InPos;
+            return;
+        }
         if( SetFilePointer( Handle, InPos, 0, FILE_BEGIN )==0xFFFFFFFF )
         { ArIsError = 1; Error->Logf( TEXT("SetFilePointer Failed %i/%i: %i %s"), InPos, Size, Pos, appGetSystemErrorMessage() ); }
         Pos = InPos; BufferBase = Pos; BufferCount = 0;
@@ -54,7 +63,7 @@ public:
                     ReadFile( Handle, V, Length, (DWORD*)&Count, NULL );
                     if( Count!=Length )
                     { ArIsError = 1; Error->Logf( TEXT("ReadFile failed: Count=%i Length=%i Error=%s"), Count, Length, appGetSystemErrorMessage() ); }
-                    Pos += Length; BufferBase += Length; return;
+                    Pos += Length; BufferBase = Pos; BufferCount = 0; return;
                 }
                 Precache( MAXINT );
                 Copy = Min( Length, BufferBase+BufferCount-Pos );

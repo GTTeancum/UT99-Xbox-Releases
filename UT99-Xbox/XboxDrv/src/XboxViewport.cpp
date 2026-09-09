@@ -1501,6 +1501,11 @@ static UBOOL XboxSmokeMarkerExists( const char* MarkerName, INT& CachedResult )
 {
     if( CachedResult > 0 )
         return 1;
+    // Proof markers are staged before title startup. Cache absence as well as
+    // presence: otherwise every disabled proof probes two filesystem paths on
+    // every poll, multiplied by the number of local players.
+    if( CachedResult == -2 )
+        return 0;
 
     char DPath[128];
     appSprintf( DPath, "D:\\%s", MarkerName );
@@ -1528,6 +1533,18 @@ static UBOOL XboxSplitControlsProofEnabled()
 {
     static INT Cached = -1;
     return XboxSmokeMarkerExists( "XboxSplitControlsProofSmoke.ini", Cached );
+}
+
+static UBOOL XboxSplitBenchmarkEnabled()
+{
+    static INT Cached = -1;
+    return XboxSmokeMarkerExists( "XboxSplitBenchmark.ini", Cached );
+}
+
+static UBOOL XboxSplitCombatBenchmarkEnabled()
+{
+    static INT Cached = -1;
+    return XboxSmokeMarkerExists( "XboxSplitCombatBenchmark.ini", Cached );
 }
 
 static UBOOL XboxSplitControlsOnlineProofEnabled()
@@ -2204,6 +2221,12 @@ static void XboxSplitConfigureViewports( UXboxClient* Client )
 
         UBOOL bActiveSlot = (GXboxSplitActiveMask & (1 << i)) ? 1 : 0;
         VP->bXboxSplitDummy = !bActiveSlot;
+        // GameEngine::Init creates a console only for the original viewport.
+        // ChallengeHUD reads PlayerOwner.Player.Console.bTyping every frame,
+        // so each additional active player needs its own lightweight console.
+        // UViewport::Serialize/Destroy already retain and release this object.
+        if( bActiveSlot && !VP->Console )
+            XboxEnsureConsoleClass( VP, TEXT("Engine.Console"), "SplitConfigure" );
         if( bActiveSlot )
             XboxSplitApplyActiveViewRegion( VP, i );
         else
@@ -4787,6 +4810,8 @@ static void XboxMenuLoadDiscoveredLists()
         XboxMenuAddFallbackMutator( TEXT("AGENTX ARENA"), TEXT("AgentX.AgentXArena") );
     if( XboxMenuPackageFileExists( TEXT("AkimboArena.u") ) )
         XboxMenuAddFallbackMutator( TEXT("AKIMBO ARENA"), TEXT("AkimboArena.AkimboArena") );
+    if( XboxMenuPackageFileExists( TEXT("HaloUTXbox.u") ) )
+        XboxMenuAddFallbackMutator( TEXT("HALOUT WEAPONS"), TEXT("HaloUTXbox.HaloWeapons") );
 
     GXboxLog.Write( "XMENU using fixed Xbox discovery list gameTypes=%d mutators=%d",
         GXboxDiscoveredGameTypes.Num(), GXboxDiscoveredMutators.Num() );
@@ -5982,6 +6007,18 @@ static void XboxMenuSetKnownClassDefaults( FXboxPlayerClassOption& Option )
         Option.FixedSkin = 0; Option.FaceSkin = 1; Option.TeamSkin1 = 0; Option.TeamSkin2 = 0; Option.bMultiSkinned = 1;
         return;
     }
+    if( appStricmp( *Option.URLValue, TEXT("HaloUTXbox.Elite") ) == 0 )
+    {
+        Option.MeshName = TEXT("EliteMesh");
+        Option.MeshPath = TEXT("HaloUTXbox.EliteMesh");
+        Option.SelectionMesh = TEXT("HaloUTXbox.EliteMesh");
+        Option.VoiceMetaClass = TEXT("BotPack.VoiceMale");
+        Option.DefaultVoice = TEXT("BotPack.VoiceMaleOne");
+        Option.DefaultPackage = TEXT("HaloUTXbox.Skins.");
+        Option.DefaultSkinName = TEXT("HaloUTXbox.Skins.EliteBlue");
+        Option.FixedSkin = 0; Option.FaceSkin = 1; Option.TeamSkin1 = 0; Option.TeamSkin2 = 1; Option.bMultiSkinned = 1;
+        return;
+    }
 }
 
 static FXboxPlayerClassOption& XboxMenuAddPlayerCharacterOption( const FXboxKnownPlayerCharacter& Character )
@@ -6078,6 +6115,11 @@ static void XboxMenuAddKnownPlayerCharacters()
 {
     for( INT i=0; i<ARRAY_COUNT(GXboxKnownPlayerCharacters); i++ )
         XboxMenuAddPlayerCharacterOption( GXboxKnownPlayerCharacters[i] );
+    if( XboxMenuPackageFileExists( TEXT("HaloUTXbox.u") ) )
+    {
+        const FXboxKnownPlayerCharacter Elite = { TEXT("HALO ELITE"), TEXT("HaloUTXbox.Elite"), TEXT("HaloUTXbox.Skins.EliteBlue"), TEXT(""), TEXT("BotPack.VoiceMaleOne"), 1, "char_haloelite.xui" };
+        XboxMenuAddPlayerCharacterOption( Elite );
+    }
 }
 
 static void XboxMenuSortPlayerCharacters()
@@ -8251,6 +8293,29 @@ static void XboxMenuTickPendingFrontendOpen( UXboxViewport* Viewport )
 
 static void XboxMenuSmokeTick( UXboxViewport* Viewport )
 {
+    static INT HaloPortraitProof = -1;
+    static UBOOL HaloPortraitShown = 0;
+    if( HaloPortraitProof < 0 )
+        HaloPortraitProof = GetFileAttributesA( "D:\\XboxHaloPortraitProof.ini" ) != 0xFFFFFFFF;
+    if( HaloPortraitProof && Viewport && Viewport->Actor )
+    {
+        if( !HaloPortraitShown )
+        {
+            XboxMenuOpen( Viewport );
+            XboxMenuLoadPlayerClasses();
+            for( INT i=0; i<GXboxPlayerClasses.Num(); i++ )
+                if( appStricmp( *GXboxPlayerClasses(i).URLValue, TEXT("HaloUTXbox.Elite") ) == 0 )
+                {
+                    GXboxMenu.PlayerClass = i;
+                    GXboxMenu.PlayerTeam = GXboxPlayerClasses(i).DefaultTeam;
+                }
+            GXboxMenu.Screen = XMS_PlayerSetup;
+            GXboxMenu.PlayerFocus = 0;
+            GXboxLog.Write( "HALOPORTRAITPROOF selected Elite default portrait" );
+            HaloPortraitShown = 1;
+        }
+        return;
+    }
     static INT SmokeStage = 0;
     static DOUBLE SmokeStartTime = 0.0;
 
@@ -13604,7 +13669,10 @@ static void XboxWeaponCycle( UXboxViewport* Viewport, APlayerPawn* Player, UBOOL
 
 static UBOOL XboxWeaponCycleProofSmokeEnabled()
 {
-    return GetFileAttributesA( "D:\\XboxWeaponCycleProofSmoke.ini" ) != 0xFFFFFFFF;
+    static INT Enabled = -1;
+    if( Enabled < 0 )
+        Enabled = GetFileAttributesA( "D:\\XboxWeaponCycleProofSmoke.ini" ) != 0xFFFFFFFF;
+    return Enabled;
 }
 
 static UBOOL XboxWeaponCycleProofSetupOnly()
@@ -14414,6 +14482,8 @@ static UBOOL XboxSplitControlsProofOtherPlayersUnchanged( UXboxClient* Client, I
 
 static void XboxSplitControlsProofObserve( UXboxViewport* Viewport, const XINPUT_GAMEPAD& Pad )
 {
+    if( XboxSplitBenchmarkEnabled() )
+        return;
     if( (!XboxSplitControlsProofEnabled() && !XboxSplitControlsOnlineProofEnabled())
     ||  !Viewport || !Viewport->Actor || GXboxSplitControlsProofPhase == XSCP_Complete )
         return;
@@ -14711,6 +14781,106 @@ static void XboxSplitControlsProofTick( UXboxClient* Client, ULevel* Level, DOUB
     }
 }
 
+// Process-local benchmark only: normal movement, weapons, bot AI and damage.
+// Both comparison builds run this same workload; it never sends host input.
+static void XboxSplitCombatBenchmarkApply( UXboxViewport* Viewport, UXboxClient* Client, ULevel* Level, XINPUT_GAMEPAD& Pad )
+{
+    static ULevel* StartedLevel = NULL;
+    static DOUBLE StartTime = 0.0, LastAudit = 0.0;
+    static APlayerPawn* LastPlayers[4] = { NULL, NULL, NULL, NULL };
+    static FVector LastLocations[4];
+    static INT LastHealth[4] = { 0, 0, 0, 0 };
+    static FLOAT Travel[4] = { 0, 0, 0, 0 };
+    INT Slot = XboxViewportIndex(Viewport);
+    APlayerPawn* Player = Viewport->Actor;
+    if( !Player || Slot < 0 || Slot >= 4 ) return;
+    DOUBLE Now = appSeconds();
+    UObject* Game = Level->GetLevelInfo()->Game;
+    if( Slot == 0 && StartedLevel != Level && Game )
+    {
+        StartedLevel = Level;
+        StartTime = Now;
+        LastAudit = 0.0;
+        appMemzero( LastPlayers, sizeof(LastPlayers) );
+        appMemzero( LastHealth, sizeof(LastHealth) );
+        appMemzero( Travel, sizeof(Travel) );
+        XboxSetObjectPropertyInt( Game, TEXT("MaxPlayers"), 16 );
+        XboxSetObjectPropertyInt( Game, TEXT("MinPlayers"), GXboxSplitActivePlayerCount + 8 );
+        XboxSetObjectPropertyInt( Game, TEXT("InitialBots"), 8 );
+        XboxMenuAdjustPendingBots( Level, Game, 8 );
+        XboxSetObjectPropertyInt( Game, TEXT("RemainingBots"), 0 );
+        GXboxLog.Write( "XCOMBAT begin players=%d requestedBots=8 actualBots=%d",
+            GXboxSplitActivePlayerCount, XboxGetObjectPropertyInt(Game,TEXT("NumBots"),0) );
+    }
+    if( StartedLevel != Level ) return;
+
+    APawn* Target = NULL;
+    FLOAT BestDistance = 1.e30f;
+    for( APawn* Bot = Level->GetLevelInfo()->PawnList; Bot; Bot = Bot->nextPawn )
+        if( Bot->Health > 0 && Bot->PlayerReplicationInfo && Bot->PlayerReplicationInfo->bIsABot )
+        {
+            FLOAT Distance = (Bot->Location - Player->Location).SizeSquared();
+            if( Distance < BestDistance ) { BestDistance = Distance; Target = Bot; }
+        }
+    FLOAT Elapsed = (FLOAT)(Now - StartTime);
+    FLOAT Phase = Elapsed + Slot * 0.73f;
+    Pad.sThumbLY = 24000;
+    Pad.sThumbLX = ((INT)(Phase / 2.5f) & 1) ? 15000 : -15000;
+    if( Target )
+    {
+        FRotator Aim = (Target->Location + FVector(0,0,Target->BaseEyeHeight * 0.5f)
+            - Player->Location - FVector(0,0,Player->EyeHeight)).Rotation();
+        Pad.sThumbRX = (SHORT)Clamp<INT>( ((INT)(SWORD)(Aim.Yaw - Player->ViewRotation.Yaw)) * 4, -24000, 24000 );
+        Pad.sThumbRY = (SHORT)Clamp<INT>( ((INT)(SWORD)(Aim.Pitch - Player->ViewRotation.Pitch)) * 4, -16000, 16000 );
+    }
+    else Pad.sThumbRX = ((INT)(Phase / 3.0f) & 1) ? 10000 : -10000;
+    if( Phase - (INT)Phase < 0.85f ) Pad.bAnalogButtons[XINPUT_GAMEPAD_RIGHT_TRIGGER] = 255;
+    if( Phase - (INT)(Phase / 4.0f) * 4.0f < 0.18f ) Pad.bAnalogButtons[XINPUT_GAMEPAD_A] = 255;
+    if( Phase - (INT)(Phase / 10.0f) * 10.0f < 0.18f ) Pad.bAnalogButtons[XINPUT_GAMEPAD_BLACK] = 255;
+
+    if( Slot == 0 )
+    {
+        INT MovedMask = 0;
+        for( INT i=0; i<Client->Viewports.Num() && i<4; i++ )
+        {
+            APlayerPawn* Current = Client->Viewports(i)->Actor;
+            if( !Current ) continue;
+            if( Current == LastPlayers[i] && Current->Health > 0 && LastHealth[i] > 0 )
+            {
+                FLOAT Segment = (Current->Location - LastLocations[i]).Size();
+                if( Segment < 512.0f ) Travel[i] += Segment;
+            }
+            LastPlayers[i] = Current;
+            LastLocations[i] = Current->Location;
+            LastHealth[i] = Current->Health;
+            if( Travel[i] >= 256.0f ) MovedMask |= 1 << i;
+        }
+        if( Now - LastAudit >= 2.0 )
+        {
+            INT Living = 0, Moving = 0, Firing = 0, Projectiles = 0, Deaths = 0;
+            for( APawn* Bot = Level->GetLevelInfo()->PawnList; Bot; Bot = Bot->nextPawn )
+                if( Bot->Health > 0 && Bot->PlayerReplicationInfo && Bot->PlayerReplicationInfo->bIsABot )
+                {
+                    Living++;
+                    if( Bot->Velocity.SizeSquared() > 100.0f ) Moving++;
+                    if( Bot->bFire || Bot->bAltFire ) Firing++;
+                }
+            for( INT i=0; i<Level->Actors.Num(); i++ )
+            {
+                AActor* Actor = Level->Actors(i);
+                if( !Actor || Actor->bDeleteMe ) continue;
+                if( Cast<AProjectile>(Actor) ) Projectiles++;
+                APlayerReplicationInfo* PRI = Cast<APlayerReplicationInfo>(Actor);
+                if( PRI ) Deaths += (INT)PRI->Deaths;
+            }
+            GXboxLog.Write( "XCOMBAT elapsed=%.1f players=%d bots=%d living=%d moving=%d firing=%d projectiles=%d deaths=%d movedMask=%X travel=%.0f,%.0f,%.0f,%.0f",
+                Elapsed, GXboxSplitActivePlayerCount, XboxGetObjectPropertyInt(Game,TEXT("NumBots"),0),
+                Living, Moving, Firing, Projectiles, Deaths, MovedMask, Travel[0], Travel[1], Travel[2], Travel[3] );
+            LastAudit = Now;
+        }
+    }
+}
+
 static UBOOL XboxSplitControlsProofApply( UXboxViewport* Viewport, XINPUT_GAMEPAD& Pad )
 {
     if( (!XboxSplitControlsProofEnabled() && !XboxSplitControlsOnlineProofEnabled()) || !Viewport )
@@ -14722,6 +14892,14 @@ static UBOOL XboxSplitControlsProofApply( UXboxViewport* Viewport, XINPUT_GAMEPA
         return 0;
 
     appMemzero( &Pad, sizeof(Pad) );
+    // Keep real local players active without the controls test changing their
+    // weapons, opening menus or pausing simulation during a timing run.
+    if( XboxSplitBenchmarkEnabled() )
+    {
+        if( XboxSplitCombatBenchmarkEnabled() )
+            XboxSplitCombatBenchmarkApply( Viewport, Client, Level, Pad );
+        return 1;
+    }
     INT Slot = XboxViewportIndex( Viewport );
     DOUBLE Now = appSeconds();
     if( Slot == 0 && GXboxSplitControlsProofPhase != XSCP_Complete )
@@ -14979,76 +15157,52 @@ static void XboxMenuDrawSlider( UCanvas* Canvas, FLOAT X, FLOAT Y, FLOAT W, FLOA
     XboxMenuDrawRect( Canvas, X+W*T-2, Y-4, X+W*T+2, Y+8, 220, 235, 250, 0.95f );
 }
 
-static void XboxMenuDrawPreviewCrosshair( UCanvas* Canvas, FLOAT CX, FLOAT CY, INT Crosshair, INT ColorIndex )
+static void XboxMenuDrawPreviewCrosshair( UCanvas* Canvas, UXboxViewport* Viewport, FLOAT CX, FLOAT CY, INT Crosshair, INT ColorIndex )
 {
-    BYTE R = XboxMenuColorByte( ColorIndex, 0 );
-    BYTE G = XboxMenuColorByte( ColorIndex, 1 );
-    BYTE B = XboxMenuColorByte( ColorIndex, 2 );
-    Crosshair = Clamp<INT>( Crosshair, 0, 8 );
+    if( !Canvas || Crosshair < 0 || Crosshair > 8 )
+        return;
 
-    if( Crosshair == 0 )
+    // ChallengeHUD.DrawCrossHair uses this texture array and LoadCrosshair
+    // resolves the corresponding configured CrossHairs entry. Share that source
+    // instead of approximating the nine shapes with unrelated rectangles.
+    AHUD* HUD = Viewport && Viewport->Actor ? Viewport->Actor->myHUD : NULL;
+    UTexture* Texture = Cast<UTexture>( XboxGetObjectPropertyObjectAt(HUD, TEXT("CrossHairTextures"), Crosshair) );
+    if( !Texture )
     {
-        XboxMenuDrawRect( Canvas, CX-2, CY-18, CX+2, CY-7, R, G, B, 1.0f );
-        XboxMenuDrawRect( Canvas, CX-2, CY+7, CX+2, CY+18, R, G, B, 1.0f );
-        XboxMenuDrawRect( Canvas, CX-18, CY-2, CX-7, CY+2, R, G, B, 1.0f );
-        XboxMenuDrawRect( Canvas, CX+7, CY-2, CX+18, CY+2, R, G, B, 1.0f );
+        FString TextureName;
+        UProperty* Property = HUD ? FindField<UProperty>(HUD->GetClass(), TEXT("CrossHairs")) : NULL;
+        if( Property && Crosshair < Property->ArrayDim )
+        {
+            TCHAR Value[1024] = TEXT("");
+            Property->ExportText( Crosshair, Value, (BYTE*)HUD, (BYTE*)HUD, 0 );
+            TextureName = Value;
+            XboxMenuCleanExportedText( TextureName );
+        }
+        else
+        {
+            UClass* HUDClass = UObject::StaticLoadClass( AHUD::StaticClass(), NULL, TEXT("Botpack.ChallengeHUD"), NULL, LOAD_NoWarn | LOAD_Quiet, NULL );
+            XboxMenuClassDefaultStringAt( HUDClass, TEXT("CrossHairs"), Crosshair, TextureName );
+        }
+        if( TextureName.Len() )
+            Texture = Cast<UTexture>( UObject::StaticLoadObject(UTexture::StaticClass(), NULL, *TextureName, NULL, LOAD_NoWarn | LOAD_Quiet, NULL) );
     }
-    else if( Crosshair == 1 )
+    if( !Texture )
+        return;
+
+    const FLOAT Size = 64.0f;
+    FPlane Color(
+        XboxMenuColorByte(ColorIndex, 0) / 255.0f,
+        XboxMenuColorByte(ColorIndex, 1) / 255.0f,
+        XboxMenuColorByte(ColorIndex, 2) / 255.0f, 1.0f );
+    static INT CrosshairProof = -1;
+    static INT LastProofCrosshair = -1;
+    if( XboxSmokeMarkerExists("XboxCrosshairProof.ini", CrosshairProof) && Crosshair != LastProofCrosshair )
     {
-        XboxMenuDrawRect( Canvas, CX-20, CY-20, CX-14, CY-14, R, G, B, 1.0f );
-        XboxMenuDrawRect( Canvas, CX+14, CY-20, CX+20, CY-14, R, G, B, 1.0f );
-        XboxMenuDrawRect( Canvas, CX-20, CY+14, CX-14, CY+20, R, G, B, 1.0f );
-        XboxMenuDrawRect( Canvas, CX+14, CY+14, CX+20, CY+20, R, G, B, 1.0f );
-        XboxMenuDrawRect( Canvas, CX-2, CY-2, CX+2, CY+2, R, G, B, 1.0f );
+        LastProofCrosshair = Crosshair;
+        GXboxLog.Write("XCROSSHAIR PROOF index=%d texture=%s", Crosshair, TCHAR_TO_ANSI(Texture->GetPathName()));
     }
-    else if( Crosshair == 2 )
-    {
-        XboxMenuDrawRect( Canvas, CX-24, CY-2, CX-10, CY+2, R, G, B, 1.0f );
-        XboxMenuDrawRect( Canvas, CX+10, CY-2, CX+24, CY+2, R, G, B, 1.0f );
-        XboxMenuDrawRect( Canvas, CX-2, CY-24, CX+2, CY-10, R, G, B, 1.0f );
-        XboxMenuDrawRect( Canvas, CX-2, CY+10, CX+2, CY+24, R, G, B, 1.0f );
-    }
-    else if( Crosshair == 3 )
-    {
-        XboxMenuDrawRect( Canvas, CX-18, CY-18, CX+18, CY-14, R, G, B, 1.0f );
-        XboxMenuDrawRect( Canvas, CX-18, CY+14, CX+18, CY+18, R, G, B, 1.0f );
-        XboxMenuDrawRect( Canvas, CX-18, CY-18, CX-14, CY+18, R, G, B, 1.0f );
-        XboxMenuDrawRect( Canvas, CX+14, CY-18, CX+18, CY+18, R, G, B, 1.0f );
-    }
-    else if( Crosshair == 4 )
-    {
-        XboxMenuDrawRect( Canvas, CX-3, CY-22, CX+3, CY+22, R, G, B, 1.0f );
-        XboxMenuDrawRect( Canvas, CX-22, CY-3, CX+22, CY+3, R, G, B, 1.0f );
-        XboxMenuDrawRect( Canvas, CX-2, CY-2, CX+2, CY+2, 0, 0, 0, 1.0f );
-    }
-    else if( Crosshair == 5 )
-    {
-        XboxMenuDrawRect( Canvas, CX-28, CY-2, CX-16, CY+2, R, G, B, 1.0f );
-        XboxMenuDrawRect( Canvas, CX+16, CY-2, CX+28, CY+2, R, G, B, 1.0f );
-        XboxMenuDrawRect( Canvas, CX-2, CY-28, CX+2, CY-16, R, G, B, 1.0f );
-        XboxMenuDrawRect( Canvas, CX-2, CY+16, CX+2, CY+28, R, G, B, 1.0f );
-    }
-    else if( Crosshair == 6 )
-    {
-        XboxMenuDrawRect( Canvas, CX-12, CY-12, CX+12, CY-8, R, G, B, 1.0f );
-        XboxMenuDrawRect( Canvas, CX-12, CY+8, CX+12, CY+12, R, G, B, 1.0f );
-        XboxMenuDrawRect( Canvas, CX-12, CY-12, CX-8, CY+12, R, G, B, 1.0f );
-        XboxMenuDrawRect( Canvas, CX+8, CY-12, CX+12, CY+12, R, G, B, 1.0f );
-        XboxMenuDrawRect( Canvas, CX-3, CY-3, CX+3, CY+3, R, G, B, 1.0f );
-    }
-    else if( Crosshair == 7 )
-    {
-        XboxMenuDrawRect( Canvas, CX-26, CY-26, CX-18, CY-18, R, G, B, 1.0f );
-        XboxMenuDrawRect( Canvas, CX+18, CY-26, CX+26, CY-18, R, G, B, 1.0f );
-        XboxMenuDrawRect( Canvas, CX-26, CY+18, CX-18, CY+26, R, G, B, 1.0f );
-        XboxMenuDrawRect( Canvas, CX+18, CY+18, CX+26, CY+26, R, G, B, 1.0f );
-    }
-    else
-    {
-        XboxMenuDrawRect( Canvas, CX-20, CY-1, CX+20, CY+1, R, G, B, 1.0f );
-        XboxMenuDrawRect( Canvas, CX-1, CY-20, CX+1, CY+20, R, G, B, 1.0f );
-        XboxMenuDrawRect( Canvas, CX-10, CY-10, CX+10, CY+10, R, G, B, 0.28f );
-    }
+    Canvas->DrawTile( Texture, CX-Size*0.5f, CY-Size*0.5f, Size, Size,
+        0, 0, 64, 64, NULL, Canvas->Z, Color, FPlane(0,0,0,0), PF_Translucent | PF_TwoSided );
 }
 
 static FLOAT XboxMenuSettingsPreviewRight( UCanvas* Canvas )
@@ -15063,7 +15217,7 @@ static FLOAT XboxMenuSettingsPreviewLeft( UCanvas* Canvas )
     return XboxMenuSettingsPreviewRight(Canvas) - (OuterWidth - 16.0f);
 }
 
-static void XboxMenuDrawSettingsPreview( UCanvas* Canvas, UFont* Font, UXboxClient* Client, INT Crosshair )
+static void XboxMenuDrawSettingsPreview( UCanvas* Canvas, UFont* Font, UXboxClient* Client, UXboxViewport* Viewport, INT Crosshair )
 {
     FLOAT X1 = XboxMenuSettingsPreviewLeft( Canvas );
     FLOAT X2 = XboxMenuSettingsPreviewRight( Canvas );
@@ -15089,7 +15243,7 @@ static void XboxMenuDrawSettingsPreview( UCanvas* Canvas, UFont* Font, UXboxClie
     XboxMenuDrawRect( Canvas, (FLOAT)SafeX, (FLOAT)(SafeY + SafeH - 2), (FLOAT)(SafeX + SafeW), (FLOAT)(SafeY + SafeH), 38, 142, 220, 0.92f );
     XboxMenuDrawRect( Canvas, (FLOAT)SafeX, (FLOAT)SafeY, (FLOAT)(SafeX + 2), (FLOAT)(SafeY + SafeH), 38, 142, 220, 0.92f );
     XboxMenuDrawRect( Canvas, (FLOAT)(SafeX + SafeW - 2), (FLOAT)SafeY, (FLOAT)(SafeX + SafeW), (FLOAT)(SafeY + SafeH), 38, 142, 220, 0.92f );
-    XboxMenuDrawPreviewCrosshair( Canvas, SafeX + SafeW * 0.5f, SafeY + SafeH * 0.5f, Crosshair, GXboxSettingsCrosshairColor );
+    XboxMenuDrawPreviewCrosshair( Canvas, Viewport, SafeX + SafeW * 0.5f, SafeY + SafeH * 0.5f, Crosshair, GXboxSettingsCrosshairColor );
 
     FLOAT StatsX1 = X1 + 12.0f;
     FLOAT StatsX2 = X2 - 12.0f;
@@ -16557,6 +16711,13 @@ static void XboxMenuDrawAudioSettings( UXboxViewport* Viewport, UCanvas* Canvas 
 
 static void XboxMenuDrawVideoSettings( UXboxViewport* Viewport, UCanvas* Canvas )
 {
+    static INT CrosshairProof = -1;
+    static DOUBLE CrosshairProofStart = 0.0;
+    if( XboxSmokeMarkerExists("XboxCrosshairProof.ini", CrosshairProof) && Viewport && Viewport->Actor && Viewport->Actor->myHUD )
+    {
+        if( CrosshairProofStart == 0.0 ) CrosshairProofStart = appSeconds();
+        Viewport->Actor->myHUD->Crosshair = ((INT)((appSeconds() - CrosshairProofStart) / 12.0)) % 9;
+    }
     static const TCHAR* Labels[] =
     {
         TEXT("BRIGHTNESS"),
@@ -16621,7 +16782,7 @@ static void XboxMenuDrawVideoSettings( UXboxViewport* Viewport, UCanvas* Canvas 
         const TCHAR* Hint = TEXT("LEFT/RIGHT CHANGES SELECTED ITEM");
         XboxMenuText( Canvas, SmallFont, 58, XboxMenuAboveFooterTextY(Canvas, SmallFont, Hint, 8.0f), 135, 170, 205, Hint );
     }
-    XboxMenuDrawSettingsPreview( Canvas, MenuFont, Client, Crosshair );
+    XboxMenuDrawSettingsPreview( Canvas, MenuFont, Client, Viewport, Crosshair );
 
     FLOAT RowRight = XboxMenuSettingsPreviewLeft(Canvas) - 16.0f;
     FLOAT RightColumnShift = RowRight - 420.0f;
@@ -16966,7 +17127,10 @@ void XboxMenuPostRender( UViewport* Viewport, UCanvas* Canvas )
 
 static UBOOL XboxAutoFireSmokeEnabled()
 {
-    return GetFileAttributesA( "D:\\XboxAutoFireSmoke.ini" ) != 0xFFFFFFFF;
+    static INT Enabled = -1;
+    if( Enabled < 0 )
+        Enabled = GetFileAttributesA( "D:\\XboxAutoFireSmoke.ini" ) != 0xFFFFFFFF;
+    return Enabled;
 }
 
 static void XboxAutoFireSmokeTick( UXboxViewport* Viewport )

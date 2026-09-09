@@ -42,6 +42,7 @@ PORTRAITS = [
     "char_grail.xui",
     "char_graves.xui",
     "char_guardian.xui",
+    "char_haloelite.xui",
     "char_isis.xui",
     "char_jayce.xui",
     "char_johnson.xui",

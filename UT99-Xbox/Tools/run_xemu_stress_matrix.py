@@ -4,8 +4,6 @@
 from __future__ import print_function
 
 import argparse
-import ctypes
-import ctypes.wintypes
 import datetime
 import json
 import os
@@ -14,8 +12,10 @@ import shutil
 import sys
 import time
 
-from PIL import Image, ImageGrab
+from PIL import Image
 
+import xemu_native_screenshot
+import record_xemu_native
 import poll_xemu_ram_log as xemu_poll
 import run_jailbreak_soak as soak_log
 import run_jailbreak_xemu_soak as xemu_soak
@@ -31,6 +31,7 @@ DEFAULT_XEMU_ROOT = r"C:\Games\Emulators\Xemu"
 DEFAULT_XEMU_INSTANCE = r"C:\Games\Emulators\Xemu\UT99DeepSoak"
 DEFAULT_HDD = r"C:\Games\Emulators\Xemu\UT99Test\HDD\ut99_hdd.qcow2"
 DEFAULT_EEPROM = r"C:\Games\Emulators\Xemu\EEPROM\eeprom.bin"
+NATIVE_SCREENSHOT_EXE = None
 
 ROSTER = [
     ("PS2 Raw Steel", "UTPS2Characters.RawSteelPS2Bot"),
@@ -187,7 +188,7 @@ PERF_DETAIL_RE = re.compile(
 XSKEL_FLICKER_RE = re.compile(r"[^\r\n]*XSKELFLICKER[^\r\n]*")
 XSKEL_STATE_RE = re.compile(
     r"XSKELSTATE tick=(\d+) class=Class (\S+) mesh=(.+?) "
-    r"state=([a-z]+) seq=(\S+) frame=([0-9.]+) "
+    r"state=([A-Za-z0-9_]+) seq=(\S+) frame=([0-9.]+) "
     r"numframes=(\d+) rate=([0-9.]+) found=([01])"
 )
 
@@ -304,9 +305,12 @@ def prepare_base(args):
         "XboxSoakMapList.ini",
         "XboxStartURL.ini",
         "XboxCharacterSoak.ini",
+        "XboxGameplayRecording.ini",
+        "XboxWeaponCloseup.ini",
         "XboxLightingProof.ini",
         "XboxFlickerTraversal.ini",
         "XboxSkeletalStateProof.ini",
+        "XboxAllAnimationProof.ini",
         "XboxSkaarjSkinProof.ini",
         "XboxIssueMapSmoke.ini",
         "XboxSoakSmoke.ini",
@@ -323,6 +327,11 @@ def prepare_base(args):
         "XboxTournamentProofAS.ini",
         "XboxTournamentProofCHAL.ini",
         "XboxSplitSmoke.ini",
+        "XboxSplitControlsProofSmoke.ini",
+        "XboxSplitBenchmark.ini",
+        "XboxSplitCombatBenchmark.ini",
+        "XboxSplitLayout03.ini",
+        "XboxSplitLayout07.ini",
     ):
         path = os.path.join(stage, marker)
         if os.path.isfile(path):
@@ -333,15 +342,37 @@ def prepare_base(args):
     elif args.lighting_proof:
         with open(os.path.join(stage, "XboxLightingProof.ini"), "w") as handle:
             handle.write("; Deterministic map-lighting viewpoint qualification\n")
-    elif not is_frontend_live_proof(args.frontend_loading_proof):
+    elif not args.crosshair_proof and not is_frontend_live_proof(args.frontend_loading_proof):
         with open(os.path.join(stage, "XboxCharacterSoak.ini"), "w") as handle:
             handle.write("; Log exact bot class, mesh, and skin during Xemu stress\n")
     if args.skeletal_state_proof:
         with open(os.path.join(stage, "XboxSkeletalStateProof.ini"), "w") as handle:
             handle.write("; Deterministic post-simulation animation-state qualification\n")
+    attachment_config = os.path.join(stage, "System", "AttachmentProof.ini")
+    if args.attachment_weapon:
+        with open(attachment_config, "w") as handle:
+            handle.write("[HaloUTXbox.AttachmentProof]\nTestWeaponName=" + args.attachment_weapon + "\n")
+    elif os.path.isfile(attachment_config):
+        os.remove(attachment_config)
+    if args.record_gameplay or args.right_side_proof:
+        with open(os.path.join(stage, "XboxGameplayRecording.ini"), "w") as handle:
+            handle.write("; Follow live bots with normal combat damage\n")
+    if args.weapon_closeup:
+        with open(os.path.join(stage, "XboxWeaponCloseup.ini"), "w") as handle:
+            handle.write("; Test-only close view of the weapon grip and barrel\n")
+    if args.all_animation_proof:
+        with open(os.path.join(stage, "XboxAllAnimationProof.ini"), "w") as handle:
+            handle.write("; Exercise each imported animation without candidate fallbacks\n")
     if args.skaarj_skin_proof:
         with open(os.path.join(stage, "XboxSkaarjSkinProof.ini"), "w") as handle:
             handle.write("; Repeated harmless hits for Skaarj blood/material qualification\n")
+    for marker in ("XboxCrosshairProof.ini", "XboxVideoSettingsProofSmoke.ini"):
+        marker_path = os.path.join(stage, marker)
+        if args.crosshair_proof:
+            with open(marker_path, "w") as handle:
+                handle.write("; Process-local crosshair preview qualification\n")
+        elif os.path.isfile(marker_path):
+            os.remove(marker_path)
     return stage, copied
 
 
@@ -370,7 +401,7 @@ def prepare_case(args, stage, case, run_dir):
             "tournament-ctf": "XboxTournamentSmoke.ini",
             "tournament-as": "XboxTournamentSmoke.ini",
             "tournament-chal": "XboxTournamentSmoke.ini",
-            "split-smoke": "XboxSplitSmoke.ini",
+            "split-smoke": "XboxSplitControlsProofSmoke.ini",
         }
         ladder_marker_by_mode = {
             "tournament-dom": "XboxTournamentProofDOM.ini",
@@ -386,6 +417,25 @@ def prepare_case(args, stage, case, run_dir):
             handle.write("; Frontend-driven loading-spinner proof\n")
         url = "frontend-proof:" + marker_name
         proof_markers = [marker_name]
+        if args.frontend_loading_proof == "split-smoke":
+            if args.split_benchmark:
+                with open(os.path.join(stage, "XboxSplitBenchmark.ini"), "w") as handle:
+                    handle.write("; Stable gameplay timing without controls-test actions\n")
+                proof_markers.append("XboxSplitBenchmark.ini")
+            if args.split_combat_benchmark:
+                with open(os.path.join(stage, "XboxSplitCombatBenchmark.ini"), "w") as handle:
+                    handle.write("; Four moving local players with eight combat bots\n")
+                proof_markers.append("XboxSplitCombatBenchmark.ini")
+            # The launch-loop progress logger uses the ordinary smoke marker;
+            # the controls marker supplies real local players and local input.
+            with open(os.path.join(stage, "XboxSplitSmoke.ini"), "w") as handle:
+                handle.write("; Enable split-screen soak progress logging\n")
+            proof_markers.append("XboxSplitSmoke.ini")
+        if args.frontend_loading_proof == "split-smoke" and args.split_players < 4:
+            layout = "XboxSplitLayout%02X.ini" % ((1 << args.split_players) - 1)
+            with open(os.path.join(stage, layout), "w") as handle:
+                handle.write("; Select real local-player slots for split-screen proof\n")
+            proof_markers.append(layout)
         ladder_marker = ladder_marker_by_mode.get(args.frontend_loading_proof)
         if ladder_marker:
             with open(os.path.join(stage, ladder_marker), "w") as handle:
@@ -408,12 +458,20 @@ def prepare_case(args, stage, case, run_dir):
             proof_markers.append("XboxFlickerTraversal.ini")
         elif args.lighting_proof:
             proof_markers.append("XboxLightingProof.ini")
-        else:
+        elif not args.crosshair_proof:
             proof_markers.append("XboxCharacterSoak.ini")
     if args.skeletal_state_proof:
         proof_markers.append("XboxSkeletalStateProof.ini")
+    if args.record_gameplay or args.right_side_proof:
+        proof_markers.append("XboxGameplayRecording.ini")
+    if args.weapon_closeup:
+        proof_markers.append("XboxWeaponCloseup.ini")
+    if args.all_animation_proof:
+        proof_markers.append("XboxAllAnimationProof.ini")
     if args.skaarj_skin_proof:
         proof_markers.append("XboxSkaarjSkinProof.ini")
+    if args.crosshair_proof:
+        proof_markers.extend(("XboxCrosshairProof.ini", "XboxVideoSettingsProofSmoke.ini"))
     for name in proof_markers:
         shutil.copy2(os.path.join(stage, name), os.path.join(run_dir, name))
     for name in ("Default.ini", "UnrealTournament.ini", "User.ini"):
@@ -422,40 +480,17 @@ def prepare_case(args, stage, case, run_dir):
 
 
 def capture_screen(pid, source_dir, output_path, monitor_port=None):
-    if os.name != "nt":
-        return "built-in screenshot trigger requires Windows"
+    """Capture only the targeted emulator's framebuffer through its monitor.
 
-    user32 = ctypes.windll.user32
-    handles = []
-    enum_proc_type = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
-
-    def collect_fast_window(hwnd, _lparam):
-        process_id = ctypes.c_ulong()
-        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(process_id))
-        if process_id.value == pid:
-            handles.append(hwnd)
-        return True
-
-    callback = enum_proc_type(collect_fast_window)
-    user32.EnumWindows(callback, 0)
-    top_level = []
-    for hwnd in set(handles):
-        if user32.GetParent(hwnd) or not user32.IsWindowVisible(hwnd):
-            continue
-        rect = ctypes.wintypes.RECT()
-        if user32.GetWindowRect(hwnd, ctypes.byref(rect)):
-            width = rect.right - rect.left
-            height = rect.bottom - rect.top
-            if width > 0 and height > 0:
-                top_level.append((width * height, hwnd, width, height))
-    if top_level:
-        _area, hwnd, _width, _height = max(top_level)
-        try:
-            image = ImageGrab.grab(window=int(hwnd))
-            image.save(output_path, "PNG")
-            return "captured from Xemu window without focus via PrintWindow"
-        except Exception:
-            pass
+    Never fall back to desktop/window capture or synthetic host input.
+    """
+    if NATIVE_SCREENSHOT_EXE:
+        ok, detail, native_path = xemu_native_screenshot.trigger_native_screenshot(
+            pid, NATIVE_SCREENSHOT_EXE, source_dir, 10.0)
+        if ok:
+            shutil.copy2(native_path, output_path)
+            return "Xemu native PNG writer: " + detail
+        return "Xemu native PNG writer failed: " + detail
 
     hmp_error = None
     if monitor_port is not None:
@@ -487,74 +522,7 @@ def capture_screen(pid, source_dir, output_path, monitor_port=None):
         except Exception as exc:
             hmp_error = "Xemu HMP screendump failed: %s" % exc
 
-    handles = []
-
-    def collect_window(hwnd, _lparam):
-        process_id = ctypes.c_ulong()
-        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(process_id))
-        if process_id.value == pid:
-            handles.append(hwnd)
-        return True
-
-    callback = enum_proc_type(collect_window)
-    user32.EnumWindows(callback, 0)
-    for parent in list(handles):
-        user32.EnumChildWindows(parent, callback, 0)
-
-    top_level = []
-    for hwnd in set(handles):
-        if user32.GetParent(hwnd) or not user32.IsWindowVisible(hwnd):
-            continue
-        rect = ctypes.wintypes.RECT()
-        if user32.GetWindowRect(hwnd, ctypes.byref(rect)):
-            width = rect.right - rect.left
-            height = rect.bottom - rect.top
-            if width > 0 and height > 0:
-                top_level.append((width * height, hwnd, width, height))
-    if top_level:
-        _area, hwnd, _width, _height = max(top_level)
-        try:
-            image = ImageGrab.grab(window=int(hwnd))
-            image.save(output_path, "PNG")
-            return "captured from Xemu window without focus via PrintWindow"
-        except Exception:
-            pass
-
-    before = set(os.listdir(source_dir)) if os.path.isdir(source_dir) else set()
-    vk_f12 = 0x7B
-    scan_code = user32.MapVirtualKeyW(vk_f12, 0)
-    key_down = 1 | (scan_code << 16)
-    key_up = key_down | (1 << 30) | (1 << 31)
-    for hwnd in set(handles):
-        user32.PostMessageW(hwnd, 0x0100, vk_f12, key_down)
-        user32.PostMessageW(hwnd, 0x0101, vk_f12, key_up)
-
-    deadline = time.time() + 4.0
-    while time.time() < deadline:
-        current = set(os.listdir(source_dir)) if os.path.isdir(source_dir) else set()
-        created = [
-            name for name in current.difference(before)
-            if name.lower().endswith(".png")
-        ]
-        if created:
-            newest = max(
-                (os.path.join(source_dir, name) for name in created),
-                key=os.path.getmtime,
-            )
-            shutil.copy2(newest, output_path)
-            return "captured from Xemu built-in writer: " + newest
-        time.sleep(0.1)
-
-    if not top_level:
-        return hmp_error or "Xemu screenshot did not fire and no visible top-level window was found"
-
-    _area, hwnd, _width, _height = max(top_level)
-    try:
-        image = ImageGrab.grab(window=int(hwnd))
-        image.save(output_path, "PNG")
-        return "captured from Xemu window without focus via PrintWindow"
-    except Exception as exc:
-        return "Xemu built-in screenshot did not fire and PrintWindow failed: %s" % exc
+    return hmp_error or "Xemu monitor port is required for framebuffer capture"
 
 
 def parse_case_evidence(text, case):
@@ -682,7 +650,7 @@ def run_case(args, stage, case, index, xiso_tool, config_path):
     frontend_loading_proof = bool(args.frontend_loading_proof)
     lighting_proof = bool(args.lighting_proof)
     traversal_proof = bool(args.traversal_proof)
-    required_camera_bursts = 0 if (frontend_loading_proof or lighting_proof or traversal_proof) else min(
+    required_camera_bursts = 0 if (frontend_loading_proof or lighting_proof or traversal_proof or args.crosshair_proof) else min(
         max(1, case.get("camera_burst_limit", args.camera_burst_limit)),
         len(expected_classes),
     )
@@ -705,6 +673,7 @@ def run_case(args, stage, case, index, xiso_tool, config_path):
     accumulated = ""
     last_snapshot = ""
     live_started = None
+    gameplay_recording = None
     last_change = time.time()
     screenshots = []
     camera_screenshots = []
@@ -799,6 +768,23 @@ def run_case(args, stage, case, index, xiso_tool, config_path):
             if current["skeletalFlickerAlertCount"]:
                 marker = current["skeletalFlickerAlerts"][-1]
                 break
+
+            if args.crosshair_proof:
+                events = re.findall(r"XCROSSHAIR PROOF index=(\d+) texture=(\S+)", accumulated or snapshot)
+                if events:
+                    index, texture = events[-1]
+                    path = os.path.join(screenshot_dir, "crosshair_%s.png" % index)
+                    if path not in screenshots:
+                        reply = capture_screen(proc.pid, args.screenshot_dir, path, args.monitor_port)
+                        if os.path.isfile(path):
+                            screenshots.append(path)
+                        else:
+                            marker = "crosshair capture failed: " + reply
+                            break
+                    if all(os.path.join(screenshot_dir, "crosshair_%d.png" % i) in screenshots for i in range(9)):
+                        marker = "captured all nine HUD crosshair textures"
+                        ok = True
+                        break
 
             if args.menu_proof_log_pattern and args.menu_proof_log_pattern in (accumulated or snapshot):
                 path = os.path.join(screenshot_dir, args.menu_proof_filename)
@@ -1000,7 +986,10 @@ def run_case(args, stage, case, index, xiso_tool, config_path):
                         break
                     # Leave enough time for every requested screendump and the
                     # post-capture verification to finish before the next state.
-                    state_capture_window_open = float(state_frame) <= 0.40
+                    # Playback now uses the clip's own rate, so normalized frame
+                    # is no longer a measure of time remaining in this slot.
+                    # The post-capture state-identity check rejects handoffs.
+                    state_capture_window_open = True
                     if (
                         state_key not in captured_state_keys
                         and state_capture_window_open
@@ -1130,7 +1119,7 @@ def run_case(args, stage, case, index, xiso_tool, config_path):
                 and len(lighting_screenshots) < args.lighting_proof_screenshots
             ):
                 lighting_events = XLIGHTCAM_RE.findall(accumulated or snapshot)
-                if args.lighting_proof_slot is not None and lighting_events:
+                if lighting_events:
                     # A targeted geometry comparison must capture the camera
                     # currently reported by the guest, not an older matching
                     # slot retained in the accumulated RAM log.
@@ -1207,7 +1196,7 @@ def run_case(args, stage, case, index, xiso_tool, config_path):
 
             map_live_enough = (
                 current["activeMapSamples"] > 0
-                if lighting_proof
+                if lighting_proof or case["bots"] == 0
                 else current["activeMapMaxBots"] >= case["bots"]
             )
             if map_live_enough and live_started is None:
@@ -1228,6 +1217,12 @@ def run_case(args, stage, case, index, xiso_tool, config_path):
 
             if live_started is not None:
                 elapsed = time.time() - live_started
+                if args.record_gameplay and gameplay_recording is None and elapsed >= 15 and camera_events:
+                    gameplay_recording = record_xemu_native.record(
+                        proc.pid, args.xemu, args.screenshot_dir,
+                        os.path.join(run_dir, "recording"), seconds=60)
+                    last_change = time.time()
+                    continue
                 halfway = case["seconds"] / 2.0
                 if (
                     traversal_proof
@@ -1347,6 +1342,7 @@ def run_case(args, stage, case, index, xiso_tool, config_path):
         "HaloMasterChief.HaloMasterChiefBot", 0
     )
     summary.update({
+        "gameplayRecording": gameplay_recording,
         "map": case["map"],
         "game": case["game"],
         "playerClass": case["player"],
@@ -1410,6 +1406,9 @@ def run_case(args, stage, case, index, xiso_tool, config_path):
         "masterChiefBotCount": master_chief_count,
         "customRosterOnly": not unexpected_classes,
         "ok": bool(
+            (ok and summary["fatalCount"] == 0
+             and all(os.path.join(screenshot_dir, "crosshair_%d.png" % i) in screenshots for i in range(9)))
+            if args.crosshair_proof else
             (
                 ok
                 and summary["fatalCount"] == 0
@@ -1465,13 +1464,47 @@ def run_case(args, stage, case, index, xiso_tool, config_path):
             )
         ),
     })
+    if args.attachment_weapon:
+        draws = re.findall(r"XSKELWEAPON draw actor=(\S+) \S+ weapon=(\S+) \S+", accumulated or last_snapshot)
+        expected_actors = {name.rsplit('.', 1)[-1].lower() for name in expected_classes}
+        intended_weapon = args.attachment_weapon.rsplit('.', 1)[-1].lower()
+        target_draws = [(actor, weapon) for actor, weapon in draws if actor.lower() in expected_actors]
+        drawn_actors = {actor.lower() for actor, weapon in target_draws if weapon.lower() == intended_weapon}
+        weapon_proof = expected_actors <= drawn_actors and all(weapon.lower() == intended_weapon for actor, weapon in target_draws)
+        summary.update(attachmentWeapon=args.attachment_weapon, attachmentWeaponDraws=target_draws,
+                       attachmentWeaponVerified=weapon_proof)
+        summary['ok'] = bool(summary['ok'] and weapon_proof)
+    if args.split_combat_benchmark:
+        combat = []
+        pattern = (r'XCOMBAT elapsed=([\d.]+) players=(\d+) bots=(\d+) living=(\d+) '
+                   r'moving=(\d+) firing=(\d+) projectiles=(\d+) deaths=(\d+) movedMask=([0-9A-Fa-f]+)')
+        for event in re.findall(pattern, accumulated or last_snapshot):
+            combat.append(dict(zip(('elapsed','players','bots','living','moving','firing','projectiles','deaths','movedMask'),
+                [float(event[0])] + list(map(int,event[1:8])) + [int(event[8],16)])))
+        steady = [sample for sample in combat if sample['elapsed'] >= 15]
+        movement_samples = sum(sample['moving'] > 0 for sample in steady)
+        firing_samples = sum(sample['firing'] > 0 for sample in steady)
+        moved_mask = (1 << args.split_players) - 1
+        combat_passed = bool(len(steady) >= 10
+            and all(sample['bots'] >= 8 and sample['players'] == args.split_players for sample in steady)
+            and movement_samples >= 5 and firing_samples >= 2
+            and any(sample['deaths'] > 0 for sample in steady)
+            and any(sample['movedMask'] & moved_mask == moved_mask for sample in steady))
+        summary.update(combatBenchmark=True, combatSamples=combat,
+            combatMovementSamples=movement_samples, combatFiringSamples=firing_samples,
+            combatProofComplete=combat_passed)
+        summary['ok'] = bool(summary['ok'] and combat_passed)
     with open(os.path.join(run_dir, "summary.json"), "w") as handle:
         json.dump(summary, handle, indent=2, sort_keys=True)
     return summary, config_path
 
 
 def main(argv):
+    global NATIVE_SCREENSHOT_EXE, SKELETAL_PROOF_STATES
     parser = argparse.ArgumentParser()
+    parser.add_argument("--all-animation-proof", action="store_true", help="Check every Elite animation alias")
+    parser.add_argument("--record-gameplay", action="store_true", help="Record 60 seconds of native third-person bot gameplay")
+    parser.add_argument("--right-side-proof", action="store_true", help="Inspect the weapon hand from the opposite camera side")
     parser.add_argument("--build-dir", default=DEFAULT_BUILD)
     parser.add_argument("--runtime-source", default=DEFAULT_RUNTIME)
     parser.add_argument(
@@ -1520,6 +1553,8 @@ def main(argv):
         "--mutator",
         help="Append one mutator class to each rendered case URL",
     )
+    parser.add_argument("--attachment-weapon", help="Equip one exact weapon class using the isolated AttachmentProof mutator")
+    parser.add_argument("--weapon-closeup", action="store_true", help="Use a test-only close camera on the weapon hand")
     parser.add_argument(
         "--player-class",
         help="Override the local observer class (useful when isolating a skeletal bot under test)",
@@ -1593,6 +1628,13 @@ def main(argv):
         default="menu_proof.png",
         help="Screenshot filename used with --menu-proof-log-pattern",
     )
+    parser.add_argument("--crosshair-proof", action="store_true", help="Capture all nine live-HUD crosshair previews")
+    parser.add_argument("--split-players", type=int, choices=(2, 3, 4), default=4,
+                        help="Local player count for --frontend-loading-proof split-smoke")
+    parser.add_argument("--split-benchmark", action="store_true",
+                        help="Keep split-smoke players in gameplay without controls-test actions")
+    parser.add_argument("--split-combat-benchmark", action="store_true",
+                        help="Require moving local players and eight active fighting bots in split-smoke")
     parser.add_argument(
         "--lighting-proof",
         action="store_true",
@@ -1644,6 +1686,12 @@ def main(argv):
     )
     parser.add_argument("--evidence-dir")
     args = parser.parse_args(argv)
+    if args.all_animation_proof:
+        if args.bot_class != "HaloUTXbox.EliteBot":
+            raise RuntimeError("--all-animation-proof requires --bot-class HaloUTXbox.EliteBot")
+        args.skeletal_state_proof = True
+        with open(os.path.join(ROOT_DIR, "Botpack", "Classes", "TMale2.uc")) as handle:
+            SKELETAL_PROOF_STATES = tuple(name for name in re.findall(r'#exec MESH SEQUENCE.*?SEQ=(\w+)', handle.read()) if name != "All")
 
     args.build_dir = os.path.abspath(args.build_dir)
     args.runtime_source = os.path.abspath(args.runtime_source)
@@ -1652,6 +1700,11 @@ def main(argv):
     args.xemu = xemu_soak.ensure_instance_xemu(
         xemu_soak.xemu_exe_from_root(args.xemu_root), args.xemu_instance
     )
+    NATIVE_SCREENSHOT_EXE = args.xemu
+    # Resolve the existing emulator's native writer before any timed camera
+    # proof starts; scanning the executable during a capture can miss its slot.
+    if xemu_native_screenshot.xemu_find_screenshot_flag_pointer_rva(args.xemu) is None:
+        raise RuntimeError("Xemu native screenshot writer could not be resolved")
     args.bootrom = os.path.join(args.xemu_root, "MCPX", "mcpx_1.0.bin")
     args.flashrom = os.path.join(args.xemu_root, "BIOS", "xbox-4627_debug.bin")
     args.iso_path = os.path.join(args.xemu_instance, "ut99_deep_soak_current.iso")
@@ -1716,13 +1769,27 @@ def main(argv):
         for case in selected:
             case["map"] = args.map_override
     if args.bots_override is not None:
-        min_bots = 0 if args.lighting_proof else 1
+        min_bots = 0 if (args.lighting_proof or args.frontend_loading_proof == "split-smoke") else 1
         if args.bots_override < min_bots or args.bots_override > 15:
             if args.lighting_proof:
                 raise RuntimeError("--bots-override must be between 0 and 15 in --lighting-proof mode")
             raise RuntimeError("--bots-override must be between 1 and 15")
         for case in selected:
             case["bots"] = args.bots_override
+    if args.split_combat_benchmark:
+        if args.frontend_loading_proof != "split-smoke":
+            raise RuntimeError("--split-combat-benchmark requires --frontend-loading-proof split-smoke")
+        if args.bots_override not in (None, 8):
+            raise RuntimeError("The combat benchmark requires exactly eight bots")
+        args.split_benchmark = True
+        for case in selected:
+            case["bots"] = 8
+            case["bot_class"] = args.bot_class or "Botpack.TMale1Bot"
+    elif args.frontend_loading_proof == "split-smoke":
+        # The process-local split proof deliberately starts a match with no bots.
+        # Waiting for the matrix's ordinary bot roster can never become live.
+        for case in selected:
+            case["bots"] = 0
     if args.player_class:
         for case in selected:
             case["player"] = args.player_class
@@ -1732,6 +1799,13 @@ def main(argv):
     if args.mutator:
         for case in selected:
             case["mutator"] = args.mutator
+    if args.attachment_weapon:
+        if args.mutator:
+            raise RuntimeError("--attachment-weapon owns the proof mutator; omit --mutator")
+        if not re.fullmatch(r"[A-Za-z0-9_]+\.[A-Za-z0-9_]+", args.attachment_weapon):
+            raise RuntimeError("--attachment-weapon requires Package.Class")
+        for case in selected:
+            case["mutator"] = "HaloUTXbox.AttachmentProof"
     if args.roster_span is not None:
         if args.roster_span <= 0 or args.roster_span > len(ROSTER):
             raise RuntimeError("--roster-span must be between 1 and %d" % len(ROSTER))
@@ -1764,6 +1838,12 @@ def main(argv):
     stage, copied = prepare_base(args)
     xiso_tool = xemu_soak.find_xiso_tool(os.path.dirname(args.build_dir))
     config_path = os.path.join(args.xemu_instance, "xemu_soak_runtime_config")
+    # Resolve the native capture trigger before launching the guest. Scanning
+    # the host executable during the first capture consumes CPU and can skew
+    # the gameplay timing window, especially on a shared CPU/GPU laptop.
+    if NATIVE_SCREENSHOT_EXE:
+        if xemu_native_screenshot.xemu_find_screenshot_flag_pointer_rva(NATIVE_SCREENSHOT_EXE) is None:
+            raise RuntimeError("Xemu native screenshot flag path not found")
     summaries = []
     try:
         for index, case in enumerate(selected, 1):

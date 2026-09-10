@@ -107,7 +107,7 @@ var class<menu> SpecialMenu;
 var string DelayedCommand;
 var globalconfig float	MouseSensitivity;
 
-var globalconfig name	WeaponPriority[20]; //weapon class priorities (9 is highest)
+var globalconfig name	WeaponPriority[50]; // Must match the loaded v436 PlayerPawn layout.
 
 var float SmoothMouseX, SmoothMouseY, BorrowedMouseX, BorrowedMouseY;
 var() globalconfig float MouseSmoothThreshold;

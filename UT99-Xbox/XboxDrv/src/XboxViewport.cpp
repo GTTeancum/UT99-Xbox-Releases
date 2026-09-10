@@ -1442,12 +1442,14 @@ static void XboxSplitResetRuntime( UXboxClient* Client, const char* Reason )
         for( INT i=Client->Viewports.Num()-1; i>=1; i-- )
         {
             UXboxViewport* VP = Cast<UXboxViewport>( Client->Viewports(i) );
-            if( VP && VP->bXboxSplitDummy )
+            if( VP )
             {
                 if( VP->Actor && VP->Actor->GetLevel() && !GXboxSplitBorrowedActor[i] )
                 {
-                    GXboxLog.Write( "XSPLIT destroying dummy actor index=%d actor=0x%08X reason=%s",
+                    GXboxLog.Write( "XSPLIT destroying secondary actor index=%d actor=0x%08X reason=%s",
                         i, (DWORD)VP->Actor, Reason ? Reason : "" );
+                    // Match UPlayer::Destroy's ownership teardown.
+                    VP->Actor->Player = NULL;
                     VP->Actor->GetLevel()->DestroyActor( VP->Actor, 1 );
                     VP->Actor = NULL;
                 }
@@ -1457,8 +1459,12 @@ static void XboxSplitResetRuntime( UXboxClient* Client, const char* Reason )
                         i, (DWORD)VP->Actor, Reason ? Reason : "" );
                     VP->Actor = NULL;
                 }
-                GXboxLog.Write( "XSPLIT removing dummy viewport index=%d vp=0x%08X reason=%s",
+                GXboxLog.Write( "XSPLIT removing secondary viewport index=%d vp=0x%08X reason=%s",
                     i, (DWORD)VP, Reason ? Reason : "" );
+                // Every secondary viewport shares the primary render device,
+                // including real joined players. UViewport::Destroy owns its
+                // RenDev, so detach it before destroying this viewport.
+                VP->RenDev = NULL;
                 VP->ConditionalDestroy();
             }
         }
@@ -1880,6 +1886,18 @@ static void XboxSplitSmokeMaybeQueue( UXboxClient* Client )
 
     }
 
+    if( XboxSplitCombatBenchmarkEnabled() && GConfig )
+    {
+        FString BenchmarkMap;
+        if( GConfig->GetString(TEXT("Benchmark"), TEXT("Map"), BenchmarkMap,
+            TEXT("D:\\XboxSplitCombatBenchmark.ini")) && BenchmarkMap.Len() )
+        {
+            // Replace only the map; preserve the split-player travel options.
+            const INT Options = TravelURL.InStr(TEXT("?"));
+            if( Options >= 0 )
+                TravelURL = BenchmarkMap + TravelURL.Mid(Options);
+        }
+    }
     GXboxLog.Write( "XSPLIT SELFTEST queued travel: %s", TCHAR_TO_ANSI(*TravelURL) );
     Client->Engine->SetClientTravel( Client->Viewports(0), const_cast<TCHAR*>(*TravelURL), 0, TRAVEL_Absolute );
 }
@@ -1941,6 +1959,18 @@ static INT XboxSplitActiveOrderForSlot( INT Slot )
     return Order;
 }
 
+static UBOOL XboxSplitPillarboxed( UViewport* VP )
+{
+    return GXboxSplitActive && GXboxSplitActivePlayerCount > 1 && VP
+        && VP->RenDev && VP->RenDev->GetPixelAspectRatio() > 1.0f;
+}
+
+// Keep the physical 4:3 camera frustum when the anamorphic viewport is narrower.
+extern "C" FLOAT XboxViewportProjectionWidth( UViewport* VP, FLOAT Width )
+{
+    return XboxSplitPillarboxed(VP) ? Width * (4.0f / 3.0f) : Width;
+}
+
 static void XboxSplitSetDisabledViewRegion( UXboxViewport* VP )
 {
     if( !VP )
@@ -1959,7 +1989,9 @@ static void XboxSplitApplyActiveViewRegion( UXboxViewport* VP, INT Slot )
 
     INT Count = Clamp<INT>( GXboxSplitActivePlayerCount, 1, 4 );
     INT Order = Clamp<INT>( XboxSplitActiveOrderForSlot( Slot ), 0, Count - 1 );
-    const INT HalfW = XBOX_SCREEN_WIDTH / 2;
+    const INT RegionW = Count > 1 && VP->RenDev && VP->RenDev->GetPixelAspectRatio() > 1.0f ? 480 : XBOX_SCREEN_WIDTH;
+    const INT RegionX = (XBOX_SCREEN_WIDTH - RegionW) / 2;
+    const INT HalfW = RegionW / 2;
     const INT HalfH = XBOX_SCREEN_HEIGHT / 2;
 
     if( Count <= 1 )
@@ -1971,14 +2003,14 @@ static void XboxSplitApplyActiveViewRegion( UXboxViewport* VP, INT Slot )
     }
     else if( Count == 2 )
     {
-        VP->ViewX = 0;
+        VP->ViewX = RegionX;
         VP->ViewY = Order ? HalfH : 0;
-        VP->SizeX = VP->ViewWidth = XBOX_SCREEN_WIDTH;
+        VP->SizeX = VP->ViewWidth = RegionW;
         VP->SizeY = VP->ViewHeight = HalfH;
     }
     else
     {
-        VP->ViewX = (Order & 1) ? HalfW : 0;
+        VP->ViewX = RegionX + ((Order & 1) ? HalfW : 0);
         VP->ViewY = (Order & 2) ? HalfH : 0;
         VP->SizeX = VP->ViewWidth = HalfW;
         VP->SizeY = VP->ViewHeight = HalfH;
@@ -2025,14 +2057,22 @@ extern "C" UBOOL XboxViewportShouldUpdateAudio( UViewport* Viewport )
 
 extern "C" void XboxSplitClearUnusedRenderRegions( UClient* Client )
 {
-    if( !GXboxSplitActive || GXboxSplitActivePlayerCount != 3 || !Client || Client->Viewports.Num() <= 0 )
+    if( !GXboxSplitActive || !Client || Client->Viewports.Num() <= 0 )
         return;
 
     UXboxViewport* Primary = Cast<UXboxViewport>( Client->Viewports(0) );
     if( !Primary || !Primary->RenDev )
         return;
 
-    XboxRenderClearRegion( Primary->RenDev, XBOX_SCREEN_WIDTH / 2, XBOX_SCREEN_HEIGHT / 2, XBOX_SCREEN_WIDTH / 2, XBOX_SCREEN_HEIGHT / 2 );
+    const INT RegionW = XboxSplitPillarboxed(Primary) ? 480 : XBOX_SCREEN_WIDTH;
+    const INT RegionX = (XBOX_SCREEN_WIDTH - RegionW) / 2;
+    if( RegionX )
+    {
+        XboxRenderClearRegion( Primary->RenDev, 0, 0, RegionX, XBOX_SCREEN_HEIGHT );
+        XboxRenderClearRegion( Primary->RenDev, RegionX + RegionW, 0, RegionX, XBOX_SCREEN_HEIGHT );
+    }
+    if( GXboxSplitActivePlayerCount == 3 )
+        XboxRenderClearRegion( Primary->RenDev, RegionX + RegionW / 2, XBOX_SCREEN_HEIGHT / 2, RegionW / 2, XBOX_SCREEN_HEIGHT / 2 );
 }
 
 extern "C" UBOOL XboxSplitShouldClearRenderLock()
@@ -10495,6 +10535,74 @@ static void XboxMenuReturnToFrontend( UXboxViewport* Viewport )
     Client->Engine->SetClientTravel( TravelViewport, FrontendURL, 0, TRAVEL_Absolute );
 }
 
+// Opt-in, process-local video transition proof. No host input is generated.
+static UBOOL XboxDashboardVideoProofTick( UXboxViewport* VP )
+{
+    static INT Marker = 0, Phase = 0;
+    static DOUBLE Since = 0, LastCapture = 0;
+    if( !VP || XboxViewportIndex(VP) != 0
+        || !XboxSmokeMarkerExists("XboxDashboardVideoProof.ini", Marker) || Phase >= 6 )
+        return 0;
+    UXboxClient* Client = (UXboxClient*)VP->GetOuter();
+    DOUBLE Now = appSeconds();
+    UBOOL Frontend = VP->Actor && XboxIsFrontendLevel(VP->Actor->GetLevel());
+    if( Phase == 0 )
+    {
+        if( !GXboxSplitActive || Frontend || !VP->Actor ) return 0;
+        for( INT i=0; i<Client->Viewports.Num(); ++i )
+        {
+            APlayerPawn* Player = Client->Viewports(i)->Actor;
+            if( !Player ) continue;
+#define XVIDEO_CHECK_STRING(Field) { UProperty* P = FindField<UProperty>(Player->GetClass(), TEXT(#Field)); GXboxLog.Write("XVIDEOLAYOUT player=%d field=%s native=%d reflected=%d data=0x%08X", i, #Field, (INT)((BYTE*)&Player->Field-(BYTE*)Player), P ? P->Offset : -1, *(DWORD*)&Player->Field); }
+            XVIDEO_CHECK_STRING(SelectionMesh);
+            XVIDEO_CHECK_STRING(SpecialMesh);
+            XVIDEO_CHECK_STRING(MenuName);
+            XVIDEO_CHECK_STRING(NameArticle);
+            XVIDEO_CHECK_STRING(VoiceType);
+            XVIDEO_CHECK_STRING(Password);
+            XVIDEO_CHECK_STRING(DelayedCommand);
+            UProperty* Priority = FindField<UProperty>(Player->GetClass(), TEXT("WeaponPriority"));
+            GXboxLog.Write("XVIDEOLAYOUT WeaponPriority arrayDim=%d elementSize=%d native=%d reflected=%d",
+                Priority ? Priority->ArrayDim : -1, Priority ? Priority->ElementSize : -1,
+                (INT)((BYTE*)&Player->WeaponPriority-(BYTE*)Player), Priority ? Priority->Offset : -1);
+            XVIDEO_CHECK_STRING(SmoothMouseX);
+            XVIDEO_CHECK_STRING(ProgressMessage);
+            XVIDEO_CHECK_STRING(QuickSaveString);
+            XVIDEO_CHECK_STRING(NoPauseMessage);
+            XVIDEO_CHECK_STRING(ViewingFrom);
+            XVIDEO_CHECK_STRING(OwnCamera);
+            XVIDEO_CHECK_STRING(FailedView);
+            XVIDEO_CHECK_STRING(ngWorldSecret);
+#undef XVIDEO_CHECK_STRING
+        }
+        Since = Now; Phase = 1;
+    }
+    if( Now-Since >= 5.0 && Now-LastCapture >= 2.0 )
+    {
+        GXboxLog.Write("XVIDEOPROOF capture=%d", Phase);
+        LastCapture = Now;
+    }
+    if( Now-Since < 15.0 ) return 0;
+    const char* Label = Phase == 1 ? "split" : Phase == 2 ? "pause" :
+        Phase == 3 ? "resume" : Phase == 4 ? "frontend" : "single";
+    UBOOL Passed = Phase <= 3 ? GXboxSplitActive && !Frontend :
+        !GXboxSplitActive && Client->Viewports.Num() == 1
+        && VP->ViewX == 0 && VP->ViewY == 0 && VP->ViewWidth == 640 && VP->ViewHeight == 480
+        && (Phase == 4 ? Frontend && GXboxMenu.Active : !Frontend && !GXboxMenu.Active);
+    if( Phase == 2 ) Passed = Passed && GXboxMenu.Active && GXboxMenu.Screen == XMS_Pause;
+    if( Phase == 3 ) Passed = Passed && !GXboxMenu.Active;
+    GXboxLog.Write("XVIDEOPROOF phase=%s result=%s views=%d region=%d,%d,%d,%d",
+        Label, Passed ? "PASS" : "FAIL", Client->Viewports.Num(),
+        VP->ViewX, VP->ViewY, VP->ViewWidth, VP->ViewHeight);
+    if( !Passed ) { Phase = 6; return 0; }
+    ++Phase; Since = Now;
+    if( Phase == 2 ) XboxMenuOpen(VP);
+    else if( Phase == 3 ) XboxMenuClose(VP);
+    else if( Phase == 4 ) { XboxMenuReturnToFrontend(VP); return 1; }
+    else if( Phase == 5 ) { XboxMenuStartInstantAction(VP); return 1; }
+    return 0;
+}
+
 static const TCHAR* XboxMenuScreenName( EXboxMenuScreen Screen )
 {
     switch( Screen )
@@ -14049,10 +14157,13 @@ static APlayerPawn* XboxSplitControlsProofPlayer( UXboxClient* Client, INT Slot 
 static UBOOL XboxSplitControlsProofReady( UXboxClient* Client, ULevel*& Level )
 {
     Level = NULL;
-    if( !GXboxSplitActive || !Client || Client->Viewports.Num() < 4 )
+    // Combat benchmarks also run with two or three local players.
+    const INT RequiredPlayers = XboxSplitBenchmarkEnabled() ? GXboxSplitActivePlayerCount : 4;
+    if( !GXboxSplitActive || !Client || RequiredPlayers < 2 || RequiredPlayers > 4
+        || Client->Viewports.Num() < RequiredPlayers )
         return 0;
 
-    for( INT i=0; i<4; i++ )
+    for( INT i=0; i<RequiredPlayers; i++ )
     {
         UXboxViewport* Viewport = XboxSplitControlsProofViewport( Client, i );
         if( !Viewport || Viewport->bXboxSplitDummy || !Viewport->Actor || !Viewport->Input )
@@ -14904,7 +15015,7 @@ static UBOOL XboxSplitControlsProofApply( UXboxViewport* Viewport, XINPUT_GAMEPA
     // weapons, opening menus or pausing simulation during a timing run.
     if( XboxSplitBenchmarkEnabled() )
     {
-        if( XboxSplitCombatBenchmarkEnabled() )
+        if( XboxSplitCombatBenchmarkEnabled() && !GXboxMenu.Active )
             XboxSplitCombatBenchmarkApply( Viewport, Client, Level, Pad );
         return 1;
     }
@@ -17413,6 +17524,10 @@ void UXboxViewport::SetViewRegion( INT X, INT Y, INT W, INT H )
 void UXboxViewport::PollController()
 {
     guard(UXboxViewport::PollController);
+
+    // Travel/console replacement must happen before drawing, never inside a
+    // console PostRender callback that it may destroy.
+    if( XboxDashboardVideoProofTick(this) ) return;
 
     if( GXboxSplitActive && bXboxSplitDummy )
         return;

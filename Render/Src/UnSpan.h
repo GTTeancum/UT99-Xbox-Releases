@@ -100,6 +100,9 @@ public:
 	INT CopyFromRaster( FSpanBuffer& ScreenSpanBuffer, INT RasterStartY, INT RasterEndY, FRasterSpan* Raster );
 	INT CopyFromRasterUpdate( FSpanBuffer& ScreenSpanBuffer, INT RasterStartY, INT RasterEndY, FRasterSpan* Raster );
 
+	static INT UpdateRasterScreen( FSpanBuffer& Screen, INT RasterStartY, INT RasterEndY, FRasterSpan* Raster );
+	static INT RasterVisible( const FSpanBuffer& Screen, INT RasterStartY, INT RasterEndY, const FRasterSpan* Raster );
+
 	// Occlusion.
 	INT BoxIsVisible( INT X1, INT Y1, INT X2, INT Y2 );
 

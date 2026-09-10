@@ -459,6 +459,7 @@ static void XboxSmokeDebugHold( const char* Reason )
     const BOOL HasDiagnosticMarker =
         GetFileAttributesA( "D:\\XboxSystemLinkSmoke.ini" ) != 0xFFFFFFFF
         || GetFileAttributesA( "D:\\XboxCharacterSoak.ini" ) != 0xFFFFFFFF
+        || GetFileAttributesA( "D:\\XboxDashboardVideoProof.ini" ) != 0xFFFFFFFF
         || GetFileAttributesA( "D:\\XboxStartURL.ini" ) != 0xFFFFFFFF;
     if( !HasDiagnosticMarker )
         return;

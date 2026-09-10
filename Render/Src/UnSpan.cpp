@@ -428,6 +428,134 @@ INT FSpanBuffer::CopyFromRaster( FSpanBuffer& Screen, INT RasterStartY, INT Rast
     unguard;
 }
 
+// Preserve screen occlusion updates without allocating destination spans.
+INT FSpanBuffer::UpdateRasterScreen( FSpanBuffer& Screen, INT RasterStartY, INT RasterEndY, FRasterSpan* Raster )
+{
+    guard(FSpanBuffer::UpdateRasterScreen);
+
+    FRasterSpan *Line;
+    FSpan       **ScreenIndex,*NewScreenSpan,*ScreenSpan,**PrevScreenLink;
+	INT			i,OurStart,OurEnd,Accept=0;
+
+    OurStart  = Max( RasterStartY, Screen.StartY );
+    OurEnd    = Min( RasterEndY,   Screen.EndY   );
+    if( OurStart>=OurEnd ) return 0;
+
+    Line        = Raster + OurStart - RasterStartY;
+    ScreenIndex = Screen.Index + OurStart - Screen.StartY;
+
+	for( i=OurStart; i<OurEnd; i++ )
+    {
+        PrevScreenLink  = ScreenIndex;
+        ScreenSpan      = *(ScreenIndex++);
+
+        // Skip if this screen span is already full, or if the raster is empty.
+        if( (!ScreenSpan) || (Line->X[1] <= Line->X[0]) )
+			goto NextLine;
+
+        // Skip past all spans that occur before the raster.
+        while( ScreenSpan->End <= Line->X[0] )
+        {
+            PrevScreenLink  = &(ScreenSpan->Next);
+            ScreenSpan      = ScreenSpan->Next;
+            if( ScreenSpan == NULL )
+				goto NextLine; // This line is full.
+        }
+
+        // ASSERT: ScreenSpan->End.X > Line->Start.X.
+
+        // See if this span straddles the raster's starting point.
+        if( ScreenSpan->Start < Line->X[0] )
+        {
+            // This overlap makes the polygon visible.
+            Accept = 1;
+
+            // See if span entirely encloses raster; if so, break span
+            // up into two pieces and we're done.
+            if( ScreenSpan->End > Line->X[1] )
+            {
+                // Get memory for the new span.  Note that this may be drawing from
+                // the same memory pool as the destination.
+                NewScreenSpan        = New<FSpan>(*Screen.Mem,1,4);
+                NewScreenSpan->Start = Line->X[1];
+                NewScreenSpan->End   = ScreenSpan->End;
+                NewScreenSpan->Next  = ScreenSpan->Next;
+
+                ScreenSpan->Next     = NewScreenSpan;
+                ScreenSpan->End      = Line->X[0];
+
+                Screen.ValidLines++;
+
+                goto NextLine; // Done (everything is clean).
+            }
+            else
+            {
+                // Remove partial chunk from the span buffer.
+                ScreenSpan->End = Line->X[0];
+
+                PrevScreenLink  = &(ScreenSpan->Next);
+                ScreenSpan      = ScreenSpan->Next;
+                if (ScreenSpan == NULL) goto NextLine; // Done (everything is clean).
+            }
+        }
+
+        // ASSERT: Span->Start >= Line->Start.X
+        // if (ScreenSpan->Start < Line->Start.X) appError ("Span2");
+
+        // Process all screen spans that are entirely within the raster.
+        while( ScreenSpan->End <= Line->X[1] )
+        {
+            // Consume a completely covered screen span.
+            Accept = 1;
+
+            // Delete this span from the span buffer.
+            *PrevScreenLink = ScreenSpan->Next;
+            ScreenSpan      = ScreenSpan->Next;
+            Screen.ValidLines--;
+            if( ScreenSpan==NULL )
+				goto NextLine; // Done (everything is clean).
+        }
+
+        // ASSERT: Span->End > Line->End.X
+        // if (ScreenSpan->End <= Line->End.X) appError ("Span3");
+
+        // If span overlaps raster's end point, process the partial chunk:
+        if( ScreenSpan->Start < Line->X[1] )
+        {
+            // Consume the covered start of this screen span.
+            Accept = 1;
+
+            // Shorten this span line by removing the raster.
+            ScreenSpan->Start = Line->X[1];
+        }
+        NextLine:
+        Line ++;
+    }
+
+    return Accept;
+    unguard;
+}
+
+// Test raster visibility without constructing output spans or altering Screen.
+// Hardware surfaces that do not occlude or create portals only need this result.
+INT FSpanBuffer::RasterVisible( const FSpanBuffer& Screen, INT RasterStartY, INT RasterEndY, const FRasterSpan* Raster )
+{
+	const INT First = Max(RasterStartY, Screen.StartY);
+	const INT Last = Min(RasterEndY, Screen.EndY);
+	for( INT Y=First; Y<Last; Y++ )
+	{
+		const FRasterSpan& Line = Raster[Y-RasterStartY];
+		if( Line.X[1] <= Line.X[0] )
+			continue;
+		const FSpan* Span = Screen.Index[Y-Screen.StartY];
+		while( Span && Span->End <= Line.X[0] )
+			Span = Span->Next;
+		if( Span && Span->Start < Line.X[1] )
+			return 1;
+	}
+	return 0;
+}
+
 /*-----------------------------------------------------------------------------
     Merging.
 -----------------------------------------------------------------------------*/

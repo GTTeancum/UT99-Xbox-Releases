@@ -1,0 +1,960 @@
+{
+  "xbeSha256": "5f1f9457974b3c66d29680f850dfbddce453d757f953f569f5f51956a7cffe71",
+  "complete": true,
+  "combatWindowSeconds": [
+    20,
+    75
+  ],
+  "players": 4,
+  "bots": 8,
+  "scan": "480p",
+  "runs": [
+    {
+      "map": "DM-Deck16][",
+      "wide": false,
+      "evidence": "C:\\Programming\\GitHub\\UnrealTournament_1.40\\UT99-Xbox\\build_cli\\dashboard_perf_20260910\\standard_DM-Deck16][\\01_DM-Deck16][",
+      "identity": {
+        "files": {
+          "xbe": {
+            "path": "C:\\Programming\\GitHub\\UnrealTournament_1.40\\UT99-Xbox\\build_cli\\dashboard_video_stage\\default.xbe",
+            "sha256": "5f1f9457974b3c66d29680f850dfbddce453d757f953f569f5f51956a7cffe71"
+          },
+          "symbols": {
+            "path": "C:\\Programming\\GitHub\\UnrealTournament_1.40\\build\\UnrealTournament.map",
+            "sha256": "16b3dca8610e0118ae14f8582ff58a307a5c0a2454eed9acbfadd4c939e9ddb1"
+          },
+          "map": {
+            "path": "C:\\Programming\\GitHub\\UnrealTournament_1.40\\UT99-Xbox\\build_cli\\dashboard_video_stage\\Maps\\DM-Deck16][.unr",
+            "sha256": "a8d2060c3bc333786fc4910f89fec77a12c11f1fc0cb8396f7f52afcbcce02f9"
+          }
+        },
+        "players": 4,
+        "bots": 8,
+        "seconds": 90,
+        "profiling": true,
+        "rasterMode": "optimized",
+        "auditOverhead": false
+      },
+      "eepromSha256": "f091095c26fb72385b73ccfcd2d792f55412f73bab05153b1e05d09668e794c5",
+      "timings": {
+        "log": "C:\\Programming\\GitHub\\UnrealTournament_1.40\\UT99-Xbox\\build_cli\\dashboard_perf_20260910\\standard_DM-Deck16][\\01_DM-Deck16][\\xemu_ram_log_accumulated.txt",
+        "observedScriptWarnings": 0,
+        "combatWindowMS": [
+          20000,
+          75000
+        ],
+        "combatStartGuestMS": 19794.0,
+        "engineProfile": {
+          "samples": 1702,
+          "windows": 11,
+          "totalMS": 30.331407168037604,
+          "levelMS": 4.183752643948296,
+          "clientMS": 26.141574618096357,
+          "otherMS": 0.005899529964747356
+        },
+        "worldProfilePerView": {
+          "samples": 6838,
+          "windows": 11,
+          "occludeMS": 1.858234571512138,
+          "drawMS": 1.8582266744662181
+        },
+        "viewProfilePerView": {
+          "samples": 6836,
+          "windows": 11,
+          "preMS": 0.2060035108250439,
+          "audioMS": 0.15133864833235813,
+          "worldMS": 4.547253510825044,
+          "hudMS": 1.4771873902867174,
+          "unlockMS": 0.09673522527794032,
+          "finishMS": 0.0030688999414862496
+        },
+        "canvasProfilePerView": {
+          "samples": 6836,
+          "windows": 11,
+          "nativeMS": 0.6180965476887068,
+          "calls": 36.261702750146284
+        },
+        "hudProfilePerView": {
+          "samples": 6836,
+          "windows": 11,
+          "playerMS": 1.3763089526038619,
+          "consoleMS": 0.027716354593329433,
+          "nativeMS": 0.025082796957284964,
+          "flashMS": 0.04814145699239321
+        },
+        "drawProfilePerView": {
+          "samples": 6838,
+          "windows": 11,
+          "surfacesMS": 0.49624466218192453,
+          "actorsMS": 1.0821556010529394
+        },
+        "visibilityProfilePerView": {
+          "samples": 6827,
+          "windows": 11,
+          "setupMS": 0.6058166105170646,
+          "bspMS": 1.242029441921781
+        },
+        "rasterOptimizedPerView": null,
+        "rasterLegacyPerView": null,
+        "meanDrawMS": {
+          "windows": 28,
+          "mean": 26.45117857142857,
+          "median": 25.5745,
+          "min": 21.68,
+          "max": 38.0
+        },
+        "meanWorkMS": {
+          "windows": 11,
+          "mean": 30.727454545454545,
+          "median": 28.864,
+          "min": 26.674,
+          "max": 43.655
+        },
+        "wallFPS": {
+          "windows": 11,
+          "mean": 31.005454545454544,
+          "median": 32.38,
+          "min": 21.87,
+          "max": 34.83
+        },
+        "allocatedKBPerTick": 10.859166666666667
+      },
+      "minAvailableMiB": 17.8984375,
+      "meanFPS": 31.005454545454544,
+      "lowestWindowFPS": 21.87
+    },
+    {
+      "map": "DM-Deck16][",
+      "wide": true,
+      "evidence": "C:\\Programming\\GitHub\\UnrealTournament_1.40\\UT99-Xbox\\build_cli\\dashboard_perf_20260910\\wide_DM-Deck16][\\01_DM-Deck16][",
+      "identity": {
+        "files": {
+          "xbe": {
+            "path": "C:\\Programming\\GitHub\\UnrealTournament_1.40\\UT99-Xbox\\build_cli\\dashboard_video_stage\\default.xbe",
+            "sha256": "5f1f9457974b3c66d29680f850dfbddce453d757f953f569f5f51956a7cffe71"
+          },
+          "symbols": {
+            "path": "C:\\Programming\\GitHub\\UnrealTournament_1.40\\build\\UnrealTournament.map",
+            "sha256": "16b3dca8610e0118ae14f8582ff58a307a5c0a2454eed9acbfadd4c939e9ddb1"
+          },
+          "map": {
+            "path": "C:\\Programming\\GitHub\\UnrealTournament_1.40\\UT99-Xbox\\build_cli\\dashboard_video_stage\\Maps\\DM-Deck16][.unr",
+            "sha256": "a8d2060c3bc333786fc4910f89fec77a12c11f1fc0cb8396f7f52afcbcce02f9"
+          }
+        },
+        "players": 4,
+        "bots": 8,
+        "seconds": 90,
+        "profiling": true,
+        "rasterMode": "optimized",
+        "auditOverhead": false
+      },
+      "eepromSha256": "27509e0accec1c31a670c4ae157b5445c105d58873dc16d764153cbc44d7ed72",
+      "timings": {
+        "log": "C:\\Programming\\GitHub\\UnrealTournament_1.40\\UT99-Xbox\\build_cli\\dashboard_perf_20260910\\wide_DM-Deck16][\\01_DM-Deck16][\\xemu_ram_log_accumulated.txt",
+        "observedScriptWarnings": 0,
+        "combatWindowMS": [
+          20000,
+          75000
+        ],
+        "combatStartGuestMS": 20452.0,
+        "engineProfile": {
+          "samples": 2010,
+          "windows": 11,
+          "totalMS": 25.41205721393035,
+          "levelMS": 3.7144666666666666,
+          "clientMS": 21.692558208955223,
+          "otherMS": 0.005025373134328359
+        },
+        "worldProfilePerView": {
+          "samples": 7978,
+          "windows": 11,
+          "occludeMS": 1.549296565555277,
+          "drawMS": 1.4092568312860365
+        },
+        "viewProfilePerView": {
+          "samples": 7971,
+          "windows": 11,
+          "preMS": 0.17003575461046294,
+          "audioMS": 0.14413310751474093,
+          "worldMS": 3.705798268724125,
+          "hudMS": 1.2793241751348639,
+          "unlockMS": 0.0893175260318655,
+          "finishMS": 0.002824614226571321
+        },
+        "canvasProfilePerView": {
+          "samples": 7971,
+          "windows": 11,
+          "nativeMS": 0.535863254296826,
+          "calls": 35.46556266465939
+        },
+        "hudProfilePerView": {
+          "samples": 7971,
+          "windows": 11,
+          "playerMS": 1.1952965750846818,
+          "consoleMS": 0.02581307238740434,
+          "nativeMS": 0.01838853343369715,
+          "flashMS": 0.0399939781708694
+        },
+        "drawProfilePerView": {
+          "samples": 7975,
+          "windows": 11,
+          "surfacesMS": 0.3871245141065831,
+          "actorsMS": 0.7678707210031348
+        },
+        "visibilityProfilePerView": {
+          "samples": 7983,
+          "windows": 11,
+          "setupMS": 0.5772988851309032,
+          "bspMS": 0.9597520982086934
+        },
+        "rasterOptimizedPerView": null,
+        "rasterLegacyPerView": null,
+        "meanDrawMS": {
+          "windows": 28,
+          "mean": 21.918678571428572,
+          "median": 21.9705,
+          "min": 16.11,
+          "max": 31.48
+        },
+        "meanWorkMS": {
+          "windows": 11,
+          "mean": 25.792181818181817,
+          "median": 26.651,
+          "min": 22.067,
+          "max": 29.585
+        },
+        "wallFPS": {
+          "windows": 11,
+          "mean": 36.269090909090906,
+          "median": 34.86,
+          "min": 31.64,
+          "max": 41.53
+        },
+        "allocatedKBPerTick": 9.408888888888889
+      },
+      "minAvailableMiB": 19.76953125,
+      "meanFPS": 36.269090909090906,
+      "lowestWindowFPS": 31.64
+    },
+    {
+      "map": "DM-Oblivion",
+      "wide": true,
+      "evidence": "C:\\Programming\\GitHub\\UnrealTournament_1.40\\UT99-Xbox\\build_cli\\dashboard_perf_20260910\\wide_DM-Oblivion\\01_DM-Oblivion",
+      "identity": {
+        "files": {
+          "xbe": {
+            "path": "C:\\Programming\\GitHub\\UnrealTournament_1.40\\UT99-Xbox\\build_cli\\dashboard_video_stage\\default.xbe",
+            "sha256": "5f1f9457974b3c66d29680f850dfbddce453d757f953f569f5f51956a7cffe71"
+          },
+          "symbols": {
+            "path": "C:\\Programming\\GitHub\\UnrealTournament_1.40\\build\\UnrealTournament.map",
+            "sha256": "16b3dca8610e0118ae14f8582ff58a307a5c0a2454eed9acbfadd4c939e9ddb1"
+          },
+          "map": {
+            "path": "C:\\Programming\\GitHub\\UnrealTournament_1.40\\UT99-Xbox\\build_cli\\dashboard_video_stage\\Maps\\DM-Oblivion.unr",
+            "sha256": "d28969118beec6c481a9c48e13bb8cff3156ca239b8dc808ed2f5a0a1a644544"
+          }
+        },
+        "players": 4,
+        "bots": 8,
+        "seconds": 90,
+        "profiling": true,
+        "rasterMode": "optimized",
+        "auditOverhead": false
+      },
+      "eepromSha256": "27509e0accec1c31a670c4ae157b5445c105d58873dc16d764153cbc44d7ed72",
+      "timings": {
+        "log": "C:\\Programming\\GitHub\\UnrealTournament_1.40\\UT99-Xbox\\build_cli\\dashboard_perf_20260910\\wide_DM-Oblivion\\01_DM-Oblivion\\xemu_ram_log_accumulated.txt",
+        "observedScriptWarnings": 0,
+        "combatWindowMS": [
+          20000,
+          75000
+        ],
+        "combatStartGuestMS": 19332.5,
+        "engineProfile": {
+          "samples": 1605,
+          "windows": 11,
+          "totalMS": 32.34521059190031,
+          "levelMS": 3.8187501557632397,
+          "clientMS": 28.518349532710282,
+          "otherMS": 0.008170093457943926
+        },
+        "worldProfilePerView": {
+          "samples": 6465,
+          "windows": 11,
+          "occludeMS": 2.215353441608662,
+          "drawMS": 2.0676041763341066
+        },
+        "viewProfilePerView": {
+          "samples": 6474,
+          "windows": 11,
+          "preMS": 0.1906058078467717,
+          "audioMS": 0.1708962001853568,
+          "worldMS": 5.15813515600865,
+          "hudMS": 1.3949565956132222,
+          "unlockMS": 0.08800880444856349,
+          "finishMS": 0.0024958294717330864
+        },
+        "canvasProfilePerView": {
+          "samples": 6474,
+          "windows": 11,
+          "nativeMS": 0.5998487797343218,
+          "calls": 35.97883843064566
+        },
+        "hudProfilePerView": {
+          "samples": 6474,
+          "windows": 11,
+          "playerMS": 1.3071797961075071,
+          "consoleMS": 0.0238898671609515,
+          "nativeMS": 0.02064983008958913,
+          "flashMS": 0.04305390793945011
+        },
+        "drawProfilePerView": {
+          "samples": 6465,
+          "windows": 11,
+          "surfacesMS": 0.4787727764887858,
+          "actorsMS": 1.3826730085073473
+        },
+        "visibilityProfilePerView": {
+          "samples": 6448,
+          "windows": 11,
+          "setupMS": 0.5354052419354838,
+          "bspMS": 1.6791881203473946
+        },
+        "rasterOptimizedPerView": null,
+        "rasterLegacyPerView": null,
+        "meanDrawMS": {
+          "windows": 28,
+          "mean": 28.600892857142856,
+          "median": 29.2425,
+          "min": 22.425,
+          "max": 35.833
+        },
+        "meanWorkMS": {
+          "windows": 11,
+          "mean": 32.41590909090909,
+          "median": 33.444,
+          "min": 27.976,
+          "max": 37.031
+        },
+        "wallFPS": {
+          "windows": 11,
+          "mean": 29.25909090909091,
+          "median": 28.2,
+          "min": 25.6,
+          "max": 33.31
+        },
+        "allocatedKBPerTick": 8.71
+      },
+      "minAvailableMiB": 20.2421875,
+      "meanFPS": 29.25909090909091,
+      "lowestWindowFPS": 25.6
+    },
+    {
+      "map": "DM-Oblivion",
+      "wide": false,
+      "evidence": "C:\\Programming\\GitHub\\UnrealTournament_1.40\\UT99-Xbox\\build_cli\\dashboard_perf_20260910\\standard_DM-Oblivion\\01_DM-Oblivion",
+      "identity": {
+        "files": {
+          "xbe": {
+            "path": "C:\\Programming\\GitHub\\UnrealTournament_1.40\\UT99-Xbox\\build_cli\\dashboard_video_stage\\default.xbe",
+            "sha256": "5f1f9457974b3c66d29680f850dfbddce453d757f953f569f5f51956a7cffe71"
+          },
+          "symbols": {
+            "path": "C:\\Programming\\GitHub\\UnrealTournament_1.40\\build\\UnrealTournament.map",
+            "sha256": "16b3dca8610e0118ae14f8582ff58a307a5c0a2454eed9acbfadd4c939e9ddb1"
+          },
+          "map": {
+            "path": "C:\\Programming\\GitHub\\UnrealTournament_1.40\\UT99-Xbox\\build_cli\\dashboard_video_stage\\Maps\\DM-Oblivion.unr",
+            "sha256": "d28969118beec6c481a9c48e13bb8cff3156ca239b8dc808ed2f5a0a1a644544"
+          }
+        },
+        "players": 4,
+        "bots": 8,
+        "seconds": 90,
+        "profiling": true,
+        "rasterMode": "optimized",
+        "auditOverhead": false
+      },
+      "eepromSha256": "f091095c26fb72385b73ccfcd2d792f55412f73bab05153b1e05d09668e794c5",
+      "timings": {
+        "log": "C:\\Programming\\GitHub\\UnrealTournament_1.40\\UT99-Xbox\\build_cli\\dashboard_perf_20260910\\standard_DM-Oblivion\\01_DM-Oblivion\\xemu_ram_log_accumulated.txt",
+        "observedScriptWarnings": 0,
+        "combatWindowMS": [
+          20000,
+          75000
+        ],
+        "combatStartGuestMS": 19751.0,
+        "engineProfile": {
+          "samples": 1521,
+          "windows": 11,
+          "totalMS": 34.24335897435897,
+          "levelMS": 4.08213872452334,
+          "clientMS": 30.146462853385934,
+          "otherMS": 0.014384615384615386
+        },
+        "worldProfilePerView": {
+          "samples": 6107,
+          "windows": 11,
+          "occludeMS": 2.29253807106599,
+          "drawMS": 2.3177971180612413
+        },
+        "viewProfilePerView": {
+          "samples": 6104,
+          "windows": 11,
+          "preMS": 0.18795314547837486,
+          "audioMS": 0.15874950851900393,
+          "worldMS": 5.491395969855832,
+          "hudMS": 1.511346494102228,
+          "unlockMS": 0.09679456094364353,
+          "finishMS": 0.002949213630406291
+        },
+        "canvasProfilePerView": {
+          "samples": 6104,
+          "windows": 11,
+          "nativeMS": 0.671368610747051,
+          "calls": 37.40547182175622
+        },
+        "hudProfilePerView": {
+          "samples": 6104,
+          "windows": 11,
+          "playerMS": 1.4255910878112712,
+          "consoleMS": 0.022780144167758847,
+          "nativeMS": 0.01675049148099607,
+          "flashMS": 0.046431028833551775
+        },
+        "drawProfilePerView": {
+          "samples": 6107,
+          "windows": 11,
+          "surfacesMS": 0.5277386605534633,
+          "actorsMS": 1.5636964139512037
+        },
+        "visibilityProfilePerView": {
+          "samples": 6110,
+          "windows": 11,
+          "setupMS": 0.5417130932896891,
+          "bspMS": 1.7328981996726678
+        },
+        "rasterOptimizedPerView": null,
+        "rasterLegacyPerView": null,
+        "meanDrawMS": {
+          "windows": 28,
+          "mean": 30.309642857142858,
+          "median": 30.3175,
+          "min": 23.071,
+          "max": 39.0
+        },
+        "meanWorkMS": {
+          "windows": 11,
+          "mean": 34.195181818181815,
+          "median": 34.467,
+          "min": 30.66,
+          "max": 38.524
+        },
+        "wallFPS": {
+          "windows": 11,
+          "mean": 27.71727272727273,
+          "median": 27.38,
+          "min": 24.66,
+          "max": 30.59
+        },
+        "allocatedKBPerTick": 11.400833333333333
+      },
+      "minAvailableMiB": 20.21875,
+      "meanFPS": 27.71727272727273,
+      "lowestWindowFPS": 24.66
+    },
+    {
+      "map": "DM-Morpheus",
+      "wide": false,
+      "evidence": "C:\\Programming\\GitHub\\UnrealTournament_1.40\\UT99-Xbox\\build_cli\\dashboard_perf_20260910\\standard_DM-Morpheus\\01_DM-Morpheus",
+      "identity": {
+        "files": {
+          "xbe": {
+            "path": "C:\\Programming\\GitHub\\UnrealTournament_1.40\\UT99-Xbox\\build_cli\\dashboard_video_stage\\default.xbe",
+            "sha256": "5f1f9457974b3c66d29680f850dfbddce453d757f953f569f5f51956a7cffe71"
+          },
+          "symbols": {
+            "path": "C:\\Programming\\GitHub\\UnrealTournament_1.40\\build\\UnrealTournament.map",
+            "sha256": "16b3dca8610e0118ae14f8582ff58a307a5c0a2454eed9acbfadd4c939e9ddb1"
+          },
+          "map": {
+            "path": "C:\\Programming\\GitHub\\UnrealTournament_1.40\\UT99-Xbox\\build_cli\\dashboard_video_stage\\Maps\\DM-Morpheus.unr",
+            "sha256": "23a151ae6fb4a6efc2d1d1eab931d8a8f1ebaf8329b5a87408f013faa94ba096"
+          }
+        },
+        "players": 4,
+        "bots": 8,
+        "seconds": 90,
+        "profiling": true,
+        "rasterMode": "optimized",
+        "auditOverhead": false
+      },
+      "eepromSha256": "f091095c26fb72385b73ccfcd2d792f55412f73bab05153b1e05d09668e794c5",
+      "timings": {
+        "log": "C:\\Programming\\GitHub\\UnrealTournament_1.40\\UT99-Xbox\\build_cli\\dashboard_perf_20260910\\standard_DM-Morpheus\\01_DM-Morpheus\\xemu_ram_log_accumulated.txt",
+        "observedScriptWarnings": 0,
+        "combatWindowMS": [
+          20000,
+          75000
+        ],
+        "combatStartGuestMS": 32912.5,
+        "engineProfile": {
+          "samples": 1805,
+          "windows": 11,
+          "totalMS": 28.50743988919668,
+          "levelMS": 4.006049307479224,
+          "clientMS": 24.48751966759003,
+          "otherMS": 0.01386038781163435
+        },
+        "worldProfilePerView": {
+          "samples": 7180,
+          "windows": 11,
+          "occludeMS": 2.3411469359331476,
+          "drawMS": 1.190975766016713
+        },
+        "viewProfilePerView": {
+          "samples": 7168,
+          "windows": 11,
+          "preMS": 0.17728459821428572,
+          "audioMS": 0.16972739955357144,
+          "worldMS": 4.383138811383929,
+          "hudMS": 1.2994545200892857,
+          "unlockMS": 0.08521763392857143,
+          "finishMS": 0.002506277901785714
+        },
+        "canvasProfilePerView": {
+          "samples": 7168,
+          "windows": 11,
+          "nativeMS": 0.5389363839285715,
+          "calls": 34.66196986607143
+        },
+        "hudProfilePerView": {
+          "samples": 7168,
+          "windows": 11,
+          "playerMS": 1.211205775669643,
+          "consoleMS": 0.026802036830357142,
+          "nativeMS": 0.017770228794642857,
+          "flashMS": 0.04361509486607142
+        },
+        "drawProfilePerView": {
+          "samples": 7180,
+          "windows": 11,
+          "surfacesMS": 0.48592813370473537,
+          "actorsMS": 0.5526874651810585
+        },
+        "visibilityProfilePerView": {
+          "samples": 7186,
+          "windows": 11,
+          "setupMS": 0.6022585583078207,
+          "bspMS": 1.7221682438074033
+        },
+        "rasterOptimizedPerView": null,
+        "rasterLegacyPerView": null,
+        "meanDrawMS": {
+          "windows": 28,
+          "mean": 25.052357142857144,
+          "median": 25.313499999999998,
+          "min": 15.791,
+          "max": 36.87
+        },
+        "meanWorkMS": {
+          "windows": 11,
+          "mean": 28.892181818181818,
+          "median": 28.309,
+          "min": 24.957,
+          "max": 36.692
+        },
+        "wallFPS": {
+          "windows": 11,
+          "mean": 32.661818181818184,
+          "median": 32.95,
+          "min": 25.81,
+          "max": 37.1
+        },
+        "allocatedKBPerTick": 9.636666666666667
+      },
+      "minAvailableMiB": 19.1171875,
+      "meanFPS": 32.661818181818184,
+      "lowestWindowFPS": 25.81
+    },
+    {
+      "map": "DM-Morpheus",
+      "wide": true,
+      "evidence": "C:\\Programming\\GitHub\\UnrealTournament_1.40\\UT99-Xbox\\build_cli\\dashboard_perf_20260910\\wide_DM-Morpheus\\01_DM-Morpheus",
+      "identity": {
+        "files": {
+          "xbe": {
+            "path": "C:\\Programming\\GitHub\\UnrealTournament_1.40\\UT99-Xbox\\build_cli\\dashboard_video_stage\\default.xbe",
+            "sha256": "5f1f9457974b3c66d29680f850dfbddce453d757f953f569f5f51956a7cffe71"
+          },
+          "symbols": {
+            "path": "C:\\Programming\\GitHub\\UnrealTournament_1.40\\build\\UnrealTournament.map",
+            "sha256": "16b3dca8610e0118ae14f8582ff58a307a5c0a2454eed9acbfadd4c939e9ddb1"
+          },
+          "map": {
+            "path": "C:\\Programming\\GitHub\\UnrealTournament_1.40\\UT99-Xbox\\build_cli\\dashboard_video_stage\\Maps\\DM-Morpheus.unr",
+            "sha256": "23a151ae6fb4a6efc2d1d1eab931d8a8f1ebaf8329b5a87408f013faa94ba096"
+          }
+        },
+        "players": 4,
+        "bots": 8,
+        "seconds": 90,
+        "profiling": true,
+        "rasterMode": "optimized",
+        "auditOverhead": false
+      },
+      "eepromSha256": "27509e0accec1c31a670c4ae157b5445c105d58873dc16d764153cbc44d7ed72",
+      "timings": {
+        "log": "C:\\Programming\\GitHub\\UnrealTournament_1.40\\UT99-Xbox\\build_cli\\dashboard_perf_20260910\\wide_DM-Morpheus\\01_DM-Morpheus\\xemu_ram_log_accumulated.txt",
+        "observedScriptWarnings": 0,
+        "combatWindowMS": [
+          20000,
+          75000
+        ],
+        "combatStartGuestMS": 19300.0,
+        "engineProfile": {
+          "samples": 2115,
+          "windows": 11,
+          "totalMS": 24.13621513002364,
+          "levelMS": 3.249128132387707,
+          "clientMS": 20.870891725768324,
+          "otherMS": 0.01609550827423168
+        },
+        "worldProfilePerView": {
+          "samples": 8374,
+          "windows": 11,
+          "occludeMS": 1.8156292094578457,
+          "drawMS": 1.0102973489371865
+        },
+        "viewProfilePerView": {
+          "samples": 8378,
+          "windows": 11,
+          "preMS": 0.17211434709954643,
+          "audioMS": 0.15893196466937215,
+          "worldMS": 3.653020768679876,
+          "hudMS": 1.163753759847219,
+          "unlockMS": 0.0772192647409883,
+          "finishMS": 0.0024046311768918596
+        },
+        "canvasProfilePerView": {
+          "samples": 8378,
+          "windows": 11,
+          "nativeMS": 0.46291907376462166,
+          "calls": 33.817140128909045
+        },
+        "hudProfilePerView": {
+          "samples": 8378,
+          "windows": 11,
+          "playerMS": 1.082390188589162,
+          "consoleMS": 0.02269730245882072,
+          "nativeMS": 0.01682537598472189,
+          "flashMS": 0.04155251850083552
+        },
+        "drawProfilePerView": {
+          "samples": 8374,
+          "windows": 11,
+          "surfacesMS": 0.4208786720802484,
+          "actorsMS": 0.4865186290900406
+        },
+        "visibilityProfilePerView": {
+          "samples": 8362,
+          "windows": 11,
+          "setupMS": 0.5082488639081559,
+          "bspMS": 1.2966877541258073
+        },
+        "rasterOptimizedPerView": null,
+        "rasterLegacyPerView": null,
+        "meanDrawMS": {
+          "windows": 28,
+          "mean": 22.042964285714287,
+          "median": 21.2895,
+          "min": 13.622,
+          "max": 31.943
+        },
+        "meanWorkMS": {
+          "windows": 11,
+          "mean": 25.32709090909091,
+          "median": 24.545,
+          "min": 17.247,
+          "max": 33.7
+        },
+        "wallFPS": {
+          "windows": 11,
+          "mean": 37.96545454545455,
+          "median": 37.71,
+          "min": 27.98,
+          "max": 52.51
+        },
+        "allocatedKBPerTick": 9.392222222222221
+      },
+      "minAvailableMiB": 20.11328125,
+      "meanFPS": 37.96545454545455,
+      "lowestWindowFPS": 27.98
+    },
+    {
+      "map": "DM-HangEmHigh",
+      "wide": true,
+      "evidence": "C:\\Programming\\GitHub\\UnrealTournament_1.40\\UT99-Xbox\\build_cli\\dashboard_perf_20260910\\wide_DM-HangEmHigh\\01_DM-HangEmHigh",
+      "identity": {
+        "files": {
+          "xbe": {
+            "path": "C:\\Programming\\GitHub\\UnrealTournament_1.40\\UT99-Xbox\\build_cli\\dashboard_video_stage\\default.xbe",
+            "sha256": "5f1f9457974b3c66d29680f850dfbddce453d757f953f569f5f51956a7cffe71"
+          },
+          "symbols": {
+            "path": "C:\\Programming\\GitHub\\UnrealTournament_1.40\\build\\UnrealTournament.map",
+            "sha256": "16b3dca8610e0118ae14f8582ff58a307a5c0a2454eed9acbfadd4c939e9ddb1"
+          },
+          "map": {
+            "path": "C:\\Programming\\GitHub\\UnrealTournament_1.40\\UT99-Xbox\\build_cli\\dashboard_video_stage\\Maps\\DM-HangEmHigh.unr",
+            "sha256": "3828f535b655bb7bdbf280b3a138695b2d972a59f22f045867e34984e83a0680"
+          }
+        },
+        "players": 4,
+        "bots": 8,
+        "seconds": 90,
+        "profiling": true,
+        "rasterMode": "optimized",
+        "auditOverhead": false
+      },
+      "eepromSha256": "27509e0accec1c31a670c4ae157b5445c105d58873dc16d764153cbc44d7ed72",
+      "timings": {
+        "log": "C:\\Programming\\GitHub\\UnrealTournament_1.40\\UT99-Xbox\\build_cli\\dashboard_perf_20260910\\wide_DM-HangEmHigh\\01_DM-HangEmHigh\\xemu_ram_log_accumulated.txt",
+        "observedScriptWarnings": 0,
+        "combatWindowMS": [
+          20000,
+          75000
+        ],
+        "combatStartGuestMS": 19528.5,
+        "engineProfile": {
+          "samples": 1464,
+          "windows": 11,
+          "totalMS": 35.65640778688525,
+          "levelMS": 4.230349043715846,
+          "clientMS": 31.41248292349727,
+          "otherMS": 0.013811475409836065
+        },
+        "worldProfilePerView": {
+          "samples": 5920,
+          "windows": 11,
+          "occludeMS": 2.687658108108108,
+          "drawMS": 2.2327624999999998
+        },
+        "viewProfilePerView": {
+          "samples": 5916,
+          "windows": 11,
+          "preMS": 0.18402045300878972,
+          "audioMS": 0.1366741041244084,
+          "worldMS": 5.810569303583502,
+          "hudMS": 1.4639173427991887,
+          "unlockMS": 0.09836544962812713,
+          "finishMS": 0.0027817782285327925
+        },
+        "canvasProfilePerView": {
+          "samples": 5916,
+          "windows": 11,
+          "nativeMS": 0.6334083840432725,
+          "calls": 35.73867478025693
+        },
+        "hudProfilePerView": {
+          "samples": 5916,
+          "windows": 11,
+          "playerMS": 1.369477011494253,
+          "consoleMS": 0.024864773495605137,
+          "nativeMS": 0.018499154834347532,
+          "flashMS": 0.05064908722109533
+        },
+        "drawProfilePerView": {
+          "samples": 5920,
+          "windows": 11,
+          "surfacesMS": 0.7389057432432433,
+          "actorsMS": 1.4653738175675677
+        },
+        "visibilityProfilePerView": {
+          "samples": 5955,
+          "windows": 11,
+          "setupMS": 0.7442832913518053,
+          "bspMS": 1.899066666666667
+        },
+        "rasterOptimizedPerView": null,
+        "rasterLegacyPerView": null,
+        "meanDrawMS": {
+          "windows": 28,
+          "mean": 32.0765,
+          "median": 31.673,
+          "min": 20.921,
+          "max": 48.054
+        },
+        "meanWorkMS": {
+          "windows": 11,
+          "mean": 36.319272727272725,
+          "median": 35.864,
+          "min": 26.163,
+          "max": 47.832
+        },
+        "wallFPS": {
+          "windows": 11,
+          "mean": 27.080000000000002,
+          "median": 26.34,
+          "min": 20.03,
+          "max": 35.46
+        },
+        "allocatedKBPerTick": 10.62
+      },
+      "minAvailableMiB": 13.02734375,
+      "meanFPS": 27.080000000000002,
+      "lowestWindowFPS": 20.03
+    },
+    {
+      "map": "DM-HangEmHigh",
+      "wide": false,
+      "evidence": "C:\\Programming\\GitHub\\UnrealTournament_1.40\\UT99-Xbox\\build_cli\\dashboard_perf_20260910\\standard_DM-HangEmHigh\\01_DM-HangEmHigh",
+      "identity": {
+        "files": {
+          "xbe": {
+            "path": "C:\\Programming\\GitHub\\UnrealTournament_1.40\\UT99-Xbox\\build_cli\\dashboard_video_stage\\default.xbe",
+            "sha256": "5f1f9457974b3c66d29680f850dfbddce453d757f953f569f5f51956a7cffe71"
+          },
+          "symbols": {
+            "path": "C:\\Programming\\GitHub\\UnrealTournament_1.40\\build\\UnrealTournament.map",
+            "sha256": "16b3dca8610e0118ae14f8582ff58a307a5c0a2454eed9acbfadd4c939e9ddb1"
+          },
+          "map": {
+            "path": "C:\\Programming\\GitHub\\UnrealTournament_1.40\\UT99-Xbox\\build_cli\\dashboard_video_stage\\Maps\\DM-HangEmHigh.unr",
+            "sha256": "3828f535b655bb7bdbf280b3a138695b2d972a59f22f045867e34984e83a0680"
+          }
+        },
+        "players": 4,
+        "bots": 8,
+        "seconds": 90,
+        "profiling": true,
+        "rasterMode": "optimized",
+        "auditOverhead": false
+      },
+      "eepromSha256": "f091095c26fb72385b73ccfcd2d792f55412f73bab05153b1e05d09668e794c5",
+      "timings": {
+        "log": "C:\\Programming\\GitHub\\UnrealTournament_1.40\\UT99-Xbox\\build_cli\\dashboard_perf_20260910\\standard_DM-HangEmHigh\\01_DM-HangEmHigh\\xemu_ram_log_accumulated.txt",
+        "observedScriptWarnings": 0,
+        "combatWindowMS": [
+          20000,
+          75000
+        ],
+        "combatStartGuestMS": 19760.0,
+        "engineProfile": {
+          "samples": 1689,
+          "windows": 11,
+          "totalMS": 30.59731379514506,
+          "levelMS": 3.6056814683244522,
+          "clientMS": 26.978084665482534,
+          "otherMS": 0.01354647720544701
+        },
+        "worldProfilePerView": {
+          "samples": 6657,
+          "windows": 11,
+          "occludeMS": 2.4645589604927145,
+          "drawMS": 1.8594075409343547
+        },
+        "viewProfilePerView": {
+          "samples": 6657,
+          "windows": 11,
+          "preMS": 0.17885488958990536,
+          "audioMS": 0.12141880727054229,
+          "worldMS": 5.1678733663812535,
+          "hudMS": 1.2557465825446898,
+          "unlockMS": 0.08286029743127535,
+          "finishMS": 0.002039807721195734
+        },
+        "canvasProfilePerView": {
+          "samples": 6657,
+          "windows": 11,
+          "nativeMS": 0.5260380051074057,
+          "calls": 34.13504581643383
+        },
+        "hudProfilePerView": {
+          "samples": 6657,
+          "windows": 11,
+          "playerMS": 1.176354213609734,
+          "consoleMS": 0.026061739522307344,
+          "nativeMS": 0.012489409643983776,
+          "flashMS": 0.040829502779029594
+        },
+        "drawProfilePerView": {
+          "samples": 6657,
+          "windows": 11,
+          "surfacesMS": 0.6582547694156528,
+          "actorsMS": 1.1807811326423314
+        },
+        "visibilityProfilePerView": {
+          "samples": 6677,
+          "windows": 11,
+          "setupMS": 0.6147317657630673,
+          "bspMS": 1.8068878238729968
+        },
+        "rasterOptimizedPerView": null,
+        "rasterLegacyPerView": null,
+        "meanDrawMS": {
+          "windows": 28,
+          "mean": 27.96485714285714,
+          "median": 27.6415,
+          "min": 18.714,
+          "max": 38.467
+        },
+        "meanWorkMS": {
+          "windows": 11,
+          "mean": 31.459272727272726,
+          "median": 30.779,
+          "min": 23.672,
+          "max": 39.683
+        },
+        "wallFPS": {
+          "windows": 11,
+          "mean": 30.333636363636362,
+          "median": 30.49,
+          "min": 23.97,
+          "max": 38.91
+        },
+        "allocatedKBPerTick": 7.234
+      },
+      "minAvailableMiB": 13.35546875,
+      "meanFPS": 30.333636363636362,
+      "lowestWindowFPS": 23.97
+    }
+  ],
+  "pairs": [
+    {
+      "map": "DM-Deck16][",
+      "standardFPS": 31.005454545454544,
+      "pillarboxedFPS": 36.269090909090906,
+      "differenceFPS": 5.263636363636362,
+      "percentDifference": 16.97648507593971
+    },
+    {
+      "map": "DM-Oblivion",
+      "standardFPS": 27.71727272727273,
+      "pillarboxedFPS": 29.25909090909091,
+      "differenceFPS": 1.5418181818181829,
+      "percentDifference": 5.562661943651813
+    },
+    {
+      "map": "DM-Morpheus",
+      "standardFPS": 32.661818181818184,
+      "pillarboxedFPS": 37.96545454545455,
+      "differenceFPS": 5.303636363636365,
+      "percentDifference": 16.238031618793144
+    },
+    {
+      "map": "DM-HangEmHigh",
+      "standardFPS": 30.333636363636362,
+      "pillarboxedFPS": 27.080000000000002,
+      "differenceFPS": -3.2536363636363603,
+      "percentDifference": -10.72616657176251
+    }
+  ],
+  "note": "Xemu measurements, not retail Xbox FPS. Dynamic combat and host load differ; one run per map/mode does not isolate a causal performance gain. Lowest window is about five seconds, not a 1% low.",
+  "equalMapMean": {
+    "standardFPS": 30.429545454545455,
+    "pillarboxedFPS": 32.64340909090909
+  }
+}

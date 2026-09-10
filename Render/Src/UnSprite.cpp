@@ -49,6 +49,7 @@ void URender::SetupDynamics( FSceneNode* Frame, AActor* Exclude )
 	static AActor* LastXboxProofViewTarget = NULL;
 	static UBOOL LastXboxProofAdmitted = 0;
 	static UBOOL HasXboxProofAdmission = 0;
+	const UBOOL XboxAuditAdmission = Frame->Parent == NULL && XboxSkeletalProofEnabled();
 #endif
 
 	// Traverse entire actor list.
@@ -57,13 +58,12 @@ void URender::SetupDynamics( FSceneNode* Frame, AActor* Exclude )
 		// Add this actor to dynamics if it's renderable.
 		AActor* Actor = Frame->Level->Actors(iActor);
 #if TARGET_XBOX
-		APawn* XboxProofPawn = Cast<APawn>( Actor );
+		APawn* XboxProofPawn = XboxAuditAdmission ? Cast<APawn>( Actor ) : NULL;
 		if
 		(
 			Frame->Parent == NULL
 		&&	XboxProofPawn
 		&&	XboxProofPawn->bViewTarget
-		&&	XboxSkeletalProofEnabled()
 		)
 		{
 			const UBOOL PassDetail = !Actor->bHighDetail || HighDetailActors;
@@ -140,7 +140,7 @@ void URender::SetupDynamics( FSceneNode* Frame, AActor* Exclude )
 				&&(Actor->VisibilityHeight == 0.0 || Abs    ((Actor->Location - Frame->Coords.Origin).Z              ) < Actor->VisibilityHeight) )
 #endif
 			&&	(!Actor->bOnlyOwnerSee || (Actor->IsOwnedBy(Frame->Viewport->Actor) && !Frame->Viewport->Actor->bBehindView))
-			&&	(!Actor->IsOwnedBy(Frame->Viewport->Actor) || !Actor->bOwnerNoSee || (Actor->IsOwnedBy(Frame->Viewport->Actor) && Frame->Viewport->Actor->bBehindView)) )
+			&&	(!Actor->bOwnerNoSee || Frame->Viewport->Actor->bBehindView || !Actor->IsOwnedBy(Frame->Viewport->Actor)) )
 			{
 				// Add the sprite proxy.
 				if( !Actor->IsMovingBrush() )
@@ -332,8 +332,8 @@ UBOOL FDynamicSprite::Setup( FSceneNode* Frame )
 
 		// X extent.
 		FLOAT XSize = Persp * DrawScale * Texture->USize;//!!expensive
-		X1          = appRound(appCeil(ScreenX-XSize/2));
-		X2          = appRound(appCeil(ScreenX+XSize/2));
+		X1          = appCeil(ScreenX-XSize/2);
+		X2          = appCeil(ScreenX+XSize/2);
 		if( X1 > X2 )
 		{
 			Exchange( X1, X2 );
@@ -355,8 +355,8 @@ UBOOL FDynamicSprite::Setup( FSceneNode* Frame )
 
 		// Y extent.
 		FLOAT YSize = Persp * DrawScale * Texture->VSize;
-		Y1          = appRound(appCeil(ScreenY-YSize/2));
-		Y2          = appRound(appCeil(ScreenY+YSize/2));
+		Y1          = appCeil(ScreenY-YSize/2);
+		Y2          = appCeil(ScreenY+YSize/2);
 		if( Y1 > Y2 )
 		{
 			Exchange( Y1, Y2 );
@@ -421,7 +421,8 @@ UBOOL FDynamicSprite::Setup( FSceneNode* Frame )
 		}
 
 #if TARGET_XBOX
-		APawn* XboxSetupPawn = Cast<APawn>( Actor );
+		APawn* XboxSetupPawn = Frame->Parent == NULL && XboxSkeletalProofEnabled()
+			? Cast<APawn>( Actor ) : NULL;
 		static AActor* LastXboxSetupActor = NULL;
 		static UBOOL LastXboxSetupResult = 0;
 		static INT LastXboxSetupReason = -1;
@@ -974,7 +975,7 @@ void URender::DrawActorSprite( FSceneNode* Frame, FDynamicSprite* Sprite )
 		extern FCoords SpecialCoords;
 		#if TARGET_XBOX
 		static INT XboxSkeletalWeaponTraceCounter = 0;
-		APawn* XboxTracePawn = Sprite->Actor->IsA(APawn::StaticClass()) ? (APawn*)Sprite->Actor : NULL;
+		APawn* XboxTracePawn = XboxSkeletalProofEnabled() ? Cast<APawn>(Sprite->Actor) : NULL;
 		UBOOL XboxTraceWeapon
 			= XboxSkeletalProofEnabled()
 			&& XboxTracePawn

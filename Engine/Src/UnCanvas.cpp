@@ -10,6 +10,43 @@ Revision history:
 #include "EnginePrivate.h"
 #include "UnRender.h"
 
+#if TARGET_XBOX
+// Armed only around a benchmarked player HUD. Exclude nested canvas calls
+// so DrawActor/DrawPortal callbacks cannot count the same elapsed time twice.
+static UBOOL GXboxCanvasProfileActive=0;
+static INT GXboxCanvasProfileDepth=0, GXboxCanvasProfileCalls=0;
+static DOUBLE GXboxCanvasProfileSeconds=0.0;
+void XboxCanvasProfileBegin()
+{
+    GXboxCanvasProfileActive=1;
+    GXboxCanvasProfileDepth=GXboxCanvasProfileCalls=0;
+    GXboxCanvasProfileSeconds=0.0;
+}
+DOUBLE XboxCanvasProfileEnd(INT& Calls)
+{
+    GXboxCanvasProfileActive=0;
+    Calls=GXboxCanvasProfileCalls;
+    return GXboxCanvasProfileSeconds;
+}
+struct FXboxCanvasProfileScope
+{
+    UBOOL Active;
+    DOUBLE Start;
+    FXboxCanvasProfileScope() : Active(GXboxCanvasProfileActive), Start(0.0)
+    {
+        if( Active && GXboxCanvasProfileDepth++==0 ) Start=appSeconds();
+    }
+    ~FXboxCanvasProfileScope()
+    {
+        if( Active && --GXboxCanvasProfileDepth==0 )
+        {
+            GXboxCanvasProfileSeconds+=appSeconds()-Start;
+            GXboxCanvasProfileCalls++;
+        }
+    }
+};
+#endif
+
 /*-----------------------------------------------------------------------------
 	UCanvas scaled sprites.
 -----------------------------------------------------------------------------*/
@@ -194,7 +231,8 @@ static inline INT DrawString
 	const TCHAR*	Text, 
 	FPlane			Color, 
 	UBOOL			bClip, 
-	UBOOL			bHandleApersand
+	UBOOL			bHandleApersand,
+	INT             TextLength=MAXINT
 )
 {
 	guardSlow(DrawString);
@@ -207,7 +245,7 @@ static inline INT DrawString
 	INT LineX = 0;
 	INT bDrawUnderline = 0;
 	INT UnderlineWidth = 0;
-	for( INT i=0; Text[i]; i++ )
+	for( INT i=0; i<TextLength && Text[i]; i++ )
 	{
 		INT bUnderlineNext = 0;
 		INT Ch = (TCHARU)Text[i];
@@ -219,7 +257,7 @@ static inline INT DrawString
 				Ch = (TCHARU)('_');
 			if( Text[i]=='&' )
 			{
-				if( !Text[i+1] )
+				if( i+1>=TextLength || !Text[i+1] )
 					break; 
 				if( Text[i+1]!='&' )
 				{
@@ -375,9 +413,8 @@ void VARARGS UCanvas::WrappedPrint( ERenderStyle Style, INT& XL, INT& YL, UFont*
 		// Sucessfully split this line, now draw it.
 		if( Style!=STY_None && OrgY+CurY<Frame->Y && OrgY+CurY+CleanYL>0 )
 		{
-			FString TextLine(Text);
 			INT LineX = Center ? (INT) (CurX+(ClipX-CleanXL)/2) : (INT) (CurX);
-			LineX += DrawString( PolyFlags, this, Font, LineX, (INT) CurY, *(TextLine.Left(iCleanWordEnd)), DrawColor, 0, 0 );
+			LineX += DrawString( PolyFlags, this, Font, LineX, (INT) CurY, Text, DrawColor, 0, 0, iCleanWordEnd );
 			CurX = LineX;
 		}
 
@@ -468,6 +505,9 @@ void UCanvas::execStrLen( FFrame& Stack, RESULT_DECL )
 	P_GET_FLOAT_REF(XL);
 	P_GET_FLOAT_REF(YL);
 	P_FINISH;
+#if TARGET_XBOX
+	FXboxCanvasProfileScope CanvasProfileScope;
+#endif
 
 	INT XLi, YLi;
 	INT OldCurX, OldCurY;
@@ -491,6 +531,9 @@ void UCanvas::execDrawText( FFrame& Stack, RESULT_DECL )
 	P_GET_STR(InText);
 	P_GET_UBOOL_OPTX(CR,1);
 	P_FINISH;
+#if TARGET_XBOX
+	FXboxCanvasProfileScope CanvasProfileScope;
+#endif
 	if( !Font )
 	{
 		Stack.Logf( TEXT("DrawText: No font") );
@@ -523,6 +566,9 @@ void UCanvas::execDrawTile( FFrame& Stack, RESULT_DECL )
 	P_GET_FLOAT(UL);
 	P_GET_FLOAT(VL);
 	P_FINISH;
+#if TARGET_XBOX
+	FXboxCanvasProfileScope CanvasProfileScope;
+#endif
 	if( !Tex )
 	{
 		Stack.Logf( TEXT("DrawTile: Missing Texture") );
@@ -558,6 +604,9 @@ void UCanvas::execDrawActor( FFrame& Stack, RESULT_DECL )
 	P_GET_UBOOL(WireFrame);
 	P_GET_UBOOL_OPTX(ClearZ, 0);
 	P_FINISH;
+#if TARGET_XBOX
+	FXboxCanvasProfileScope CanvasProfileScope;
+#endif
 
 	INT OldRendMap;
 	OldRendMap = Viewport->Actor->RendMap;
@@ -585,6 +634,9 @@ void UCanvas::execDrawClippedActor( FFrame& Stack, RESULT_DECL )
 	P_GET_INT(YB);
 	P_GET_UBOOL_OPTX(ClearZ, 0);
 	P_FINISH;
+#if TARGET_XBOX
+	FXboxCanvasProfileScope CanvasProfileScope;
+#endif
 	
 	INT OldX, OldY, OldXB, OldYB;
 	INT OldRendMap;
@@ -636,6 +688,9 @@ void UCanvas::execDrawTileClipped( FFrame& Stack, RESULT_DECL )
 	P_GET_FLOAT(UL);
 	P_GET_FLOAT(VL);
 	P_FINISH;
+#if TARGET_XBOX
+	FXboxCanvasProfileScope CanvasProfileScope;
+#endif
 	if( !Tex )
 	{
 		Stack.Logf( TEXT("DrawTileClipped: Missing Texture") );
@@ -687,6 +742,9 @@ void UCanvas::execDrawTextClipped( FFrame& Stack, RESULT_DECL )
 	P_GET_STR(InText);
 	P_GET_UBOOL_OPTX(CheckHotKey, 0);
 	P_FINISH;
+#if TARGET_XBOX
+	FXboxCanvasProfileScope CanvasProfileScope;
+#endif
 
 	if( !Font )
 	{
@@ -720,6 +778,9 @@ void UCanvas::execTextSize( FFrame& Stack, RESULT_DECL )
 	P_GET_FLOAT_REF(XL);
 	P_GET_FLOAT_REF(YL);
 	P_FINISH;
+#if TARGET_XBOX
+	FXboxCanvasProfileScope CanvasProfileScope;
+#endif
 
 	if( !Font )
 	{
@@ -763,6 +824,9 @@ void UCanvas::execDrawPortal( FFrame& Stack, RESULT_DECL )
 	P_GET_INT_OPTX(FOV, 90);
 	P_GET_UBOOL_OPTX(ClearZ, 1);
 	P_FINISH;
+#if TARGET_XBOX
+	FXboxCanvasProfileScope CanvasProfileScope;
+#endif
 
 	FSceneNode* NewNode;
 	FScreenBounds Bounds;

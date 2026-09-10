@@ -74,6 +74,7 @@ public:
                 GetFileAttributesA( "D:\\XboxSystemLinkSmoke.ini" ) != 0xFFFFFFFF
                 || GetFileAttributesA( "D:\\XboxCharacterSoak.ini" ) != 0xFFFFFFFF
                 || GetFileAttributesA( "D:\\XboxStartURL.ini" ) != 0xFFFFFFFF
+                || GetFileAttributesA( "D:\\XboxDashboardVideoProof.ini" ) != 0xFFFFFFFF
             )
             {
                 GXboxLog.Write( "FATAL: diagnostic marker present; holding 120s for RAM-log harvest" );

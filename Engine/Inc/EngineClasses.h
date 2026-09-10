@@ -1710,7 +1710,7 @@ public:
     class UClass* SpecialMenu;
     FStringNoInit DelayedCommand;
     FLOAT MouseSensitivity;
-    FName WeaponPriority[20];
+    FName WeaponPriority[50]; // Loaded v436 PlayerPawn has 50 entries (200 bytes).
     FLOAT SmoothMouseX;
     FLOAT SmoothMouseY;
     FLOAT BorrowedMouseX;

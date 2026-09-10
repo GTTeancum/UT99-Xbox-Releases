@@ -5,6 +5,7 @@ from __future__ import print_function
 
 import argparse
 import datetime
+import hashlib
 import json
 import os
 import re
@@ -13,6 +14,10 @@ import sys
 import time
 
 from PIL import Image
+try:
+    import psutil
+except ImportError:
+    psutil = None
 
 import xemu_native_screenshot
 import record_xemu_native
@@ -71,6 +76,16 @@ def is_frontend_live_proof(mode):
     return mode in ("instant-lms", "split-smoke") or bool(mode and mode.startswith("tournament-"))
 
 CASES = [
+    {
+        "map": "DM-Fractal",
+        "game": "Botpack.DeathMatchPlus",
+        "player": "Botpack.TMale1",
+        "bots": 8,
+        "roster_offset": 2,
+        "roster_span": 1,
+        "seconds": 90,
+        "reason": "six installed WarpZoneInfo actors for warp-portal rendering qualification",
+    },
     {
         "map": "DM-Deck16][",
         "game": "Botpack.DeathMatchPlus",
@@ -303,6 +318,13 @@ def prepare_base(args):
     soak_log.remove_old_logs(stage)
     for marker in (
         "XboxSoakMapList.ini",
+        "XboxLegacyRenderStats.ini",
+        "XboxLegacyVertexPose.ini",
+        "XboxVertexPoseProof.ini",
+        "XboxLightRadiusProof.ini",
+        "XboxRasterAudit.ini",
+        "XboxAlternateRaster.ini",
+        "XboxLegacyRaster.ini",
         "XboxStartURL.ini",
         "XboxCharacterSoak.ini",
         "XboxGameplayRecording.ini",
@@ -330,12 +352,17 @@ def prepare_base(args):
         "XboxSplitControlsProofSmoke.ini",
         "XboxSplitBenchmark.ini",
         "XboxSplitCombatBenchmark.ini",
+        "XboxDashboardVideoProof.ini",
         "XboxSplitLayout03.ini",
         "XboxSplitLayout07.ini",
     ):
         path = os.path.join(stage, marker)
         if os.path.isfile(path):
             os.remove(path)
+    raster_marker = {"audit": "XboxRasterAudit.ini", "legacy": "XboxLegacyRaster.ini", "alternating": "XboxAlternateRaster.ini"}.get(args.raster_mode)
+    if raster_marker:
+        with open(os.path.join(stage, raster_marker), "w") as handle:
+            handle.write("[Raster]\nEnabled=1\n")
     if args.traversal_proof:
         with open(os.path.join(stage, "XboxFlickerTraversal.ini"), "w") as handle:
             handle.write("; Continuous movement and temporal flicker qualification\n")
@@ -424,13 +451,17 @@ def prepare_case(args, stage, case, run_dir):
                 proof_markers.append("XboxSplitBenchmark.ini")
             if args.split_combat_benchmark:
                 with open(os.path.join(stage, "XboxSplitCombatBenchmark.ini"), "w") as handle:
-                    handle.write("; Four moving local players with eight combat bots\n")
+                    handle.write("[Benchmark]\nMap=%s.unr\n" % case["map"])
                 proof_markers.append("XboxSplitCombatBenchmark.ini")
             # The launch-loop progress logger uses the ordinary smoke marker;
             # the controls marker supplies real local players and local input.
             with open(os.path.join(stage, "XboxSplitSmoke.ini"), "w") as handle:
                 handle.write("; Enable split-screen soak progress logging\n")
             proof_markers.append("XboxSplitSmoke.ini")
+            if args.dashboard_video_proof:
+                with open(os.path.join(stage, "XboxDashboardVideoProof.ini"), "w") as handle:
+                    handle.write("; Process-local dashboard video transitions\n")
+                proof_markers.append("XboxDashboardVideoProof.ini")
         if args.frontend_loading_proof == "split-smoke" and args.split_players < 4:
             layout = "XboxSplitLayout%02X.ini" % ((1 << args.split_players) - 1)
             with open(os.path.join(stage, layout), "w") as handle:
@@ -639,6 +670,30 @@ def parse_case_evidence(text, case):
     return summary
 
 
+def sample_host_cpu(previous, emulator_pid):
+    """Observe competing host work without changing any process or affinity."""
+    now = time.monotonic()
+    if psutil is None:
+        return None, dict(available=False)
+    current = {}
+    for process in psutil.process_iter(['pid', 'name', 'cpu_times', 'create_time']):
+        info = process.info
+        if not info['pid'] or info['cpu_times'] is None:
+            continue
+        key = (info['pid'], info['create_time'])
+        current[key] = (info['name'], info['cpu_times'].user + info['cpu_times'].system)
+    rows = []
+    if previous and now > previous[0]:
+        for key, (name, cpu) in current.items():
+            if key in previous[1]:
+                percent = 100 * (cpu-previous[1][key][1]) / (now-previous[0])
+                if percent >= 5 or key[0] == emulator_pid:
+                    rows.append(dict(pid=key[0], name=name, cpuPercentOneCore=round(percent,1),
+                                     testedEmulator=key[0] == emulator_pid))
+    return (now,current), dict(available=True, logicalCPUs=psutil.cpu_count(),
+        processes=sorted(rows,key=lambda row:row['cpuPercentOneCore'],reverse=True)[:12])
+
+
 def run_case(args, stage, case, index, xiso_tool, config_path):
     safe_name = "%02d_%s" % (index, case["map"])
     run_dir = os.path.join(args.evidence_dir, safe_name)
@@ -646,6 +701,23 @@ def run_case(args, stage, case, index, xiso_tool, config_path):
     screenshot_dir = os.path.join(run_dir, "screenshots")
     xemu_soak.ensure_dir(screenshot_dir)
     url = prepare_case(args, stage, case, run_dir)
+    if args.split_combat_benchmark:
+        identities = {}
+        for label, path in (
+            ("xbe", os.path.join(stage, "default.xbe")),
+            ("symbols", os.path.join(args.build_dir, "UnrealTournament.map")),
+            ("map", os.path.join(stage, "Maps", case["map"] + ".unr")),
+        ):
+            digest = hashlib.sha256()
+            with open(path, "rb") as source:
+                for chunk in iter(lambda: source.read(1024 * 1024), b""):
+                    digest.update(chunk)
+            identities[label] = dict(path=os.path.abspath(path), sha256=digest.hexdigest())
+        with open(os.path.join(run_dir, "combat_identity.json"), "w") as handle:
+            json.dump(dict(files=identities, players=args.split_players,
+                bots=case["bots"], seconds=case["seconds"],
+                profiling=True, rasterMode=args.raster_mode,
+                auditOverhead=args.raster_mode == "audit"), handle, indent=2)
     expected_classes = expected_case_classes(case)
     frontend_loading_proof = bool(args.frontend_loading_proof)
     lighting_proof = bool(args.lighting_proof)
@@ -713,14 +785,22 @@ def run_case(args, stage, case, index, xiso_tool, config_path):
     poll_args = argparse.Namespace(
         timeout=args.poll_timeout,
         phys_delta="auto",
-        tail_bytes=4096,
+        # Preserve five-second timing windows between eight-second polls.
+        # Combat logs can exceed 4 KB between observations.
+        tail_bytes=65536 if args.split_combat_benchmark else 4096,
     )
     required_tick = case.get("minimum_tick", args.minimum_tick)
     deadline = time.time() + args.boot_timeout + case["seconds"] + args.tick_timeout
+    host_cpu_state = None
 
     try:
         proc = xemu_soak.launch_xemu(args, config_path, run_dir)
         while time.time() < deadline:
+            if args.split_combat_benchmark:
+                host_cpu_state, host_cpu = sample_host_cpu(host_cpu_state, proc.pid)
+                host_cpu['observedAt'] = datetime.datetime.now().isoformat()
+                with open(os.path.join(run_dir, 'host_cpu.jsonl'), 'a') as host_log:
+                    host_log.write(json.dumps(host_cpu)+'\n')
             if proc.poll() is not None:
                 marker = "xemu exited with code %s" % proc.returncode
                 break
@@ -1199,6 +1279,26 @@ def run_case(args, stage, case, index, xiso_tool, config_path):
                 if lighting_proof or case["bots"] == 0
                 else current["activeMapMaxBots"] >= case["bots"]
             )
+            if args.dashboard_video_proof:
+                proof_text = accumulated or snapshot
+                captures = re.findall(r"XVIDEOPROOF capture=(\d+)", snapshot)
+                if captures:
+                    path = os.path.join(screenshot_dir, "video_phase_%s.png" % captures[-1])
+                    if not os.path.isfile(path):
+                        capture_screen(proc.pid, args.screenshot_dir, path, args.monitor_port)
+                        if os.path.isfile(path): screenshots.append(path)
+                if re.search(r"XVIDEOPROOF phase=\w+ result=FAIL", proof_text):
+                    marker = "dashboard video transition failed"
+                    break
+                if "XVIDEOPROOF phase=single result=PASS" in proof_text:
+                    ok = all("XVIDEOPROOF phase=%s result=PASS" % phase in proof_text
+                             for phase in ("split", "pause", "resume", "frontend", "single"))
+                    ok = ok and all(os.path.isfile(os.path.join(screenshot_dir, "video_phase_%d.png" % phase))
+                                    for phase in range(1, 6))
+                    marker = "dashboard video transitions complete" if ok else "dashboard video evidence missing"
+                    break
+                time.sleep(args.poll_interval)
+                continue
             if map_live_enough and live_started is None:
                 live_started = time.time()
                 if not args.skip_general_screenshots:
@@ -1474,7 +1574,16 @@ def run_case(args, stage, case, index, xiso_tool, config_path):
         summary.update(attachmentWeapon=args.attachment_weapon, attachmentWeaponDraws=target_draws,
                        attachmentWeaponVerified=weapon_proof)
         summary['ok'] = bool(summary['ok'] and weapon_proof)
-    if args.split_combat_benchmark:
+    if args.dashboard_video_proof:
+        proof_text = accumulated or last_snapshot
+        layouts = re.findall(r'XVIDEOLAYOUT player=(\d+) field=(\w+) native=(\d+) reflected=(-?\d+)', proof_text)
+        priority_dims = re.findall(r'XVIDEOLAYOUT WeaponPriority arrayDim=(\d+) elementSize=(\d+) native=(\d+) reflected=(-?\d+)', proof_text)
+        layout_passed = bool(layouts and priority_dims) and all(a == b for _, _, a, b in layouts)
+        layout_passed = layout_passed and all(dim == '50' and size == '4' and a == b for dim, size, a, b in priority_dims)
+        summary.update(dashboardVideoProof=True, nativePlayerLayoutVerified=layout_passed,
+                       videoTransitionPhases=dict(re.findall(r'XVIDEOPROOF phase=(\w+) result=(PASS|FAIL)', proof_text)))
+        summary['ok'] = bool(summary['ok'] and layout_passed)
+    if args.split_combat_benchmark and not args.dashboard_video_proof:
         combat = []
         pattern = (r'XCOMBAT elapsed=([\d.]+) players=(\d+) bots=(\d+) living=(\d+) '
                    r'moving=(\d+) firing=(\d+) projectiles=(\d+) deaths=(\d+) movedMask=([0-9A-Fa-f]+)')
@@ -1494,6 +1603,19 @@ def run_case(args, stage, case, index, xiso_tool, config_path):
             combatMovementSamples=movement_samples, combatFiringSamples=firing_samples,
             combatProofComplete=combat_passed)
         summary['ok'] = bool(summary['ok'] and combat_passed)
+    raster_log = accumulated or last_snapshot
+    raster_updates = [int(value) for value in re.findall(r'XRASTERUPDATE updates=(\d+) errors=0', raster_log)]
+    raster_queries = [int(value) for value in re.findall(r'XRASTERPROOF queries=(\d+) errors=0', raster_log)]
+    summary.update(rasterMode=args.raster_mode, rasterAuditOverhead=args.raster_mode == "audit",
+        rasterUpdatesVerifiedAtLeast=max(raster_updates, default=0),
+        rasterQueriesVerifiedAtLeast=max(raster_queries, default=0))
+    if args.raster_mode == "audit":
+        summary['ok'] = bool(summary['ok'] and raster_updates)
+    if args.raster_mode == "alternating":
+        both_modes = all(re.search(r'XRASTERPAIR legacy=%d views=[1-9]\d* ' % mode, raster_log)
+                         for mode in (0, 1))
+        summary['rasterAlternatingComplete'] = bool(both_modes)
+        summary['ok'] = bool(summary['ok'] and both_modes)
     with open(os.path.join(run_dir, "summary.json"), "w") as handle:
         json.dump(summary, handle, indent=2, sort_keys=True)
     return summary, config_path
@@ -1629,10 +1751,14 @@ def main(argv):
         help="Screenshot filename used with --menu-proof-log-pattern",
     )
     parser.add_argument("--crosshair-proof", action="store_true", help="Capture all nine live-HUD crosshair previews")
+    parser.add_argument("--dashboard-video-proof", action="store_true",
+                        help="Verify split, pause, resume, frontend and single-player video transitions")
     parser.add_argument("--split-players", type=int, choices=(2, 3, 4), default=4,
                         help="Local player count for --frontend-loading-proof split-smoke")
     parser.add_argument("--split-benchmark", action="store_true",
                         help="Keep split-smoke players in gameplay without controls-test actions")
+    parser.add_argument("--raster-mode", choices=("optimized", "legacy", "audit", "alternating"), default="optimized",
+                        help="Choose raster implementation or correctness audit; audit timings are not speed evidence")
     parser.add_argument("--split-combat-benchmark", action="store_true",
                         help="Require moving local players and eight active fighting bots in split-smoke")
     parser.add_argument(
@@ -1776,6 +1902,8 @@ def main(argv):
             raise RuntimeError("--bots-override must be between 1 and 15")
         for case in selected:
             case["bots"] = args.bots_override
+    if args.dashboard_video_proof and not args.split_combat_benchmark:
+        raise RuntimeError("--dashboard-video-proof requires --split-combat-benchmark")
     if args.split_combat_benchmark:
         if args.frontend_loading_proof != "split-smoke":
             raise RuntimeError("--split-combat-benchmark requires --frontend-loading-proof split-smoke")

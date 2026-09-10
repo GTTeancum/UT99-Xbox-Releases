@@ -9,6 +9,9 @@
 #include "EnginePrivate.h"
 #include "UnRender.h"
 #include "UnNet.h"
+#if TARGET_XBOX
+extern "C" FLOAT XboxViewportProjectionWidth(UViewport* Viewport, FLOAT Width);
+#endif
 
 /*-----------------------------------------------------------------------------
 	URenderDevice.
@@ -284,7 +287,11 @@ void FSceneNode::ComputeRenderSize()
 	FLOAT PixelAspect = Viewport->RenDev ? Viewport->RenDev->GetPixelAspectRatio() : 1.0f;
 	if( PixelAspect <= 0.0f )
 		PixelAspect = 1.0f;
-	FLOAT ProjectionScale = 0.5f*FX / appTan(Viewport->Actor->FovAngle * PI/360.0);
+	FLOAT ProjectionWidth = FX;
+#if TARGET_XBOX
+	ProjectionWidth = XboxViewportProjectionWidth(Viewport, FX);
+#endif
+	FLOAT ProjectionScale = 0.5f*ProjectionWidth / appTan(Viewport->Actor->FovAngle * PI/360.0);
 	Proj		= FVector( ProjectionScale / PixelAspect, ProjectionScale, ProjectionScale );
 	RProj		= FVector( 1/Proj.X, 1/Proj.Y, 1/Proj.Z );
 	Zoom 		= Viewport->Actor->OrthoZoom / (FX * 15.0);

@@ -17,6 +17,8 @@
 IMPLEMENT_CLASS(UGameEngine);
 
 #if TARGET_XBOX
+extern void XboxCanvasProfileBegin();
+extern DOUBLE XboxCanvasProfileEnd(INT& Calls);
 extern void XboxMenuPostRender( UViewport* Viewport, UCanvas* Canvas );
 extern "C" void XboxViewportApplyViewRegion( UViewport* Viewport, FSceneNode* Frame );
 extern "C" UBOOL XboxViewportShouldPostRenderPlayer( UViewport* Viewport );
@@ -2125,6 +2127,9 @@ ULevel* UGameEngine::LoadMap( const FURL& URL, UPendingLevel* Pending, const TMa
 	VERIFY_CLASS_OFFSET( A, Actor,       TimerCounter  );
 	VERIFY_CLASS_OFFSET( A, PlayerPawn,  Player        );
 	VERIFY_CLASS_OFFSET( A, PlayerPawn,  MaxStepHeight );
+	VERIFY_CLASS_OFFSET( A, PlayerPawn,  SmoothMouseX );
+	VERIFY_CLASS_OFFSET( A, PlayerPawn,  ProgressMessage );
+	VERIFY_CLASS_OFFSET( A, PlayerPawn,  ngWorldSecret );
 	unguard;
 
 	// Get LevelInfo.
@@ -2533,6 +2538,10 @@ ULevel* UGameEngine::LoadMap( const FURL& URL, UPendingLevel* Pending, const TMa
 void UGameEngine::Draw( UViewport* Viewport, UBOOL Blit, BYTE* HitData, INT* HitSize )
 {
 	guard(UGameEngine::Draw);
+#if TARGET_XBOX
+	static const UBOOL ProfileView = GetFileAttributesA("D:\\XboxSplitCombatBenchmark.ini") != 0xFFFFFFFF;
+	const DOUBLE ProfileViewStart = ProfileView ? appSeconds() : 0.0;
+#endif
 	static INT DrawDiagCount = 0;
 	DrawDiagCount++;
 	UBOOL bDrawDiag = 0;
@@ -2764,6 +2773,7 @@ void UGameEngine::Draw( UViewport* Viewport, UBOOL Blit, BYTE* HitData, INT* Hit
 
 		// Update level audio.
 #if TARGET_XBOX
+		const DOUBLE ProfileAudioStart = ProfileView ? appSeconds() : 0.0;
 		UBOOL bXboxUpdateAudio = XboxViewportShouldUpdateAudio( Viewport );
 #else
 		UBOOL bXboxUpdateAudio = 1;
@@ -2776,6 +2786,9 @@ void UGameEngine::Draw( UViewport* Viewport, UBOOL Blit, BYTE* HitData, INT* Hit
 		}
 
 		// Render.
+#if TARGET_XBOX
+		const DOUBLE ProfileAudioSeconds = ProfileView ? appSeconds()-ProfileAudioStart : 0.0;
+#endif
 		Render->PreRender( Frame );
 		if( bDrawDiag )
 			debugf( NAME_Log, TEXT("XDRAW draw=%d prerender-done"), DrawDiagCount );
@@ -2810,6 +2823,9 @@ void UGameEngine::Draw( UViewport* Viewport, UBOOL Blit, BYTE* HitData, INT* Hit
 		Frame->Y = Viewport->Canvas->ClipY;
 		Frame->ComputeRenderSize();
 #endif
+#if TARGET_XBOX
+		const DOUBLE ProfileWorldStart = ProfileView ? appSeconds() : 0.0;
+#endif
 		if( Frame->X>0 && Frame->Y>0 && (!Viewport->Console || Viewport->Console->GetDrawWorld()) )
 		{
 			if( bDrawDiag )
@@ -2822,11 +2838,21 @@ void UGameEngine::Draw( UViewport* Viewport, UBOOL Blit, BYTE* HitData, INT* Hit
 		Frame->XB = SaveXB, Frame->YB = SaveYB, Frame->X = SaveX, Frame->Y = SaveY;
 		Frame->ComputeRenderSize();
 #endif
+#if TARGET_XBOX
+		const DOUBLE ProfileWorldEnd = ProfileView ? appSeconds() : 0.0;
+#endif
 		Viewport->RenDev->EndFlash();
 #if TARGET_XBOX
+		const DOUBLE ProfileHudStart = ProfileView ? appSeconds() : 0.0;
+		if( ProfileView ) XboxCanvasProfileBegin();
 		if( !bXboxNativeLoadingDraw && XboxViewportShouldPostRenderPlayer( Viewport ) )
 #endif
 		Viewport->Actor->eventPostRender( Viewport->Canvas );
+#if TARGET_XBOX
+		INT ProfileCanvasCalls=0;
+		const DOUBLE ProfileCanvasSeconds = ProfileView ? XboxCanvasProfileEnd(ProfileCanvasCalls) : 0.0;
+		const DOUBLE ProfileHudPlayerEnd = ProfileView ? appSeconds() : 0.0;
+#endif
 		if( !bXboxNativeLoadingDraw && Viewport->Console
 #if TARGET_XBOX
 		&&	XboxViewportShouldPostRenderPlayer( Viewport )
@@ -2837,6 +2863,7 @@ void UGameEngine::Draw( UViewport* Viewport, UBOOL Blit, BYTE* HitData, INT* Hit
 			Viewport->Console->eventPostRender( Viewport->Canvas );
 		}
 #if TARGET_XBOX
+		const DOUBLE ProfileHudConsoleEnd = ProfileView ? appSeconds() : 0.0;
 		if( !bXboxNativeLoadingDraw )
 			XboxMenuPostRender( Viewport, Viewport->Canvas );
 		if( ViewActor->Level && ViewActor->Level->LevelAction == LEVACT_Loading )
@@ -2881,10 +2908,49 @@ void UGameEngine::Draw( UViewport* Viewport, UBOOL Blit, BYTE* HitData, INT* Hit
 		Render->PostRender( Frame );
 		if( bDrawDiag )
 			debugf( NAME_Log, TEXT("XDRAW draw=%d postrender-done unlock-begin"), DrawDiagCount );
+#if TARGET_XBOX
+		const DOUBLE ProfileUnlockStart = ProfileView ? appSeconds() : 0.0;
+#endif
 		Viewport->Unlock( Blit );
+#if TARGET_XBOX
+		const DOUBLE ProfileUnlockEnd = ProfileView ? appSeconds() : 0.0;
+#endif
 		if( bDrawDiag )
 			debugf( NAME_Log, TEXT("XDRAW draw=%d unlock-done finish-begin"), DrawDiagCount );
 		Render->FinishMasterFrame();
+#if TARGET_XBOX
+		if( ProfileView )
+		{
+			static DOUBLE WindowStart=0.0, Pre=0.0, AudioTime=0.0, World=0.0, Hud=0.0, UnlockTime=0.0, Finish=0.0;
+			static DOUBLE HudPlayer=0.0, HudConsole=0.0, HudNative=0.0, HudFlash=0.0;
+			static DOUBLE CanvasSeconds=0.0;
+			static INT CanvasCalls=0;
+			static INT Views=0;
+			const DOUBLE Now=appSeconds();
+			if( WindowStart == 0.0 ) WindowStart=ProfileViewStart;
+			Pre+=ProfileWorldStart-ProfileViewStart-ProfileAudioSeconds;
+			AudioTime+=ProfileAudioSeconds; World+=ProfileWorldEnd-ProfileWorldStart;
+			Hud+=ProfileUnlockStart-ProfileWorldEnd; UnlockTime+=ProfileUnlockEnd-ProfileUnlockStart;
+			CanvasSeconds+=ProfileCanvasSeconds; CanvasCalls+=ProfileCanvasCalls;
+			HudPlayer+=ProfileHudPlayerEnd-ProfileHudStart;
+			HudConsole+=ProfileHudConsoleEnd-ProfileHudPlayerEnd;
+			HudNative+=ProfileUnlockStart-ProfileHudConsoleEnd;
+			HudFlash+=ProfileHudStart-ProfileWorldEnd;
+			Finish+=Now-ProfileUnlockEnd; Views++;
+			if( Now-WindowStart >= 5.0 )
+			{
+				debugf(NAME_Log,TEXT("XPROFILEVIEW views=%d preMS=%.3f audioMS=%.3f worldMS=%.3f hudMS=%.3f unlockMS=%.3f finishMS=%.3f"),
+					Views,1000.0*Pre/Views,1000.0*AudioTime/Views,1000.0*World/Views,
+					1000.0*Hud/Views,1000.0*UnlockTime/Views,1000.0*Finish/Views);
+				debugf(NAME_Log,TEXT("XPROFILEHUD views=%d playerMS=%.3f consoleMS=%.3f nativeMS=%.3f flashMS=%.3f"),
+					Views,1000.0*HudPlayer/Views,1000.0*HudConsole/Views,1000.0*HudNative/Views,1000.0*HudFlash/Views);
+				debugf(NAME_Log,TEXT("XPROFILECANVAS views=%d calls=%d nativeMS=%.3f"),Views,CanvasCalls,1000.0*CanvasSeconds/Views);
+				CanvasSeconds=0.0; CanvasCalls=0;
+				WindowStart=Now; Pre=AudioTime=World=Hud=UnlockTime=Finish=0.0; Views=0;
+				HudPlayer=HudConsole=HudNative=HudFlash=0.0;
+			}
+		}
+#endif
 		if( bDrawDiag )
 			debugf( NAME_Log, TEXT("XDRAW draw=%d finish-done"), DrawDiagCount );
 	}
@@ -3004,6 +3070,11 @@ FLOAT UGameEngine::GetMaxTickRate()
 void UGameEngine::Tick( FLOAT DeltaSeconds )
 {
 	guard(UGameEngine::Tick);
+#if TARGET_XBOX
+	static const UBOOL ProfileCombat = GetFileAttributesA("D:\\XboxSplitCombatBenchmark.ini") != 0xFFFFFFFF;
+	const DOUBLE ProfileTickStart = ProfileCombat ? appSeconds() : 0.0;
+	DOUBLE ProfileLevelSeconds = 0.0, ProfileClientSeconds = 0.0;
+#endif
 	static INT EngineTickDiagCount = 0;
 	static const UBOOL GXboxVerboseEngineTickLog = 0;
 	EngineTickDiagCount++;
@@ -3063,6 +3134,9 @@ void UGameEngine::Tick( FLOAT DeltaSeconds )
 		debugf( NAME_Log, TEXT("XTICK tick=%d level-begin"), EngineTickDiagCount );
 	GameCycles=0;
 	clock(GameCycles);
+#if TARGET_XBOX
+	const DOUBLE ProfileLevelStart = ProfileCombat ? appSeconds() : 0.0;
+#endif
 	if( GLevel )
 	{
 		// Decide whether to drop high detail because of frame rate
@@ -3079,6 +3153,9 @@ void UGameEngine::Tick( FLOAT DeltaSeconds )
 	if( Client && Client->Viewports.Num() && Client->Viewports(0)->Actor->GetLevel()!=GLevel )
 		Client->Viewports(0)->Actor->GetLevel()->Tick( LEVELTICK_All, DeltaSeconds );
 	unclock(GameCycles);
+#if TARGET_XBOX
+	if( ProfileCombat ) ProfileLevelSeconds = appSeconds() - ProfileLevelStart;
+#endif
 	if( bTickDiag )
 		debugf( NAME_Log, TEXT("XTICK tick=%d level-end"), EngineTickDiagCount );
 	unguard;
@@ -3274,6 +3351,9 @@ void UGameEngine::Tick( FLOAT DeltaSeconds )
 	// Render everything.
 	guard(ClientTick);
 	INT LocalClientCycles=0;
+#if TARGET_XBOX
+	const DOUBLE ProfileClientStart = ProfileCombat ? appSeconds() : 0.0;
+#endif
 	if( Client )
 	{
 		if( bTickDiag )
@@ -3285,6 +3365,27 @@ void UGameEngine::Tick( FLOAT DeltaSeconds )
 			debugf( NAME_Log, TEXT("XTICK tick=%d client-end"), EngineTickDiagCount );
 	}
 	ClientCycles=LocalClientCycles;
+#if TARGET_XBOX
+	if( ProfileCombat )
+	{
+		ProfileClientSeconds = appSeconds() - ProfileClientStart;
+		static DOUBLE WindowStart = 0.0, TotalSeconds = 0.0, LevelSeconds = 0.0, ClientSeconds = 0.0;
+		static INT Samples = 0;
+		const DOUBLE Now = appSeconds();
+		if( WindowStart == 0.0 ) WindowStart = ProfileTickStart;
+		TotalSeconds += Now - ProfileTickStart;
+		LevelSeconds += ProfileLevelSeconds;
+		ClientSeconds += ProfileClientSeconds;
+		Samples++;
+		if( Now - WindowStart >= 5.0 )
+		{
+			debugf(NAME_Log,TEXT("XPROFILE samples=%d totalMS=%.3f levelMS=%.3f clientMS=%.3f otherMS=%.3f"),
+				Samples,1000.0*TotalSeconds/Samples,1000.0*LevelSeconds/Samples,
+				1000.0*ClientSeconds/Samples,1000.0*(TotalSeconds-LevelSeconds-ClientSeconds)/Samples);
+			WindowStart=Now; TotalSeconds=LevelSeconds=ClientSeconds=0.0; Samples=0;
+		}
+	}
+#endif
 	unguard;
 
 	unclock(LocalTickCycles);

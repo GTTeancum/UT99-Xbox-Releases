@@ -2116,6 +2116,26 @@ void URender::LeafVolumetricLighting( FSceneNode* Frame, UModel* Model, INT iLea
 	unguardSlow;
 }
 
+#if TARGET_XBOX
+static void XboxRasterSpecialProof(FSceneNode* Frame, INT Kind)
+{
+	static const UBOOL Enabled = GetFileAttributesA("D:\\XboxRasterAudit.ini") != 0xFFFFFFFF;
+	static INT Counts[3]={0,0,0};
+	if( Enabled && Counts[Kind]++ < 8 )
+		debugf(NAME_Log,TEXT("XRASTERSPECIAL kind=%d recursion=%d frame=%d"),Kind,Frame->Recursion,Frame->Viewport->FrameCount);
+}
+static UBOOL XboxAlternateRaster()
+{
+	static const UBOOL Enabled = GetFileAttributesA("D:\\XboxAlternateRaster.ini") != 0xFFFFFFFF;
+	return Enabled;
+}
+static UBOOL XboxUseLegacyRaster(FSceneNode* Frame)
+{
+	static const UBOOL Forced = GetFileAttributesA("D:\\XboxLegacyRaster.ini") != 0xFFFFFFFF;
+	return Forced || (XboxAlternateRaster() && (Frame->Viewport->FrameCount & 1));
+}
+#endif
+
 void URender::OccludeBsp( FSceneNode* Frame )
 {
 	UModel*				Model;
@@ -2145,6 +2165,9 @@ void URender::OccludeBsp( FSceneNode* Frame )
 	INT                 NumActiveZones;
 	BYTE                ActiveZones[64];
 	guard(URender::OccludeBsp);
+#if TARGET_XBOX
+	const UBOOL LegacyRaster = XboxUseLegacyRaster(Frame);
+#endif
 	check(Frame->Level->Model->Nodes.Num()<=MAX_NODES);
 	check(Frame->Level->Model->Points.Num()<=MAX_POINTS);
 
@@ -2193,6 +2216,9 @@ void URender::OccludeBsp( FSceneNode* Frame )
 	if( Warp && Warp->IsA(AWarpZoneInfo::StaticClass()) && Warp->OtherSideActor && Warp->OtherSideLevel )
 	{
 		guard(HandleInWarp);
+#if TARGET_XBOX
+		XboxRasterSpecialProof(Frame,2);
+#endif
 		CreateChildFrame
 		(
 			Frame,
@@ -2450,8 +2476,57 @@ void URender::OccludeBsp( FSceneNode* Frame )
 				(	!(PolyFlags & PF_NoOcclude)
 				||	(PolyFlags&(PF_Portal|PF_Invisible))==(PF_Portal|PF_Invisible) 
 				||	(PolyFlags&(PF_Mirrored)) )
-					Visible = TempDrawList->Span.CopyFromRasterUpdate( *SpanBuffer, RasterStartY, RasterEndY, HackRaster+RasterStartY );
-				else		
+				{
+#if TARGET_XBOX
+					if( !LegacyRaster && !RenDev->SpanBased && !(PolyFlags & (PF_Portal|PF_Mirrored|PF_FakeBackdrop|PF_Invisible)) )
+					{
+						static const UBOOL AuditUpdate = GetFileAttributesA("D:\\XboxRasterAudit.ini") != 0xFFFFFFFF;
+						if( AuditUpdate )
+						{
+							// Zone screens use GDynMem/GSceneMem; audit scratch must not reclaim their updates.
+							if( SpanBuffer->Mem == &GMem ) appErrorf(TEXT("Raster audit scratch aliases screen"));
+							FMemMark AuditMark(GMem);
+							FSpanBuffer LegacyScreen(*SpanBuffer,GMem), LegacyOutput;
+							LegacyOutput.AllocIndex(RasterStartY,RasterEndY,&GMem);
+							const INT LegacyVisible = LegacyOutput.CopyFromRasterUpdate(LegacyScreen,RasterStartY,RasterEndY,HackRaster+RasterStartY);
+							Visible = FSpanBuffer::UpdateRasterScreen(*SpanBuffer,RasterStartY,RasterEndY,HackRaster+RasterStartY);
+							if( Visible != LegacyVisible || SpanBuffer->ValidLines != LegacyScreen.ValidLines ) appErrorf(TEXT("Raster update mismatch"));
+							for( INT AuditY=0; AuditY<SpanBuffer->EndY-SpanBuffer->StartY; AuditY++ )
+							{
+								FSpan* A=SpanBuffer->Index[AuditY]; FSpan* B=LegacyScreen.Index[AuditY];
+								while( A && B )
+								{
+									if( A->Start!=B->Start || A->End!=B->End ) appErrorf(TEXT("Raster screen endpoint mismatch"));
+									A=A->Next; B=B->Next;
+								}
+								if( A || B ) appErrorf(TEXT("Raster screen linkage mismatch"));
+							}
+							AuditMark.Pop();
+							static INT Updates=0;
+							if( (++Updates & 1023)==0 ) debugf(NAME_Log,TEXT("XRASTERUPDATE updates=%d errors=0"),Updates);
+						}
+						else Visible = FSpanBuffer::UpdateRasterScreen(*SpanBuffer,RasterStartY,RasterEndY,HackRaster+RasterStartY);
+					}
+					else
+#endif
+						Visible = TempDrawList->Span.CopyFromRasterUpdate( *SpanBuffer, RasterStartY, RasterEndY, HackRaster+RasterStartY );
+				}
+#if TARGET_XBOX
+				else if( !LegacyRaster && !RenDev->SpanBased && !(PolyFlags & (PF_Portal|PF_Mirrored|PF_FakeBackdrop|PF_Invisible)) )
+				{
+					Visible = FSpanBuffer::RasterVisible( *SpanBuffer, RasterStartY, RasterEndY, HackRaster+RasterStartY );
+					// During qualification, combat runs verify every optimized query.
+					static const UBOOL AuditRaster = GetFileAttributesA("D:\\XboxRasterAudit.ini") != 0xFFFFFFFF;
+					if( AuditRaster )
+					{
+						static INT Queries=0;
+						const INT LegacyVisible = TempDrawList->Span.CopyFromRaster( *SpanBuffer, RasterStartY, RasterEndY, HackRaster+RasterStartY );
+						if( Visible != LegacyVisible ) appErrorf(TEXT("Raster visibility mismatch"));
+						if( (++Queries & 255)==0 ) debugf(NAME_Log,TEXT("XRASTERPROOF queries=%d errors=0"),Queries);
+					}
+				}
+#endif
+				else
 					Visible = TempDrawList->Span.CopyFromRaster( *SpanBuffer, RasterStartY, RasterEndY, HackRaster+RasterStartY );
 				STAT(unclock(GStat.SpanTime));
 
@@ -2471,6 +2546,9 @@ void URender::OccludeBsp( FSceneNode* Frame )
 				{
 					// Handle sky portal.
 					guard(HandleSkyWarp);
+#if TARGET_XBOX
+		XboxRasterSpecialProof(Frame,0);
+#endif
 					AZoneInfo* SkyZone = (AZoneInfo*)Frame->Level->GetZoneActor(iZone)->SkyZone;
 					FCoords Coords = Frame->Coords;
 					Coords *= Frame->Coords.Origin;
@@ -2504,6 +2582,9 @@ void URender::OccludeBsp( FSceneNode* Frame )
 				{
 					// Handle mirrored surface.
 					guard(HandleMirrorWarp);
+#if TARGET_XBOX
+		XboxRasterSpecialProof(Frame,1);
+#endif
 					if( (PolyFlags & PF_Translucent) && !RenDev->ShinySurfaces )
 					{
 						PolyFlags &= ~PF_Translucent;
@@ -2576,6 +2657,9 @@ void URender::OccludeBsp( FSceneNode* Frame )
 
 							// Handle warp zone.
 							guard(HandleWarpPortal);
+#if TARGET_XBOX
+		XboxRasterSpecialProof(Frame,2);
+#endif
 							CreateChildFrame
 							(
 								Frame,
@@ -2858,9 +2942,36 @@ void URender::OccludeFrame( FSceneNode* Frame )
 	NumPostDynamics   = 0;
 	PostDynamics      = new(GDynMem,Level->Model->Nodes.Num())URender::FDynamicsCache*;
 
+#if TARGET_XBOX
+	static const UBOOL ProfileVisibility = GetFileAttributesA("D:\\XboxSplitCombatBenchmark.ini") != 0xFFFFFFFF;
+	static DOUBLE VisibilityWindowStart=0.0, SetupSeconds=0.0, BspSeconds=0.0;
+	static INT VisibilityViews=0;
+	static DOUBLE ModeSetup[2]={0.0,0.0}, ModeBsp[2]={0.0,0.0};
+	static INT ModeViews[2]={0,0};
+	const UBOOL ProfileAlternate = ProfileVisibility && XboxAlternateRaster();
+	const INT RasterMode = ProfileAlternate && XboxUseLegacyRaster(Frame) ? 1 : 0;
+	const DOUBLE SetupStart = ProfileVisibility ? appSeconds() : 0.0;
+	if( ProfileVisibility && VisibilityWindowStart==0.0 ) VisibilityWindowStart=SetupStart;
+#endif
 	// Perform occlusion checking.
 	SetupDynamics( Frame, (Viewport->Actor->bBehindView || Frame->Parent!=NULL) ? NULL : Viewport->Actor->ViewTarget ?  Viewport->Actor->ViewTarget : Viewport->Actor );
+#if TARGET_XBOX
+	const DOUBLE BspStart = ProfileVisibility ? appSeconds() : 0.0;
+#endif
 	OccludeBsp( Frame );
+#if TARGET_XBOX
+	if( ProfileVisibility )
+	{
+		SetupSeconds += BspStart-SetupStart;
+		const DOUBLE BspElapsed=appSeconds()-BspStart;
+		BspSeconds += BspElapsed;
+		if( ProfileAlternate )
+		{
+			ModeSetup[RasterMode] += BspStart-SetupStart;
+			ModeBsp[RasterMode] += BspElapsed;
+		}
+	}
+#endif
 #if TARGET_XBOX
 	static INT XboxCharacterQueueAuditEnabled = -1;
 	if( XboxCharacterQueueAuditEnabled < 0 )
@@ -2950,13 +3061,39 @@ void URender::OccludeFrame( FSceneNode* Frame )
 	// Occlude child frames.
 	for( FSceneNode* F=Frame->Child; F; F=F->Sibling )
 		OccludeFrame( F );
-
+#if TARGET_XBOX
+	if( ProfileVisibility && !Frame->Parent )
+	{
+		VisibilityViews++;
+		if( ProfileAlternate ) ModeViews[RasterMode]++;
+		const DOUBLE Now=appSeconds();
+		if( Now-VisibilityWindowStart >= 5.0 )
+		{
+			debugf(NAME_Log,TEXT("XPROFILEVIS views=%d setupMS=%.3f bspMS=%.3f"),
+				VisibilityViews,1000.0*SetupSeconds/VisibilityViews,1000.0*BspSeconds/VisibilityViews);
+			if( ProfileAlternate )
+				for( INT Mode=0; Mode<2; Mode++ )
+				{
+					if( ModeViews[Mode] ) debugf(NAME_Log,TEXT("XRASTERPAIR legacy=%d views=%d setupMS=%.3f bspMS=%.3f"),
+						Mode,ModeViews[Mode],1000.0*ModeSetup[Mode]/ModeViews[Mode],1000.0*ModeBsp[Mode]/ModeViews[Mode]);
+					ModeViews[Mode]=0; ModeSetup[Mode]=ModeBsp[Mode]=0.0;
+				}
+			VisibilityWindowStart=Now; SetupSeconds=BspSeconds=0.0; VisibilityViews=0;
+		}
+	}
+#endif
 	unguard;
 }
 
 void URender::DrawFrame( FSceneNode* Frame )
 {
 	guard(URender::DrawFrame);
+#if TARGET_XBOX
+	static const UBOOL ProfileDraw = GetFileAttributesA("D:\\XboxSplitCombatBenchmark.ini") != 0xFFFFFFFF;
+	static DOUBLE DrawWindowStart=0.0, SurfaceSeconds=0.0, ActorSeconds=0.0;
+	static INT DrawViews=0;
+	if( ProfileDraw && DrawWindowStart==0.0 ) DrawWindowStart=appSeconds();
+#endif
 	UViewport* Viewport = Frame->Viewport;
 	UModel*	   Model    = Frame->Level->Model;
 	if( Frame->Parent && Model->Nodes.Num()==0 )
@@ -3005,6 +3142,9 @@ void URender::DrawFrame( FSceneNode* Frame )
 	// Render everything.
 	for( Pass=0; Pass<3; Pass++ )
 	{
+#if TARGET_XBOX
+		const DOUBLE SurfaceStart = ProfileDraw ? appSeconds() : 0.0;
+#endif
 		// Draw everything in the world.
 		for( FBspDrawListPtr* DrawPtr = FirstDraw[Pass]; DrawPtr<LastDraw[Pass]; DrawPtr++ )
 		{
@@ -3208,6 +3348,10 @@ void URender::DrawFrame( FSceneNode* Frame )
 				GLightManager->FinishSurf();
 		}
 
+#if TARGET_XBOX
+		const DOUBLE ActorStart = ProfileDraw ? appSeconds() : 0.0;
+		if( ProfileDraw ) SurfaceSeconds += ActorStart-SurfaceStart;
+#endif
 		// Sort transparent sprites in front of masked and transparent geometry;
 		// sort all others in back of masked/transparent geometry.
 		for( FDynamicSprite* Sprite = Frame->Sprite; Sprite; Sprite=Sprite->RenderNext )
@@ -3218,8 +3362,25 @@ void URender::DrawFrame( FSceneNode* Frame )
 			||	(Viewport->RenDev->SpanBased ? Pass==2 : (Pass==1 && !bTranslucent) ) )
 				DrawActorSprite( Frame, Sprite );
 		}
+#if TARGET_XBOX
+		if( ProfileDraw ) ActorSeconds += appSeconds()-ActorStart;
+#endif
 	}
 
+#if TARGET_XBOX
+	// Child frames contribute exclusive surface/actor time to their root view.
+	if( ProfileDraw && Frame->Parent==NULL )
+	{
+		DrawViews++;
+		const DOUBLE Now=appSeconds();
+		if( Now-DrawWindowStart >= 5.0 )
+		{
+			debugf(NAME_Log,TEXT("XPROFILEDRAW views=%d surfacesMS=%.3f actorsMS=%.3f"),
+				DrawViews,1000.0*SurfaceSeconds/DrawViews,1000.0*ActorSeconds/DrawViews);
+			DrawWindowStart=Now; SurfaceSeconds=ActorSeconds=0.0; DrawViews=0;
+		}
+	}
+#endif
 	// Optics.
 	if
 	(	Viewport->Actor->Region.iLeaf!=INDEX_NONE
@@ -3474,8 +3635,32 @@ void URender::DrawWorld( FSceneNode* Frame )
 			GlobalShapeLODAdjust = Clamp(GlobalShapeLODAdjust-0.1f,1.f,1.6f);
 
 		// Occlude and render all scene frames.
+#if TARGET_XBOX
+		static const UBOOL ProfileCombat = GetFileAttributesA("D:\\XboxSplitCombatBenchmark.ini") != 0xFFFFFFFF;
+		const DOUBLE ProfileOccludeStart = ProfileCombat ? appSeconds() : 0.0;
+#endif
 		OccludeFrame( Frame );
+#if TARGET_XBOX
+		const DOUBLE ProfileDrawStart = ProfileCombat ? appSeconds() : 0.0;
+#endif
 		DrawFrame( Frame );
+#if TARGET_XBOX
+		if( ProfileCombat )
+		{
+			static DOUBLE WindowStart=0.0, OccludeSeconds=0.0, DrawSeconds=0.0;
+			static INT Views=0;
+			const DOUBLE Now=appSeconds();
+			if( WindowStart == 0.0 ) WindowStart=ProfileOccludeStart;
+			OccludeSeconds += ProfileDrawStart-ProfileOccludeStart;
+			DrawSeconds += Now-ProfileDrawStart; Views++;
+			if( Now-WindowStart >= 5.0 )
+			{
+				debugf(NAME_Log,TEXT("XPROFILEWORLD views=%d occludeMS=%.3f drawMS=%.3f"),
+					Views,1000.0*OccludeSeconds/Views,1000.0*DrawSeconds/Views);
+				WindowStart=Now; OccludeSeconds=DrawSeconds=0.0; Views=0;
+			}
+		}
+#endif
 
 		// Have HUD draw the player's weapon on top (and any other overlays which should happen before screen flashes). 
 		AActor* Actor

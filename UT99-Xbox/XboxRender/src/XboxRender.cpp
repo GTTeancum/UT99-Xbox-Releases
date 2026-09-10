@@ -1156,8 +1156,27 @@ UBOOL UXboxRenderDevice::Init( UViewport* InViewport, INT NewX, INT NewY, INT Ne
 	// The engine-side pixel-aspect hook widens only the 3D horizontal frustum.
 	DWORD XboxVideoFlags = XGetVideoFlags();
 	Widescreen = (XboxVideoFlags & XC_VIDEO_FLAGS_WIDESCREEN) != 0;
-	if( Widescreen )
-		PP.Flags |= D3DPRESENTFLAG_WIDESCREEN;
+    // Enumerated modes reflect the connected AV pack and enabled dashboard
+    // modes. Never select 720p/1080i or infer progressive support from aspect.
+    UBOOL Can480p = 0;
+    const UINT ModeCount = Direct3D->GetAdapterModeCount(D3DADAPTER_DEFAULT);
+    for( UINT ModeIndex=0; ModeIndex<ModeCount; ModeIndex++ )
+    {
+        D3DDISPLAYMODE Mode;
+        if( SUCCEEDED(Direct3D->EnumAdapterModes(D3DADAPTER_DEFAULT, ModeIndex, &Mode))
+        && Mode.Width==640 && Mode.Height==480 && Mode.RefreshRate==60 )
+        {
+            GXboxLog.Write("XVIDEO candidate format=0x%08X flags=0x%08X", Mode.Format, Mode.Flags);
+            // Display modes describe scanout format; our render backbuffer is
+            // swizzled X8R8G8B8. They need not use identical format enum values.
+            if( Mode.Flags & D3DPRESENTFLAG_PROGRESSIVE ) Can480p = 1;
+        }
+    }
+    PP.Flags |= Can480p ? D3DPRESENTFLAG_PROGRESSIVE : D3DPRESENTFLAG_INTERLACED;
+    if( Widescreen )
+        PP.Flags |= D3DPRESENTFLAG_WIDESCREEN;
+    GXboxLog.Write("XVIDEO avpack=%u modes=%u scan=%s size=640x480 wide=%d",
+        (unsigned)XGetAVPack(), ModeCount, Can480p ? "480p" : "480i", Widescreen);
 	GXboxLog.Write( "XboxRender::Init: videoFlags=0x%08X widescreen=%d presentFlags=0x%08X",
 		XboxVideoFlags, Widescreen, PP.Flags );
 
@@ -1190,7 +1209,14 @@ UBOOL UXboxRenderDevice::Init( UViewport* InViewport, INT NewX, INT NewY, INT Ne
         if( SUCCEEDED(hr) && Device )
             PP = FallbackPP;
     }
-    if( FAILED(hr) )
+    if( (FAILED(hr) || !Device) && (PP.Flags & D3DPRESENTFLAG_PROGRESSIVE) )
+    {
+        PP.Flags = (PP.Flags & ~D3DPRESENTFLAG_PROGRESSIVE) | D3DPRESENTFLAG_INTERLACED;
+        GXboxLog.Write("XVIDEO progressive creation failed; retrying 480i");
+        hr = XboxRenderCreateDeviceChecked(Direct3D, D3DCREATE_HARDWARE_VERTEXPROCESSING,
+            &PP, &Device, "480i-fallback");
+    }
+    if( FAILED(hr) || !Device )
     {
         GXboxLog.Write( "XboxRender::Init: CreateDevice FAILED (hr=0x%08X)", hr );
         debugf( NAME_Init, TEXT("XboxRender: CreateDevice failed (0x%08X)"), hr );
@@ -1202,8 +1228,9 @@ UBOOL UXboxRenderDevice::Init( UViewport* InViewport, INT NewX, INT NewY, INT Ne
     GXboxLog.Write( "XboxRender::Init: CreateDevice OK (ptr=0x%08X)", (DWORD)Device );
 
     // B6: Reduce scan-line flicker on composite/RF output.
-    D3DDevice_SetFlickerFilter( 5 );
-    GXboxLog.Write( "XboxRender::Init: FlickerFilter(5) set" );
+    const DWORD FlickerFilter = (PP.Flags & D3DPRESENTFLAG_PROGRESSIVE) ? 0 : 5;
+    D3DDevice_SetFlickerFilter( FlickerFilter );
+    GXboxLog.Write( "XVIDEO created flags=0x%08X flickerFilter=%u", PP.Flags, FlickerFilter );
 
     DeviceCreated = 1;
     GRD_DisplayCalibrationDirty = 1;
@@ -2210,7 +2237,12 @@ UBOOL UXboxRenderDevice::SetTextureD3D( INT Stage, FTextureInfo& Info, DWORD Pol
                 break;
         }
         if( BoundEntry && BoundEntry->pTexture && BoundEntry->MaskedAlpha == bNeedsMaskedAlpha )
+        {
+            // A bound hit is still a use this frame. Preserve the eviction
+            // guard after a later draw replaces this stage binding.
+            BoundEntry->FrameCounter = FrameCounter;
             return 1;
+        }
         BoundCacheID[Stage] = 0;
     }
 

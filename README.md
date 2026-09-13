@@ -36,6 +36,10 @@ System Link is still experimental. Co-op Tournament and skeletal LOD work remain
 ## Screenshots
 
 <p>
+  <img src="screenshots/box-art.png" alt="Unreal Tournament Xbox box art" width="760">
+</p>
+
+<p>
   <img src="screenshots/halo-elite-plasma-rifle.png" alt="Halo Elite holding the plasma rifle on DM-Turbine in the Xbox v1.2 build" width="760">
 </p>
 

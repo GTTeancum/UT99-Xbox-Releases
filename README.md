@@ -3,10 +3,10 @@
 Release and support page for the original Xbox port of *Unreal Tournament: Game of the Year Edition*
 
 <p>
-  <a href="https://github.com/GTTeancum/UT99-Xbox-Releases/releases/tag/1.2"><strong>Download version 1.2</strong></a>
+  <a href="https://github.com/GTTeancum/UT99-Xbox-Releases/releases/tag/1.2"><strong>Download version 1.2 — final release</strong></a>
 </p>
 
-Version **1.2** is a full package, not a patch. Install it in a clean folder and don't merge an older release's System files or configuration into it.
+Version **1.2 is the final release**, published September 12, 2026. No further releases are planned. This is a full package, not a patch. Install it in a clean folder and don't merge an older release's System files or configuration into it.
 
 ## What's changed in 1.2
 
@@ -22,7 +22,7 @@ Version **1.2** is a full package, not a patch. Install it in a clean folder and
 
 [Full release notes](https://github.com/GTTeancum/UT99-Xbox-Releases/releases/tag/1.2)
 
-System Link is still experimental. Co-op Tournament and skeletal LOD work remain deferred. Video output stays at 480i/480p.
+System Link is still experimental. Co-op Tournament and skeletal LOD improvements are not included. Video output stays at 480i/480p.
 
 ## Feature Highlights
 

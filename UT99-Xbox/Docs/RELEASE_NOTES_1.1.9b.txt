@@ -1,0 +1,103 @@
+Unreal Tournament Xbox v1.1.9b Public Test
+==========================================
+
+This is a public test build for the upcoming version 1.2 release. It is a full
+package, not a patch. Please install it in a clean folder and follow the
+included installation instructions.
+
+Visual fixes
+------------
+
+- Fixed the texture and lighting flicker that could make maps suddenly become
+  dark, overly bright, smeared, or stretched while playing
+- Fixed related problems that appeared after changing brightness, contrast,
+  and gamma
+- Tested the fixes while following moving bots through several visually varied
+  maps and repeatedly changing the display settings
+- Reduced intermittent texture pop-in and gameplay hitches caused by the
+  renderer recycling active texture-cache entries too early
+
+Mutators and game modes
+-----------------------
+
+- Restored all fourteen standard Unreal Tournament mutators to the Xbox menu
+- Added AgentX 0.99 and Akimbo Arena
+- Fixed OldSkool Weapons so its Unreal minigun replaces the standard Unreal
+  Tournament minigun
+- Added Last Man Standing to Instant Action, Split Screen, and System Link
+- Last Man Standing includes the expected lives setting, deathmatch maps, and
+  no-time-limit rules
+- Fixed the OldSkool minigun's looping sound playing too slowly and at too low
+  a pitch
+
+Console maps
+------------
+
+- Fixed startup failures in CTF-Phalanx, CTF-Spirito, CTF-Stormfront,
+  CTF-Sundial, DM-CanyonFear, DM-Halberd, DM-Hood, and DM-Pantheon
+- Rechecked all eight maps in live matches with bots
+
+System Link (experimental)
+--------------------------
+
+- Improved joining, leaving, reconnecting, returning to the lobby, and moving
+  to the next map
+- Fixed false connection warnings that could appear during an otherwise healthy
+  match
+- The connection-problem icon remains active and will still appear when the
+  game detects a genuine network problem
+- Tested hosting, joining, map changes, connection loss, failed joins, lobby
+  re-entry, and longer two-console-emulator sessions
+
+Tournament and menus
+--------------------
+
+- Fixed the first match of a Tournament ladder crashing during loading
+- Verified the first match and progress advance in all five Tournament ladders
+- Fixed long menu pauses that could freeze both the music and CityIntro for
+  several seconds
+- Added the current version number to the bottom-right of the main-menu footer
+
+Widescreen preview
+------------------
+
+- Added automatic widescreen detection using the Xbox dashboard setting
+- Widescreen gameplay now shows a wider view instead of stretching the 4:3
+  game world
+- The original 4:3 view remains available when widescreen is disabled in the
+  dashboard
+
+Known limitations
+-----------------
+
+- The HUD and menus still stretch horizontally in widescreen
+- Safe Area Size currently changes the entire picture rather than only moving
+  the HUD inward
+- Four-player widescreen and a wider range of real-Xbox HDMI/capture setups
+  still need additional testing
+- Co-op Tournament is not included in this public test
+
+Reporting problems
+------------------
+
+Please include the following details when opening a GitHub issue
+
+- The map and game mode
+- Player and bot count
+- Display and widescreen settings
+- Whether the match was local or System Link
+- What happened immediately before the problem
+- Screenshots or short videos when the problem is visual
+
+Please also upload your `ut99.log` file whenever possible
+
+- Use an Xbox FTP program to copy `ut99.log` from the game folder on your Xbox
+  to your PC; it is normally beside `default.xbe` in the folder often named
+  `UT99x`
+- Open or create the GitHub issue and click inside the large description
+  textbox
+- Drag `ut99.log` from File Explorer and drop it directly into that textbox
+- Wait for GitHub to finish uploading it and insert a file link before
+  submitting the issue
+- If drag and drop does not work, click the attachment link at the bottom of
+  the textbox and select `ut99.log` manually

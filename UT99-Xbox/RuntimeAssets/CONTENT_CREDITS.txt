@@ -1,0 +1,192 @@
+Unreal Tournament Xbox 1.2 - Content Credits
+=============================================
+
+This port is intended for owners of Unreal Tournament. Unreal Tournament and
+its original assets remain the property of Epic Games and their respective
+rights holders. Community and third-party work remains the property of its
+authors and rights holders.
+
+The in-game credits cover the original Unreal Tournament team. This document
+records the additional content distributed with the Xbox release. Original
+readmes are retained in the release's Docs folder wherever they were available.
+
+
+Console map pack
+----------------
+
+The included PlayStation 2 and Dreamcast map conversions preserve maps created
+for the official console releases. Original game: Epic Games and Digital
+Extremes. Refer to `Docs/Console_Map_Pack_README.txt` for the complete map list,
+source platform, title, player count, and per-map author attribution.
+
+The Phalanx and Sundial embedded world textures are recovered from the original
+PS2 disc's retained mipmaps and palettes, with their original world scale.
+EpicCustomModels.u is restored from the previously distributed RC1 System set;
+this Epic Games package supplies the meshes imported by MultiMesh and
+RocketArenaMultiMesh, including indirect PS2 character dependencies.
+
+Authors represented in that map pack:
+- Cliff Bleszinski
+- Dave Ewing
+- Eric "Ebolt" Boltjes
+- Cedric "Inoxx" Fiorentino
+- Juan Pancho "XceptOne" Eekels
+- Rich "Akuma" Eastwood
+- Alan "Talisman" Willard
+- Warren Marshall
+
+Reference:
+- https://forums.beyondunreal.com/threads/unreal-tournament-console-exclusive-maps.168880/
+- https://unreal.fandom.com/wiki/Unreal_Tournament/Maps
+
+
+Jailbreak III Gold
+------------------
+
+Jailbreak III Gold is distributed with its original documentation and terms in
+`Docs/JailbreakIII`. The original noncommercial distribution notice remains in
+force.
+
+Development team:
+- Daikiki
+- ElBundee
+- Mychaeel
+
+Original map pack:
+- Daikiki
+- DireIce
+- ElBundee
+- Hourences
+- Rob
+- Sexmachine
+- SnowDog
+- Tarquin
+- TheSpoonDog
+
+Gold map pack:
+- DavidM
+- Hourences
+- Hyperion
+- Lehmi
+- MClane
+- SnowDog
+- TheSpoonDog
+
+Bundled map attribution:
+- DM-ScreenDemo: ElBundee
+- JB-Alcatraz: David Munnich
+- JB-Basmma: Daniel "MClane" Pflugbeil
+- JB-Complex: Cory "TheSpoonDog" Spooner
+- JB-Furia: Emil "Hyperion" Attlid
+- JB-Grudge: Eric "SnowDog" Ettes
+- JB-Nifam: David Munnich
+- JB-Pharynx: Alexander "lehmi" Lehmann
+- JB-Raid-Gold: Sjoerd "Hourences" De Jong
+- JB-Talaeron-Gold: Eric "SnowDog" Ettes
+- JBCredits: Eric "SnowDog" Ettes
+- JBTutorialMap: TheSpoonDog, Mychaeel, and NYGrrrl
+
+Additional contributors retained from the original credits:
+- Voice work: Sioux "NYGrrrl" Blue
+- Mutators and interfaces: ElBundee, KrYTy, Mychaeel, Tankazz, and Will
+- "Propulsion" in JB-Talaeron: Borna Abramovic
+- Firefly script: Slick Willy
+- Original manual: Caution
+- RandomRelic: ElBundee
+- Screen component: Mychaeel; demonstration map: ElBundee
+- Special thanks: QAPete and BeyondUnreal
+- Beta testing: Birelli, Bonecrusher, Bonedigger, Caution, Foetal Youth,
+  Ingus, LegalAssassin, Sexmachine, SnowDog, Tarquin, Tahngarth, TheSpoonDog,
+  Underscore, WillySurvive, WiseGuy, and Wiz
+
+Reference:
+- https://unrealarchive.org/unreal-tournament/gametypes/J/jailbreak-iii/index.html
+
+
+Additional maps and dependencies
+--------------------------------
+
+CTF-Titania
+- Map author: Squacky
+- UTDMT dependency: Patrick Cyr (GorGor)
+- QUAKE3c texture dependency: most map textures are derived from Quake III
+  Arena artwork by id Software, as noted in the map readme.
+- https://unrealarchive.org/unreal-tournament/files/25/2510c5f58e34ec89b6602f4a152f8c3ad722bcc1.html
+- https://unrealarchive.org/unreal-tournament/packages/quake3c/index.html
+
+DM-HangEmHigh
+- Map author: jkcrmptn
+- Unreal Tournament remake of Hang 'Em High from Halo: Combat Evolved.
+- Halo and the original map are credited to Bungie and Microsoft.
+- https://unrealarchive.org/unreal-tournament/maps/deathmatch/H/dm-hangemhigh_3b0fe14d.html
+
+DM-Halo-Derelict
+- Map author: [^..^]APOCALYPSE (Cirion UT 2K4 / Perfect Chaos)
+- The author's readme credits the Torlan UT2004 Derelict team for the earlier
+  version, Dwight Jack for "2 Souls at Once", [^..^]Nick for suggesting
+  secrets, Vlad's Army, and the Halo creators.
+- Included dependencies: HaloTex, sky, 5-2SA1, and halochant.
+- Halo, Derelict, and related content are credited to Bungie, Microsoft, and
+  Gearbox.
+- https://unrealarchive.org/unreal-tournament/maps/deathmatch/H/dm-halo-derelict_0ea4e9f6.html
+
+
+Player models and character packages
+------------------------------------
+
+HaloUT Elite and weapons
+- Source: Project Torlan's HaloUT release for Unreal Tournament 2004.
+- Halo characters, weapons and original artwork: Bungie and Microsoft.
+- Xbox conversion uses the existing Advanced Model Support skeletal path.
+- Includes Elite and the Assault Rifle, Pistol and Plasma Rifle, using the
+  non-reload UT-style weapon behavior.
+- https://www.moddb.com/mods/halout/downloads/halout-allfiles-in-one1
+
+PS2 Character Pack 3.0
+- Pack and conversion: AlCapowned
+- Original PlayStation 2 models: James Green (Epic Games)
+- Original models, textures, and animations: Epic Games
+- Advanced Model Support dependency: Psychic_313
+
+Halo Master Chief player model
+- The conversion author is not identified in the supplied package metadata.
+- Unreal Archive also lists the HaloMasterChief model author as Unknown.
+- Master Chief and Halo are credited to Bungie and Microsoft.
+- No unsupported author attribution has been substituted.
+
+
+Mutators
+--------
+
+OldSkool Amp'd Weapons 2.39
+- Author: UsAaR33
+- Included component: standalone `OLweapons` weapon mutator only.
+- The OldSkool campaign framework, menus, backgrounds, and model packs are not
+  distributed in this release.
+- https://unrealarchive.org/unreal-tournament/mutators/O/oldskool-ampd-v239_f1f653ad.html
+
+AgentX 0.99
+- Author: Unknown in the supplied readme and Unreal Archive metadata.
+- Included component: `AgentX.AgentXArena`; the separate test-only
+  `AgentX.TmlArena` entry is not exposed in the Xbox menu.
+- Original readme: `Docs/AgentX_099/axv099Readme.txt`.
+- Package SHA-1: `4e52e876ea392846f8a9de72ae6d30ba878bbcf0`.
+- https://unrealarchive.org/unreal-tournament/mutators/A/agentxut-099_44ff3c2a.html
+
+Akimbo Arena 1.0 build 3
+- Author: Necron_99.
+- Original readme and installer are retained in `Docs/AkimboArena`.
+- Package SHA-1: `0213b9efafd31f824717c09d9f06e66f4f171793`.
+- Original UMOD SHA-1: `52412fa11ea5553e5c5b854c0d85f9050e210ee8`.
+- https://unrealarchive.org/unreal-tournament/mutators/A/akimbo-arena_52412fa1.html
+
+
+Attribution corrections
+-----------------------
+
+Credits were checked against package metadata, original supplied readmes, and
+Unreal Archive before the 1.1 release. Where those sources do not identify an
+author, this document says so rather than guessing. Please report a verifiable
+correction at:
+
+https://github.com/GTTeancum/UT99-Xbox-Releases/issues

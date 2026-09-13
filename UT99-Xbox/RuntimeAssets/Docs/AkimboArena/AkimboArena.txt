@@ -1,0 +1,168 @@
+
+
+                   _     _   _   _        _   _______    ________
+              /|  | |   / / | | | |      | | |  ___  |  |  ____  |
+             / |  | |  / /  | | |  \    /  | | |   | |  | |    | |
+            /  |  | | / /   | | | \ \  / / | | |___| |  | |    | |
+           /   |  | |/ /    | | | |\ \/ /| | |      /   | |    | |
+          / /| |  |    |    | | | | \  / | | |  ___ \   | |    | |
+         / /_| |  | |\ \    | | | |  \/  | | | |   | |  | |    | |
+        / ___  |  | | \ \   | | | |      | | | |   | |  | |    | |
+       / /   | |  | |  \ \  | | | |      | | | |___| |  | |____| |
+      /_/    |_|  |_|   \_\ |_| |_|      |_| |_______|  |________|
+                             - A R E N A -
+  			     By:  Necron_99
+                        Created: March 5, 2000
+                              Version: 1.0
+				Build: 3
+		  http://www.planetunreal.com/necron_99
+ 			    alokim@home.net
+				  or
+		      necron_99@planetunreal.com
+
+Installation:
+	Just run the UMod, and point it to your UnrealTournament/System directory.
+Once that's done turn on whichever weapons you want in akimbo from the Mod menu 
+drop down.  After you've selected which options you want, start up a game with
+Akimbo Arena as your mutator.
+
+Game Play:
+	This mod allows players to carry two weapons at once, or in "Akimbo".  To
+go "Akimbo" you must pick up two of the same kind of weapon.  That's it!  As a bonus,
+you can run this mutator in conjunction with MeltDown's truly awesome StickyGrenades
+(available at www.planetunreal.com/unrealtower) to get Akimbo StickyGrenades.
+
+Options:
+	Under the mod menu, there is a new option called "Akimbo Arena".  Select
+this tab to access the options.  They are:
+
+	Use Impact Hammer:
+	Turns the Impact Hammer on/off when selected.  This will option is not
+	compatible with Akimbo Chainsaws/Dispersion Pistols.
+
+	Use Shock Rifle:
+	Turns on use of the UT ASMD weapon in akimbo.  Incompatible with the Unreal 1
+	AMSD option.
+
+	Use Bio Rifle:
+	Turns on Akimbo Bio Rifles.
+
+	Use Pulse Gun:
+	Turns on Akimbo Pulse Guns.  Incompatible with Akimbo Stingers.
+
+	Use Ripper:
+	Turns on Akimbo Rippers.
+
+	Use Flak Cannon:
+	Turns on Akimbo Flak Cannons.
+
+	Use Eightball:
+	Turns on Akimbo Eightballs.
+
+	Use Minigun:
+	Turns on Akimbo Miniguns.
+
+	Use Sniper Rifle:
+	Turns on Akimbo Sniper Rifles.
+
+	Use Chainsaw:
+	Turns on Akimbo Chainsaws.  Incompatible with Impact Hammer/Dispersion Pistol.
+	(Note:  This automatically acts just like the "Chainsaw Melee" mutator included in
+	UT.  Do not run Akimbo Arena and Chainsaw melee simulataneously.)
+
+	Use Instagib:
+	Turns on Akimbo Instagib Rifles.  Incompatible with any other option.
+	(Note:  Like the above, there is no need to run the InstaGib arena mutator, since
+	this acts in exactly the same manner.  Do not run Akimbo Arena and InstaGib arena
+	simultaneously.)
+
+	Use Dispersion:
+	Turns on the use of the Unreal 1 Dispersion Pistol in Akimbo.  Incompatible with
+	Akimbo Chainsaws and Akimbo Impact Hammers.
+
+	Use ASMD:
+	Turns on the Unreal 1 ASMD in Akimbo.  Incompatible with Akimbo Shock Rifles.
+
+	Use Stinger:
+	Turns on the Unreal 1 Stinger.  Incompatible with Akimbo Pulseguns.
+
+A Breif History of Akimbo:
+	Blood:  This game originally had the first Akimbo powerup.  You could get 2 guns
+	at once for a breif period of time.
+
+	The OSP Double AutoMag: Originally by GreenMarine, this mod allowed people to play
+	Unreal 1 with 2 automags.
+
+	The Akimbo AutoMag: After compatibility was broken in between version of Unreal 1,
+	Bane wrote the awesome Akimbo Automag mod.  It did essentialy the same thing
+	GreenMarine's mod did, only the code was a bit more elegant.
+
+	Akimbo ASMDs: My first try at Akimbo.  It allowed you to carry 2 Unreal 1 ASMDs at
+	once.
+
+	Akimbo MultiMags: Bane's second Akimbo mod.  The multimag was an automag which could
+	shoot multiple bullet types.
+
+	Akimbo Eightballs: My second try at Akimbo.  This was a mod for UT which allowed
+	the player to carry 2 eightballs at once.  This is the first UT Akimbo mod.
+
+	Akimbo Arena, <Prof. Gib's version>: Inspired by Akimbo Eightballs, Prof. Gib and
+	Caleb took a stab at writing an Akimbo mod.  This version did not work well though.
+	It had piles of glitches and hangups.  Some of the weapons wouldn't even fire.
+
+	Akimbo Arena: This current version of Akimbo Arena was written solely by me.  It is
+	far more refined than the previous version.  It allows you to go Akimbo with most of
+	the UT weapons, and a few of the Unreal 1 weapons.
+
+	Akimbo InstaGib: An interesting mod by Duejopper.  This mod added Akimbo Instagib
+	Shock Rifles to UT.  The only deviation between this mod and the InstaGib mode
+	in Akimbo Arena, is this mod allows you to change the color of your Instagib rifle.
+
+	Sticky Grenades: A mod by MeltDown.  This weapon mod is supported by Akimbo Arena,
+	and if Akimbo Arena is active while this mod is running, StickyGrenades will apear
+	in Akimbo.
+
+Build Info:
+	Build 3:  Fixed a few glitches.
+			Ripper no longer freezes
+			Support for StickyGrenades
+			Net code slightly improved
+		  Still need to:
+			Improve netcode
+			Add more Unreal 1 weapons.
+
+	Build 2:  Added 3 new weapons:
+			Akimbo Dispersion Pistols
+			Akimbo ASMDs
+			Akimbo Stingers
+		Removed secret option feature.  Now all secrets default as unlocked.
+		Fixed a bunch of glitches like:
+			Muzzleflash on miniguns.
+			Shock Rifle firing rate fixed.
+			Bio Gel looks synchs better.
+			Ripper synchs better.
+			Shock Rifle synchs Primary fire way better.
+			Fixed glitch where ppl could go Akimbo, switch weapons, then 
+			shoot up to 5 weapons at once. (Was kind of funny though, :))
+			And many more as well!
+		This will probably be the final release.
+
+	Build 1:  Initial Release.
+
+Thanks:
+	Bane: The guy who originally came up with all this Akimbo stuff.  Probably
+	the greatest mod coder around in the UT/Unreal community.
+	GreenMarine: Started out the Akimbo scene.
+	MeltDown: Wrote StickyGrenades, which is compatible with Akimbo Arena.
+	Goto his homepage at www.planetunreal.com/unrealtower
+	[KiX] ProfessorGib:  If ProfessorGib hadn't have started an Akimbo mod, I
+	would probably have never gotten around to making this.  Be sure to check
+	out his homepage at, http://www.planetunreal.com/thelaboratory there's
+	loads of stuff there!
+	Caleb:  Apparently worked with ProfessorGib on the old version of Akimbo
+	Arena.  Deserves lots of credit as well.
+
+Legal Mumbo Jumbo:
+	This Mod is not affiliated with Epic Megagames/GT Interactive, so don't 
+bother them when it doesn't work.  You can use this mod for anything you like as
+long as you give me credit for making it, but not for financial gain.

@@ -1,0 +1,1174 @@
+/*=============================================================================
+	UnLevTic.cpp: Level timer tick function
+	Copyright 1997-1999 Epic Games, Inc. All Rights Reserved.
+
+	Revision history:
+		* Created by Tim Sweeney
+=============================================================================*/
+
+#include "EnginePrivate.h"
+#include "UnNet.h"
+
+#if TARGET_XBOX
+static UBOOL XboxTickClassNameContains( UClass* Class, const TCHAR* Fragment )
+{
+	for( UClass* Test = Class; Test; Test = Test->GetSuperClass() )
+		if( appStrstr( Test->GetName(), Fragment ) )
+			return 1;
+	return 0;
+}
+
+static UBOOL XboxTickIsSmokePuffClass( UClass* Class )
+{
+	return XboxTickClassNameContains( Class, TEXT("SpriteSmokePuff") )
+		|| XboxTickClassNameContains( Class, TEXT("SmokePuff") )
+		|| XboxTickClassNameContains( Class, TEXT("BlackSmoke") )
+		|| XboxTickClassNameContains( Class, TEXT("BloodPuff") )
+		|| XboxTickClassNameContains( Class, TEXT("GreenGelPuff") );
+}
+
+static UBOOL XboxTickIsSmokeGeneratorClass( UClass* Class )
+{
+	return XboxTickClassNameContains( Class, TEXT("SmokeGenerator") )
+		|| XboxTickClassNameContains( Class, TEXT("ShortSmokeGen") )
+		|| XboxTickClassNameContains( Class, TEXT("SmokeHose") );
+}
+
+static INT XboxTickCountSmokePuffs( ULevel* Level )
+{
+	INT Count = 0;
+	for( INT i=0; i<Level->Actors.Num(); i++ )
+	{
+		AActor* Test = Level->Actors(i);
+		if( Test && !Test->bDeleteMe && XboxTickIsSmokePuffClass( Test->GetClass() ) )
+			Count++;
+	}
+	return Count;
+}
+
+static UBOOL XboxShouldSuppressSmokeTimer( AActor* Actor )
+{
+	if( !Actor || !XboxTickIsSmokeGeneratorClass( Actor->GetClass() ) )
+		return 0;
+
+	static INT SuppressCount = 0;
+	static const UBOOL GXboxVerboseSmokeSuppressLog = 0;
+	INT LiveSmoke = XboxTickCountSmokePuffs( Actor->GetLevel() );
+	Actor->TimerCounter = 0.0f;
+	Actor->TimerRate    = 0.0f;
+	Actor->bHidden      = 1;
+	Actor->DrawType     = DT_None;
+	Actor->RemoteRole   = ROLE_None;
+	SuppressCount++;
+	if( GXboxVerboseSmokeSuppressLog && SuppressCount <= 8 )
+		debugf( NAME_Log, TEXT("XSMOKEGEN suppress=%d live=%d actor=%s class=%s rate=%.3f"),
+			SuppressCount, LiveSmoke, Actor->GetName(), Actor->GetClass()->GetName(), Actor->TimerRate );
+	return 1;
+}
+
+static INT   GXboxTickDiagLevel      = 0;
+static INT   GXboxTickDiagActorIndex = -1;
+static UBOOL GXboxTickDiagActorSteps = 0;
+static const UBOOL GXboxVerboseActorTickLog = 0;
+
+static void XboxLogActorTickStep( AActor* Actor, const TCHAR* Phase )
+{
+	if( !GXboxTickDiagActorSteps || !Actor )
+		return;
+
+	debugf( NAME_Log, TEXT("XACTORSTEP ltick=%d i=%d phase=%s actor=%08X class=%s name=%s phys=%d role=%d remote=%d timer=%.3f/%.3f life=%.3f draw=%d hidden=%u del=%u loc=(%.1f,%.1f,%.1f) vel=(%.1f,%.1f,%.1f)"),
+		GXboxTickDiagLevel,
+		GXboxTickDiagActorIndex,
+		Phase,
+		(DWORD)Actor,
+		Actor->GetClass() ? Actor->GetClass()->GetName() : TEXT("None"),
+		Actor->GetName(),
+		(INT)Actor->Physics,
+		(INT)Actor->Role,
+		(INT)Actor->RemoteRole,
+		Actor->TimerCounter,
+		Actor->TimerRate,
+		Actor->LifeSpan,
+		(INT)Actor->DrawType,
+		(DWORD)Actor->bHidden,
+		(DWORD)Actor->bDeleteMe,
+		Actor->Location.X,
+		Actor->Location.Y,
+		Actor->Location.Z,
+		Actor->Velocity.X,
+		Actor->Velocity.Y,
+		Actor->Velocity.Z );
+}
+#endif
+
+/*-----------------------------------------------------------------------------
+	Helper classes.
+-----------------------------------------------------------------------------*/
+
+//
+// Priority sortable list.
+//
+struct FActorPriority
+{
+	INT			    Priority;	// Update priority, higher = more important.
+	AActor*			Actor;		// Actor.
+	UActorChannel*	Channel;	// Actor channel.
+	FActorPriority()
+	{}
+	FActorPriority( FVector& ViewPos, FVector& ViewDir, UNetConnection* InConnection, AActor* InActor )
+	{
+		guard(FActorPriority::FActorPriority);
+		Actor       = InActor;
+		Channel     = InConnection->ActorChannels.FindRef(Actor);
+		FLOAT Time  = Channel ? (InConnection->Driver->Time - Channel->LastUpdateTime) : InConnection->Driver->SpawnPrioritySeconds;
+		FLOAT Dot   = ViewDir | (Actor->Location - ViewPos).SafeNormal();
+		Priority    = appRound(65536.0 * (3.0+Dot) * Actor->GetNetPriority( (Channel && Channel->Recent.Num()) ? (AActor*)&Channel->Recent(0) : NULL, Time, InConnection->BestLag ));
+		if( InActor->bNetOptional )
+			Priority -= 100000;
+		unguard;
+	}
+	friend INT Compare( const FActorPriority* A, const FActorPriority* B )
+	{
+		return B->Priority - A->Priority;
+	}
+};
+
+/*-----------------------------------------------------------------------------
+	Tick a single actor.
+-----------------------------------------------------------------------------*/
+
+UBOOL AActor::Tick( FLOAT DeltaSeconds, ELevelTick TickType )
+{
+	guard(AActor::Tick);
+#if TARGET_XBOX
+	XboxLogActorTickStep( this, TEXT("begin") );
+#endif
+
+	// Ignore actors in stasis
+	if
+	(	bStasis 
+	&&	(bForceStasis || (Physics==PHYS_None) || (Physics == PHYS_Rotating))
+	&&	(GetLevel()->TimeSeconds - GetLevel()->Model->Zones[Region.ZoneNumber].LastRenderTime > 5)
+	&&	(Level->NetMode == NM_Standalone) )
+		return 1;
+
+	// Handle owner-first updating.
+	if( Owner && (INT)Owner->bTicked!=GetLevel()->Ticked )
+	{
+		GetLevel()->NewlySpawned = new(GEngineMem)FActorLink(this,GetLevel()->NewlySpawned);
+		return 0;
+	}
+	bTicked = GetLevel()->Ticked;
+	APawn* Pawn = NULL;
+	if( bIsPawn )
+		Pawn = Cast<APawn>(this);
+
+	INT bSimulatedPawn = ( Pawn && (Role == ROLE_SimulatedProxy) );
+
+	// Update all animation, including multiple passes if necessary.
+	INT Iterations = 0;
+	FLOAT Seconds = DeltaSeconds;
+	//if ( bSimulatedPawn )
+	//	debugf("Animation %s frame %f rate %f tween %f",*AnimSequence,AnimFrame, AnimRate, TweenRate);
+	while
+	(	IsAnimating()
+	&&	(Seconds>0.0)
+	&&	(++Iterations <= 4) )
+	{
+		// Remember the old frame.
+		FLOAT OldAnimFrame = AnimFrame;
+
+		// Update animation, and possibly overflow it.
+		if( AnimFrame >= 0.0 )
+		{
+			// Update regular or velocity-scaled animation.
+			if( AnimRate >= 0.0 )
+				AnimFrame += AnimRate * Seconds;
+			else
+				AnimFrame += ::Max( AnimMinRate, Velocity.Size() * -AnimRate ) * Seconds;
+
+			// Handle all animation sequence notifys.
+			if( bAnimNotify && Mesh )
+			{
+				const FMeshAnimSeq* Seq = Mesh->GetAnimSeq( AnimSequence );
+				if( Seq )
+				{
+					FLOAT BestElapsedFrames = 100000.0;
+					const FMeshAnimNotify* BestNotify = NULL;
+					for( INT i=0; i<Seq->Notifys.Num(); i++ )
+					{
+						const FMeshAnimNotify& Notify = Seq->Notifys(i);
+						if( OldAnimFrame<Notify.Time && AnimFrame>=Notify.Time )
+						{
+							FLOAT ElapsedFrames = Notify.Time - OldAnimFrame;
+							if( BestNotify==NULL || ElapsedFrames<BestElapsedFrames )
+							{
+								BestElapsedFrames = ElapsedFrames;
+								BestNotify        = &Notify;
+							}
+						}
+					}
+					if( BestNotify )
+					{
+						Seconds   = Seconds * (AnimFrame - BestNotify->Time) / (AnimFrame - OldAnimFrame);
+						AnimFrame = BestNotify->Time;
+						UFunction* Function = FindFunction( BestNotify->Function );
+						if( Function )
+							ProcessEvent( Function, NULL );
+						continue;
+					}
+				}
+			}
+
+			// Handle end of animation sequence.
+			if( AnimFrame<AnimLast )
+			{
+				// We have finished the animation updating for this tick.
+				break;
+			}
+			else if( bAnimLoop )
+			{
+				if( AnimFrame < 1.0 )
+				{
+					// Still looping.
+					Seconds = 0.0;
+				}
+				else
+				{
+					// Just passed end, so loop it.
+					Seconds = Seconds * (AnimFrame - 1.0) / (AnimFrame - OldAnimFrame);
+					AnimFrame = 0.0;
+				}
+				if( OldAnimFrame < AnimLast )
+				{
+					if( GetStateFrame()->LatentAction == EPOLL_FinishAnim )
+						bAnimFinished = 1;
+					if( !bSimulatedPawn )
+						eventAnimEnd();
+				}
+			}
+			else 
+			{
+				// Just passed end-minus-one frame.
+				Seconds = Seconds * (AnimFrame - AnimLast) / (AnimFrame - OldAnimFrame);
+				AnimFrame	 = AnimLast;
+				bAnimFinished = 1;
+				AnimRate      = 0.0;
+				if ( !bSimulatedPawn )
+					eventAnimEnd();
+				
+				if ( (RemoteRole < ROLE_SimulatedProxy) && !IsA(AWeapon::StaticClass()) )
+				{
+					SimAnim.X = 10000 * AnimFrame;
+					SimAnim.Y = 5000 * AnimRate;
+					if ( SimAnim.Y > 32767 )
+						SimAnim.Y = 32767;
+				}
+			}
+		}
+		else
+		{
+			// Update tweening.
+			AnimFrame += TweenRate * Seconds;
+			if( AnimFrame >= 0.0 )
+			{
+				// Finished tweening.
+				Seconds          = Seconds * (AnimFrame-0) / (AnimFrame - OldAnimFrame);
+				AnimFrame = 0.0;
+				if( AnimRate == 0.0 )
+				{
+					bAnimFinished = 1;
+					if ( !bSimulatedPawn )
+						eventAnimEnd();
+				}
+			}
+			else
+			{
+				// Finished tweening.
+				break;
+			}
+		}
+	}
+#if TARGET_XBOX
+	XboxLogActorTickStep( this, TEXT("anim-end") );
+#endif
+
+	// This actor is tickable.
+	if( bSimulatedPawn )
+	{
+		// FIXME - predict fall for all pawns (COOP) - but need
+		// new replicated bool for pawns which don't fly but don't fall
+		// (i.e. stuck on wall, PHYS_Spider, etc.)
+		if ( Pawn->bIsPlayer && !Pawn->bCanFly && !Region.Zone->bWaterZone )
+		{
+			// only add gravity if pawn is not resting on valid floor
+			FCheckResult Hit(1.0);
+			GetLevel()->SingleLineCheck(Hit, this, Location - FVector(0,0,8), Location, TRACE_VisBlocking, GetCylinderExtent());
+			if ( (Hit.Time == 1.0) || (Hit.Normal.Z < 0.7) )
+				Velocity += 0.5 * Region.Zone->ZoneGravity * DeltaSeconds;
+		}
+		//simulated pawns just predict location, no script execution
+		moveSmooth(Velocity * DeltaSeconds);
+
+		// Tick the nonplayer.
+		if ( IsProbing(NAME_Tick) )
+		{
+#if TARGET_XBOX
+			XboxLogActorTickStep( this, TEXT("sim-eventtick-begin") );
+#endif
+			eventTick(DeltaSeconds);
+#if TARGET_XBOX
+			XboxLogActorTickStep( this, TEXT("sim-eventtick-end") );
+#endif
+		}
+	}
+	else if( RemoteRole == ROLE_AutonomousProxy ) 
+	{
+		if( Role == ROLE_Authority )
+		{
+			// update viewtarget replicated info
+			APlayerPawn* PlayerPawn = NULL;
+			if( Pawn )
+			{
+				PlayerPawn = Cast<APlayerPawn>(this);
+			}
+			if( PlayerPawn && PlayerPawn->ViewTarget )
+			{
+				APawn* TargetPawn = Cast<APawn>(PlayerPawn->ViewTarget);
+				if ( TargetPawn )
+				{
+					PlayerPawn->TargetViewRotation = TargetPawn->ViewRotation;
+					PlayerPawn->TargetEyeHeight = TargetPawn->EyeHeight;
+					if ( TargetPawn->Weapon )
+						PlayerPawn->TargetWeaponViewOffset = TargetPawn->Weapon->PlayerViewOffset;
+				}
+			}
+
+			// Server handles timers for autonomous proxy.
+			if( (TimerRate>0.0) && (TimerCounter+=DeltaSeconds)>=TimerRate )
+			{
+				// Normalize the timer count.
+				INT TimerTicksPassed = 1;
+				if( TimerRate > 0.0 )
+				{
+					TimerTicksPassed     = (int)(TimerCounter/TimerRate);
+					TimerCounter -= TimerRate * TimerTicksPassed;
+					if( TimerTicksPassed && !bTimerLoop )
+					{
+						// Only want a one-shot timer message.
+						TimerTicksPassed = 1;
+						TimerRate = 0.0;
+					}
+				}
+
+				// Call timer routine with count of timer events that have passed.
+#if TARGET_XBOX
+				XboxLogActorTickStep( this, TEXT("autotimer-begin") );
+				if( !XboxShouldSuppressSmokeTimer( this ) )
+#endif
+				eventTimer();
+#if TARGET_XBOX
+				XboxLogActorTickStep( this, TEXT("autotimer-end") );
+#endif
+			}
+		}
+	}
+	else if( Role>=ROLE_SimulatedProxy )
+	{
+		APlayerPawn* PlayerPawn = NULL;
+		if ( Pawn )
+			PlayerPawn = Cast<APlayerPawn>(this);
+		if( !PlayerPawn || !PlayerPawn->Player )
+		{
+			// Non-player update.
+			if( TickType==LEVELTICK_ViewportsOnly )
+				return 1;
+
+			// Tick the nonplayer.
+			if ( IsProbing(NAME_Tick) )
+			{
+#if TARGET_XBOX
+				XboxLogActorTickStep( this, TEXT("eventtick-begin") );
+#endif
+				eventTick(DeltaSeconds);
+#if TARGET_XBOX
+				XboxLogActorTickStep( this, TEXT("eventtick-end") );
+#endif
+			}
+		}
+		else
+		{
+			// Player update.
+			if( PlayerPawn->IsA(ACamera::StaticClass()) && !(PlayerPawn->ShowFlags & SHOW_PlayerCtrl) )
+				return 1;
+
+			// Process PlayerTick with input.
+			PlayerPawn->Player->ReadInput( DeltaSeconds );
+			PlayerPawn->eventPlayerInput( DeltaSeconds );
+			PlayerPawn->eventPlayerTick( DeltaSeconds );
+			PlayerPawn->Player->ReadInput( -1.0 );
+
+			if( GetLevel()->DemoRecDriver && !GetLevel()->DemoRecDriver->ServerConnection )
+			{
+				PlayerPawn->DemoViewPitch = PlayerPawn->ViewRotation.Pitch;
+				PlayerPawn->DemoViewYaw = PlayerPawn->ViewRotation.Yaw;
+			}
+		}
+
+		// Update the actor's script state code.
+#if TARGET_XBOX
+		XboxLogActorTickStep( this, TEXT("state-begin") );
+#endif
+		ProcessState( DeltaSeconds );
+#if TARGET_XBOX
+		XboxLogActorTickStep( this, TEXT("state-end") );
+#endif
+
+		// Update timers.
+		if( TimerRate>0.0 && (TimerCounter+=DeltaSeconds)>=TimerRate )
+		{
+			// Normalize the timer count.
+			INT TimerTicksPassed = 1;
+			if( TimerRate > 0.0 )
+			{
+				TimerTicksPassed     = (int)(TimerCounter/TimerRate);
+				TimerCounter -= TimerRate * TimerTicksPassed;
+				if( TimerTicksPassed && !bTimerLoop )
+				{
+					// Only want a one-shot timer message.
+					TimerTicksPassed = 1;
+					TimerRate = 0.0;
+				}
+			}
+
+			// Call timer routine with count of timer events that have passed.
+#if TARGET_XBOX
+			XboxLogActorTickStep( this, TEXT("timer-begin") );
+			if( !XboxShouldSuppressSmokeTimer( this ) )
+#endif
+			eventTimer();
+#if TARGET_XBOX
+			XboxLogActorTickStep( this, TEXT("timer-end") );
+#endif
+		}
+
+		// Update LifeSpan.
+#if TARGET_XBOX
+		XboxLogActorTickStep( this, TEXT("lifespan-begin") );
+#endif
+		if( LifeSpan!=0.f )
+		{
+			LifeSpan -= DeltaSeconds;
+			if( LifeSpan <= 0.0001 )
+			{
+				// Actor's LifeSpan expired.
+				eventExpired();
+				GetLevel()->DestroyActor( this );
+				return 1;
+			}
+		}
+#if TARGET_XBOX
+		XboxLogActorTickStep( this, TEXT("lifespan-end") );
+#endif
+
+		// Perform physics.
+		if( Physics!=PHYS_None && Role!=ROLE_AutonomousProxy )
+		{
+#if TARGET_XBOX
+			XboxLogActorTickStep( this, TEXT("physics-begin") );
+#endif
+			performPhysics( DeltaSeconds );
+#if TARGET_XBOX
+			XboxLogActorTickStep( this, TEXT("physics-end") );
+#endif
+		}
+	}
+	else if ( Physics == PHYS_Falling ) // dumbproxies simulate falling if client side physics set
+	{
+#if TARGET_XBOX
+		XboxLogActorTickStep( this, TEXT("dumbfall-physics-begin") );
+#endif
+		performPhysics( DeltaSeconds );
+#if TARGET_XBOX
+		XboxLogActorTickStep( this, TEXT("dumbfall-physics-end") );
+#endif
+	}
+
+	// During demo playback, setup view offsets for viewtarget
+	if( GetLevel()->DemoRecDriver && GetLevel()->DemoRecDriver->ServerConnection )
+	{
+		if( Role == ROLE_Authority )
+		{
+			// update viewtarget replicated info
+			APlayerPawn* PlayerPawn = NULL;
+			if( Pawn )
+			{
+				PlayerPawn = Cast<APlayerPawn>(this);
+			}
+			if( PlayerPawn && PlayerPawn->ViewTarget && !PlayerPawn->bBehindView )
+			{
+				APawn* TargetPawn = Cast<APawn>(PlayerPawn->ViewTarget);
+				if ( TargetPawn )
+				{
+					PlayerPawn->TargetViewRotation = TargetPawn->ViewRotation;
+					PlayerPawn->TargetEyeHeight = TargetPawn->EyeHeight;
+					if ( TargetPawn->Weapon )
+						PlayerPawn->TargetWeaponViewOffset = TargetPawn->Weapon->PlayerViewOffset;
+				}
+			}
+		}
+	}
+	
+	// Update eyeheight and send visibility updates
+	// with PVS, monsters look for other monsters, rather than sending msgs
+	// Also sends PainTimer messages if PainTime
+	if( Pawn )
+	{
+#if TARGET_XBOX
+		XboxLogActorTickStep( this, TEXT("pawnpost-begin") );
+#endif
+		if( Pawn->bIsPlayer && Role>=ROLE_AutonomousProxy )
+		{
+			if ( Pawn->bViewTarget )
+				Pawn->eventUpdateEyeHeight( DeltaSeconds );
+			else
+				Pawn->ViewRotation = Rotation;
+		}
+
+		// update weapon location (in case its playing sounds, etc.)
+		if ( Pawn->Weapon )
+		{
+			GetLevel()->FarMoveActor( Pawn->Weapon, Location );
+		}
+		if( Role==ROLE_Authority && TickType==LEVELTICK_All )
+		{
+			if( Pawn->SightCounter < 0.0 )
+			{
+				Pawn->SightCounter += 0.2;
+			}
+			Pawn->SightCounter = Pawn->SightCounter - DeltaSeconds; 
+			if( Pawn->bIsPlayer && !Pawn->bHidden )
+			{
+				Pawn->ShowSelf();
+			}
+			if( Pawn->SightCounter<0.0 && Pawn->IsProbing(NAME_EnemyNotVisible) )
+			{
+				Pawn->CheckEnemyVisible();
+				Pawn->SightCounter = 0.1;
+			}
+			if( Pawn->PainTime > 0.0 )
+			{
+				Pawn->PainTime -= DeltaSeconds;
+				if (Pawn->PainTime < 0.001)
+				{
+					Pawn->PainTime = 0.0;
+					Pawn->eventPainTimer();
+				}
+			}
+			if( Pawn->SpeechTime > 0.0 )
+			{
+				Pawn->SpeechTime -= DeltaSeconds;
+				if (Pawn->SpeechTime < 0.001)
+				{
+					Pawn->SpeechTime = 0.0;
+					Pawn->eventSpeechTimer();
+				}
+			}
+			if ( Pawn->bAdvancedTactics )
+				Pawn->eventUpdateTactics(DeltaSeconds);
+		}
+#if TARGET_XBOX
+		XboxLogActorTickStep( this, TEXT("pawnpost-end") );
+#endif
+	}
+
+#if TARGET_XBOX
+	XboxLogActorTickStep( this, TEXT("return") );
+#endif
+	return 1;
+	unguard;
+}
+
+/*-----------------------------------------------------------------------------
+	Network client tick.
+-----------------------------------------------------------------------------*/
+
+void ULevel::TickNetClient( FLOAT DeltaSeconds )
+{
+	guard(ULevel::TickNetClient);
+	clock(NetTickCycles);
+	if( NetDriver->ServerConnection->State==USOCK_Open )
+	{
+		for( TMap<AActor*,UActorChannel*>::TIterator ItC(NetDriver->ServerConnection->ActorChannels); ItC; ++ItC )
+		{
+			guard(UpdateLocalActors);
+			UActorChannel* It = ItC.Value();
+			APlayerPawn* PlayerPawn = Cast<APlayerPawn>(It->GetActor());
+			if( PlayerPawn && PlayerPawn->Player )
+				It->ReplicateActor();
+			unguard;
+		}
+	}
+	else if( NetDriver->ServerConnection->State==USOCK_Closed )
+	{
+		// Server disconnected.
+		check(Engine->Client->Viewports.Num());
+		Engine->SetClientTravel( Engine->Client->Viewports(0), TEXT("?failed"), 0, TRAVEL_Absolute );
+	}
+	unclock(NetTickCycles);
+	unguard;
+}
+
+/*-----------------------------------------------------------------------------
+	Network server ticking individual client.
+-----------------------------------------------------------------------------*/
+
+UBOOL ActorCanSee( AActor* Actor, APlayerPawn* RealViewer, AActor* Viewer, FVector SrcLocation )
+{
+	guardSlow(ActorCanSee);
+	if( Actor->bAlwaysRelevant || Actor->IsOwnedBy(Viewer) || Actor->IsOwnedBy(RealViewer) || Actor==Viewer || Actor==RealViewer )
+		return 1;
+	else if( Actor->AmbientSound 
+			&& ((Actor->Location-Viewer->Location).SizeSquared() < 0.3*Actor->WorldSoundRadius()*Actor->WorldSoundRadius()) )
+		return 1;
+	else if( Actor->Owner && Actor->Owner->bIsPawn && Actor==((APawn*)Actor->Owner)->Weapon )
+		return ActorCanSee( Actor->Owner, RealViewer, Viewer, SrcLocation );
+	else if( (Actor->bHidden || Actor->bOnlyOwnerSee) && !Actor->bBlockPlayers && !Actor->AmbientSound )
+		return 0;
+	else
+		return Actor->GetLevel()->Model->FastLineCheck(Actor->Location,SrcLocation);
+	unguardSlow;
+}
+
+INT ULevel::ServerTickClient( UNetConnection* Connection, FLOAT DeltaSeconds )
+{
+	guard(ULevel::ServerTickClient);
+	check(Connection);
+	check(Connection->State==USOCK_Pending || Connection->State==USOCK_Open || Connection->State==USOCK_Closed);
+	DOUBLE CullTime=0.0, TraceTime=0.0, RepTime=0.0; INT CullCount=0, RepCount=0;
+
+	// Handle not ready channels.
+	INT Updated=0;
+	if( Connection->Actor && Connection->IsNetReady(0) && Connection->State==USOCK_Open )
+	{
+		// Get list of visible/relevant actors.
+		FMemMark Mark(GMem);
+		NetTag++;
+		Connection->TickCount++;
+
+		// Set up to skip all sent temporary actors.
+		guard(SkipSentTemporaries);
+		for( INT i=0; i<Connection->SentTemporaries.Num(); i++ )
+			Connection->SentTemporaries(i)->NetTag = NetTag;
+		unguard;
+
+		// Get viewer coordinates.
+		AActor*      Viewer    = Connection->Actor;
+		APlayerPawn* InViewer  = Connection->Actor;
+		FVector      Location  = InViewer->Location;
+		FRotator     Rotation  = InViewer->ViewRotation;
+		InViewer->eventPlayerCalcView( Viewer, Location, Rotation );
+		check(Viewer);
+#if TARGET_XBOX
+		AActor*      XboxChildViewer[4];
+		APlayerPawn* XboxChildInViewer[4];
+		FVector      XboxChildLocation[4];
+		INT          XboxChildViewCount = 0;
+		for( INT XboxChildIndex=0; XboxChildIndex<Connection->XboxChildActors.Num() && XboxChildViewCount<4; XboxChildIndex++ )
+		{
+			APlayerPawn* Child = Connection->XboxChildActors(XboxChildIndex);
+			if( !Child || Child->bDeleteMe || Child->Health <= 0 )
+				continue;
+
+			AActor* ChildViewer = Child;
+			FVector ChildLocation = Child->Location;
+			FRotator ChildRotation = Child->ViewRotation;
+			Child->eventPlayerCalcView( ChildViewer, ChildLocation, ChildRotation );
+			if( !ChildViewer )
+				continue;
+
+			XboxChildViewer[XboxChildViewCount] = ChildViewer;
+			XboxChildInViewer[XboxChildViewCount] = Child;
+			XboxChildLocation[XboxChildViewCount] = ChildLocation;
+			XboxChildViewCount++;
+		}
+#endif
+
+		// Compute ahead-vectors for prediction.
+		FVector Ahead = FVector(0,0,0);
+		if( Connection->TickCount & 1 )
+		{
+			FLOAT PredictSeconds = (Connection->TickCount&2) ? 0.4 : 0.9;
+			Ahead = PredictSeconds * Viewer->Velocity;
+			if( Viewer->Base )
+				Ahead += PredictSeconds * Viewer->Base->Velocity;
+			FCheckResult Hit(1.0);
+			Hit.Location = Location + Ahead;
+			Viewer->GetLevel()->Model->LineCheck(Hit,NULL,Hit.Location,Location,FVector(0,0,0),NF_NotVisBlocking);
+			Location = Hit.Location;
+		}
+
+		// Make list of all actors to consider.
+		CullTime-=appSeconds();
+		INT              ConsiderCount  = 0;
+		FActorPriority*  PriorityList   = new(GMem,Actors.Num())FActorPriority;
+		FActorPriority** PriorityActors = new(GMem,Actors.Num())FActorPriority*;
+		FVector          ViewPos        = Viewer->Location;
+		FVector          ViewDir        = InViewer->ViewRotation.Vector();
+		DOUBLE			 LastTime		= Connection->LastRepTime;
+		DOUBLE           ThisTime       = Connection->Driver->Time;
+		guard(MakeConsiderList);
+		for( INT i=0; i<Actors.Num(); i++ )
+		{
+			AActor* Actor = Actors(i);
+			if( Actor )
+			{
+				if
+				(	(i>=iFirstDynamicActor || Actor->bAlwaysRelevant)
+				&&	(Actor->NetTag!=NetTag)
+				&&	(Actor->RemoteRole!=ROLE_None)
+				&&	(appRound(LastTime*Actor->NetUpdateFrequency)!=appRound(ThisTime*Actor->NetUpdateFrequency)) )
+				{
+					CullCount++;
+					Actor->NetTag                 = NetTag;
+					PriorityList  [ConsiderCount] = FActorPriority( ViewPos, ViewDir, Connection, Actor );
+					PriorityActors[ConsiderCount] = PriorityList + ConsiderCount++;
+				}
+				LastTime += 0.023;
+				ThisTime += 0.023;
+			}
+		}
+		Connection->LastRepTime = Connection->Driver->Time;
+		CullTime+=appSeconds();
+		unguard;
+
+		// Sort by priority.
+		guard(SortConsiderList);
+		Sort( PriorityActors, ConsiderCount );
+		unguard;
+
+		// Update all relevant actors in sorted order.
+		guard(UpdateRelevant);
+		for( INT j=0; j<ConsiderCount && Connection->IsNetReady(0); j++ )
+		{
+			AActor*        Actor       = PriorityActors[j]->Actor;
+			UActorChannel* Channel     = PriorityActors[j]->Channel;
+			TraceTime-=appSeconds();
+			UBOOL          CanSee      = ActorCanSee( Actor, InViewer, Viewer, Location );
+#if TARGET_XBOX
+			if( !CanSee && XboxChildViewCount > 0 )
+			{
+				for( INT XboxChildView=0; XboxChildView<XboxChildViewCount; XboxChildView++ )
+				{
+					if( ActorCanSee( Actor, XboxChildInViewer[XboxChildView], XboxChildViewer[XboxChildView], XboxChildLocation[XboxChildView] ) )
+					{
+						CanSee = 1;
+						break;
+					}
+				}
+			}
+#endif
+			TraceTime+=appSeconds();
+			if( CanSee || (Channel && NetDriver->Time-Channel->RelevantTime<NetDriver->RelevantTimeout) )
+			{
+				// Find or create the channel for this actor.
+				Actor->GetLevel()->NumPV++;
+				if( !Channel && Connection->PackageMap->ObjectToIndex(Actor->GetClass())!=INDEX_NONE )
+				{
+					// Create a new channel for this actor.
+					Channel = (UActorChannel*)Connection->CreateChannel( CHTYPE_Actor, 1 );
+					if( Channel )
+						Channel->SetChannelActor( Actor );
+				}
+				if( Channel )
+				{
+					if( CanSee )
+						Channel->RelevantTime = NetDriver->Time;
+					if( Channel->IsNetReady(0) )
+					{
+						RepTime-=appSeconds();
+						RepCount++;
+						Channel->ReplicateActor();
+						RepTime+=appSeconds();
+						Updated++;
+					}
+				}
+			}
+			else if( Channel )
+				Channel->Close();
+		}
+		unguard;
+		Mark.Pop();
+	}
+	if( NetDriver->ProfileStats )
+		debugf(TEXT("Cull=%01.4f (%03i) Trace=%01.4f Rep=%01.4f (%03i)"),CullTime*1000,CullCount,TraceTime*1000,RepTime*1000,RepCount);
+	return Updated;
+	unguard;
+}
+
+/*-----------------------------------------------------------------------------
+	Network server tick.
+-----------------------------------------------------------------------------*/
+
+void ULevel::TickNetServer( FLOAT DeltaSeconds )
+{
+	guard(ULevel::TickNetServer);
+
+	// Update all clients.
+	clock(NetTickCycles);
+	INT Updated=0;
+	for( INT i=NetDriver->ClientConnections.Num()-1; i>=0; i-- )
+		Updated += ServerTickClient( NetDriver->ClientConnections(i), DeltaSeconds );
+	unclock(NetTickCycles);
+
+	// Log message.
+	if( (INT)(TimeSeconds-DeltaSeconds)!=(INT)(TimeSeconds) )
+		debugf( NAME_Title, LocalizeProgress("RunningNet"), *GetLevelInfo()->Title, *URL.Map, NetDriver->ClientConnections.Num() );
+
+	// Stats.
+	if( Updated )
+	{
+		for( i=0; i<NetDriver->ClientConnections.Num(); i++ )
+		{
+			UNetConnection* Connection = NetDriver->ClientConnections(i);
+			if( Connection->Actor && Connection->State==USOCK_Open )
+			{
+				if( Connection->UserFlags&1 )
+				{
+					// Send stats.
+					INT NumActors=0;
+					for( INT i=0; i<Actors.Num(); i++ )
+						NumActors += Actors(i)!=NULL;
+					FString Stats = FString::Printf
+					(
+						TEXT("r=%i cli=%i act=%03.1f (%i) net=%03.1f pv/c=%i rep/c=%i rpc/c=%i"),
+						appRound(Engine->GetMaxTickRate()),
+						NetDriver->ClientConnections.Num(),
+						GSecondsPerCycle*1000*ActorTickCycles,
+						NumActors,
+						GSecondsPerCycle*1000*NetTickCycles,
+						NumPV  /NetDriver->ClientConnections.Num(),
+						NumReps/NetDriver->ClientConnections.Num(),
+						NumRPC /NetDriver->ClientConnections.Num()
+					);
+					Connection->Actor->eventClientMessage( *Stats, NAME_None, 0 );
+				}
+				if( Connection->UserFlags&2 )
+				{
+					FString Stats = FString::Printf
+					(
+						TEXT("snd=%02.1f recv=%02.1f"),
+						GSecondsPerCycle*1000*Connection->Driver->SendCycles,
+						GSecondsPerCycle*1000*Connection->Driver->RecvCycles
+					);
+					Connection->Actor->eventClientMessage( *Stats, NAME_None, 0 );
+				}
+			}
+		}
+	}
+	unguard;
+}
+
+/*-----------------------------------------------------------------------------
+	Demo Recording tick.
+-----------------------------------------------------------------------------*/
+
+INT ULevel::TickDemoRecord( FLOAT DeltaSeconds )
+{
+	guard(ULevel::TickDemo);
+
+	// All replicatable actors are assumed to be relevant for demo recording.
+	UNetConnection* Connection = DemoRecDriver->ClientConnections(0);
+	for( INT i=0; i<Actors.Num(); i++ )
+	{
+		AActor* Actor = Actors(i);
+		UBOOL IsNetClient = (GetLevelInfo()->NetMode == NM_Client);
+		if
+		(	Actor
+		&&	(Actor->RemoteRole!=ROLE_None || (IsNetClient && Actor->Role!=ROLE_None && Actor->Role != ROLE_Authority))
+		&&  (i>=iFirstDynamicActor || Actor->IsA(AZoneInfo::StaticClass()))
+		&&  (!Actor->bNetTemporary || Connection->SentTemporaries.FindItemIndex(Actor)==INDEX_NONE)
+		&&  (Actor->bStatic || !Actor->GetClass()->GetDefaultActor()->bStatic))
+		{
+			// Create a new channel for this actor.
+			UActorChannel* Channel = Connection->ActorChannels.FindRef( Actor );
+			if( !Channel && Connection->PackageMap->ObjectToIndex(Actor->GetClass())!=INDEX_NONE )
+			{
+				// Check we haven't run out of actor channels.
+				Channel = (UActorChannel*)Connection->CreateChannel( CHTYPE_Actor, 1 );
+				check(Channel);
+				Channel->SetChannelActor( Actor );
+			}
+			if( Channel )
+			{
+				// Send it out!
+				check(!Channel->Closing);
+				if( Channel->IsNetReady(0) )
+				{
+					Actor->bDemoRecording = 1;
+					Actor->bClientDemoRecording = IsNetClient;
+					if(IsNetClient)
+						Exchange(Actor->RemoteRole, Actor->Role);
+					Channel->ReplicateActor();
+					if(IsNetClient)
+						Exchange(Actor->RemoteRole, Actor->Role);
+					Actor->bDemoRecording = 0;
+					Actor->bClientDemoRecording = 0;
+				}
+			}
+		}
+	}
+	return 1;
+	unguard;
+}
+INT ULevel::TickDemoPlayback( FLOAT DeltaSeconds )
+{
+	guard(ULevel::TickDemoPlayback);
+	if
+	(	GetLevelInfo()->LevelAction==LEVACT_Connecting 
+	&&	DemoRecDriver->ServerConnection->State!=USOCK_Pending )
+	{
+		GetLevelInfo()->LevelAction = LEVACT_None;
+		Engine->SetProgress( TEXT(""), TEXT(""), 0.0 );
+	} 
+	if( DemoRecDriver->ServerConnection->State==USOCK_Closed )
+	{
+		// Demo stopped playing
+		check(Engine->Client->Viewports.Num());
+		Engine->SetClientTravel( Engine->Client->Viewports(0), TEXT("?entry"), 0, TRAVEL_Absolute );
+	}
+	return 1;
+	unguard;
+}
+
+/*-----------------------------------------------------------------------------
+	Main level timer tick handler.
+-----------------------------------------------------------------------------*/
+
+//
+// Update the level after a variable amount of time, DeltaSeconds, has passed.
+// All child actors are ticked after their owners have been ticked.
+//
+void ULevel::Tick( ELevelTick TickType, FLOAT DeltaSeconds )
+{
+	guard(ULevel::Tick);
+	static INT LevelTickDiagCount = 0;
+	LevelTickDiagCount++;
+	UBOOL bLevelDiag = GXboxVerboseActorTickLog && ((LevelTickDiagCount <= 3)
+		|| (LevelTickDiagCount >= 160 && LevelTickDiagCount <= 280)
+		|| (LevelTickDiagCount >= 240 && LevelTickDiagCount <= 280)
+		|| (LevelTickDiagCount >= 360 && LevelTickDiagCount <= 560)
+		|| (LevelTickDiagCount >= 600 && LevelTickDiagCount <= 720)
+		|| ((LevelTickDiagCount % 300) == 0));
+	UBOOL bActorDiag = GXboxVerboseActorTickLog && ((LevelTickDiagCount >= 160 && LevelTickDiagCount <= 280)
+		|| (LevelTickDiagCount >= 420 && LevelTickDiagCount <= 500)
+		|| (LevelTickDiagCount >= 520 && LevelTickDiagCount <= 545)
+		|| (LevelTickDiagCount >= 600 && LevelTickDiagCount <= 720));
+	if( bLevelDiag )
+		debugf( NAME_Log, TEXT("XLEVEL tick=%d begin type=%d dt=%.4f actors=%d"), LevelTickDiagCount, TickType, DeltaSeconds, Actors.Num() );
+	ALevelInfo* Info = GetLevelInfo();
+	InitStats();
+	FMemMark Mark(GMem);
+	FMemMark EngineMark(GEngineMem);
+	GInitRunaway();
+	InTick=1;
+
+	//Keep actor time profile FIXME TEMP!!!
+	Info->AvgAITime = 0.95 * GetLevelInfo()->AvgAITime + 0.05 * 1000 * GSecondsPerCycle * ActorTickCycles;
+	FLOAT ratio = GSecondsPerCycle * ActorTickCycles/DeltaSeconds;
+	INT offset = (INT)(10 * ratio);
+	if ( offset > 7 )
+		offset = 7;
+	else if ( offset < 0 )
+		offset = 0;
+	//debugf("ratio is %f, offset is %d",ratio,offset);
+	Info->AIProfile[offset] += 1;
+
+	// Update the net code and fetch all incoming packets.
+	guard(UpdatePreNet);
+	if( bLevelDiag )
+		debugf( NAME_Log, TEXT("XLEVEL tick=%d prenet-begin net=%08X"), LevelTickDiagCount, (DWORD)NetDriver );
+	if( NetDriver )
+	{
+		NetDriver->TickDispatch( DeltaSeconds );
+		if( NetDriver->ServerConnection )
+			TickNetClient( DeltaSeconds );
+	}
+	if( bLevelDiag )
+		debugf( NAME_Log, TEXT("XLEVEL tick=%d prenet-end"), LevelTickDiagCount );
+	unguard;
+
+	// Fetch demo playback packets from demo file.
+	guard(UpdatePreDemoRec);
+	if( bLevelDiag )
+		debugf( NAME_Log, TEXT("XLEVEL tick=%d predemo-begin demo=%08X"), LevelTickDiagCount, (DWORD)DemoRecDriver );
+	if( DemoRecDriver )
+	{
+		DemoRecDriver->TickDispatch( DeltaSeconds );
+		if( DemoRecDriver->ServerConnection )
+			TickDemoPlayback( DeltaSeconds );
+	}
+	if( bLevelDiag )
+		debugf( NAME_Log, TEXT("XLEVEL tick=%d predemo-end"), LevelTickDiagCount );
+	unguard;
+
+	// Update collision.
+	guard(UpdateCollision);
+	if( bLevelDiag )
+		debugf( NAME_Log, TEXT("XLEVEL tick=%d collision-begin hash=%08X"), LevelTickDiagCount, (DWORD)Hash );
+	if( Hash )
+		Hash->Tick();
+	if( bLevelDiag )
+		debugf( NAME_Log, TEXT("XLEVEL tick=%d collision-end"), LevelTickDiagCount );
+	unguard;
+
+	// Update time.
+	guard(UpdateTime);
+	if( bLevelDiag )
+		debugf( NAME_Log, TEXT("XLEVEL tick=%d time-begin"), LevelTickDiagCount );
+	DeltaSeconds *= Info->TimeDilation;
+	TimeSeconds += DeltaSeconds;
+	Info->TimeSeconds = TimeSeconds;
+	UpdateTime(Info);
+	if( Info->bPlayersOnly )
+		TickType = LEVELTICK_ViewportsOnly;
+	unguard;
+
+	// Clamp time between 200 fps and 2.5 fps.
+	DeltaSeconds = Clamp(DeltaSeconds,0.005f,0.40f);
+	if( bLevelDiag )
+		debugf( NAME_Log, TEXT("XLEVEL tick=%d time-end clamped=%.4f"), LevelTickDiagCount, DeltaSeconds );
+
+	// If caller wants time update only, or we are paused, skip the rest.
+	clock(ActorTickCycles);
+	if
+	(	(TickType!=LEVELTICK_TimeOnly)
+	&&	Info->Pauser==TEXT("")
+	&&	(!NetDriver || !NetDriver->ServerConnection || NetDriver->ServerConnection->State==USOCK_Open) )
+	{
+		// Tick all actors, owners before owned.
+		guard(TickAllActors);
+		if( bLevelDiag )
+		debugf( NAME_Log, TEXT("XLEVEL tick=%d actors-begin first=%d num=%d"), LevelTickDiagCount, iFirstDynamicActor, Actors.Num() );
+		NewlySpawned = NULL;
+		INT Updated  = 0;
+		for( INT iActor=iFirstDynamicActor; iActor<Actors.Num(); iActor++ )
+			if( Actors( iActor ) )
+			{
+				AActor* TickActor = Actors(iActor);
+				const UBOOL bActorFineDiag = bActorDiag
+					&& ( ((iActor >= 288 && iActor <= 324)
+					&&   ((LevelTickDiagCount >= 220 && LevelTickDiagCount <= 235)
+					||    (LevelTickDiagCount >= 435 && LevelTickDiagCount <= 455)))
+					||   ((iActor >= 178 && iActor <= 224)
+					&&    (LevelTickDiagCount >= 530 && LevelTickDiagCount <= 545)) );
+				if( bActorDiag && (bActorFineDiag || ((iActor & 31)==0 || iActor==Actors.Num()-1)) )
+					debugf( NAME_Log, TEXT("XLEVEL tick=%d actor-begin i=%d actor=%08X class=%s name=%s ticked=%u phys=%d role=%d remote=%d timer=%.3f/%.3f life=%.3f draw=%d hidden=%u"),
+						LevelTickDiagCount, iActor, (DWORD)TickActor,
+						TickActor->GetClass() ? TickActor->GetClass()->GetName() : TEXT("None"),
+						TickActor->GetName(), TickActor->bTicked,
+						(INT)TickActor->Physics, (INT)TickActor->Role, (INT)TickActor->RemoteRole,
+						TickActor->TimerCounter, TickActor->TimerRate, TickActor->LifeSpan,
+						(INT)TickActor->DrawType, (DWORD)TickActor->bHidden );
+#if TARGET_XBOX
+				GXboxTickDiagLevel      = LevelTickDiagCount;
+				GXboxTickDiagActorIndex = iActor;
+				GXboxTickDiagActorSteps = bActorFineDiag;
+#endif
+				Updated += TickActor->Tick(DeltaSeconds,TickType);
+#if TARGET_XBOX
+				GXboxTickDiagActorSteps = 0;
+				GXboxTickDiagActorIndex = -1;
+#endif
+				if( bActorDiag && (bActorFineDiag || ((iActor & 31)==0 || iActor==Actors.Num()-1)) )
+					debugf( NAME_Log, TEXT("XLEVEL tick=%d actor-end i=%d actor=%08X updated=%d"),
+						LevelTickDiagCount, iActor, (DWORD)TickActor, Updated );
+			}
+		while( NewlySpawned && Updated )
+		{
+			FActorLink* Link = NewlySpawned;
+			NewlySpawned     = NULL;
+			Updated          = 0;
+			for( Link; Link; Link=Link->Next )
+				if( Link->Actor->bTicked!=(DWORD)Ticked )
+				{
+					if( bActorDiag )
+						debugf( NAME_Log, TEXT("XLEVEL tick=%d spawned-begin actor=%08X class=%s name=%s ticked=%u"),
+							LevelTickDiagCount, (DWORD)Link->Actor,
+							Link->Actor->GetClass() ? Link->Actor->GetClass()->GetName() : TEXT("None"),
+							Link->Actor->GetName(), Link->Actor->bTicked );
+					Updated += Link->Actor->Tick( DeltaSeconds, TickType );
+					if( bActorDiag )
+						debugf( NAME_Log, TEXT("XLEVEL tick=%d spawned-end actor=%08X updated=%d"),
+							LevelTickDiagCount, (DWORD)Link->Actor, Updated );
+				}
+		}
+		if( bLevelDiag )
+			debugf( NAME_Log, TEXT("XLEVEL tick=%d actors-end updated=%d"), LevelTickDiagCount, Updated );
+		unguard;
+	}
+	else if( Info->Pauser!=TEXT("") )
+	{
+		// Absorb input if paused.
+		guard(AbsorbedPaused);
+		for( INT iActor=iFirstDynamicActor; iActor<Actors.Num(); iActor++ )
+		{
+			APlayerPawn* PlayerPawn=Cast<APlayerPawn>(Actors(iActor));
+			if( PlayerPawn && PlayerPawn->Player )
+			{
+				PlayerPawn->Player->ReadInput( DeltaSeconds );
+				PlayerPawn->eventPlayerInput( DeltaSeconds );
+				for( TFieldIterator<UFloatProperty> It(PlayerPawn->GetClass()); It; ++It )
+					if( It->PropertyFlags & CPF_Input )
+						*(FLOAT*)((BYTE*)PlayerPawn + It->Offset) = 0.f;
+			}
+			else if( Actors(iActor) && Actors(iActor)->bAlwaysTick )
+				Actors(iActor)->Tick(DeltaSeconds,TickType);
+		}
+		unguard;
+	}
+	unclock(ActorTickCycles);
+
+	// Update net server and flush networking.
+	guard(UpdateNetServer);
+	if( bLevelDiag )
+		debugf( NAME_Log, TEXT("XLEVEL tick=%d netserver-begin"), LevelTickDiagCount );
+	if( NetDriver )
+	{
+		if( !NetDriver->ServerConnection )
+			TickNetServer( DeltaSeconds );
+		NetDriver->TickFlush();
+	}
+	if( bLevelDiag )
+		debugf( NAME_Log, TEXT("XLEVEL tick=%d netserver-end"), LevelTickDiagCount );
+	unguard;
+
+	// Demo Recording.
+	guard(UpdatePostDemoRec);
+	if( bLevelDiag )
+		debugf( NAME_Log, TEXT("XLEVEL tick=%d postdemo-begin"), LevelTickDiagCount );
+	if( DemoRecDriver )
+	{
+		if( !DemoRecDriver->ServerConnection )
+			TickDemoRecord( DeltaSeconds );
+		DemoRecDriver->TickFlush();
+	}
+	if( bLevelDiag )
+		debugf( NAME_Log, TEXT("XLEVEL tick=%d postdemo-end"), LevelTickDiagCount );
+	unguard;
+
+	// Finish up.
+	Ticked = !Ticked;
+	InTick = 0;
+	Mark.Pop();
+	EngineMark.Pop();
+	CleanupDestroyed( 0 );
+	if( bLevelDiag )
+		debugf( NAME_Log, TEXT("XLEVEL tick=%d end"), LevelTickDiagCount );
+
+	unguardf(( TEXT("(NetMode=%i)"), GetLevelInfo()->NetMode ));
+}
+
+/*-----------------------------------------------------------------------------
+	The End.
+-----------------------------------------------------------------------------*/

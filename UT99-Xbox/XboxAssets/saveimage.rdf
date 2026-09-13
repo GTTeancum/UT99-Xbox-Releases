@@ -1,0 +1,13 @@
+out_header         saveimage.h
+out_packedresource saveimage.xbx
+out_error          saveimage.err
+out_prefix         saveimage
+
+Texture SaveImage
+{
+   Source      saveimage_64.bmp
+   Width       64
+   Height      64
+   Format      D3DFMT_DXT1
+   Levels      1
+}

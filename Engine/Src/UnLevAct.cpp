@@ -1,0 +1,1741 @@
+/*=============================================================================
+	UnLevAct.cpp: Level actor functions
+	Copyright 1997-1999 Epic Games, Inc. All Rights Reserved.
+
+Revision history:
+	* Created by Tim Sweeney
+=============================================================================*/
+
+#include "EnginePrivate.h"
+#include "UnNet.h"
+
+/*-----------------------------------------------------------------------------
+	Level actor management.
+-----------------------------------------------------------------------------*/
+
+#if TARGET_XBOX
+static UBOOL XboxClassNameContains( UClass* Class, const TCHAR* Fragment )
+{
+	for( UClass* Test = Class; Test; Test = Test->GetSuperClass() )
+		if( appStrstr( Test->GetName(), Fragment ) )
+			return 1;
+	return 0;
+}
+
+static UBOOL XboxIsSmokePuffClass( UClass* Class )
+{
+	return XboxClassNameContains( Class, TEXT("SpriteSmokePuff") )
+		|| XboxClassNameContains( Class, TEXT("SmokePuff") )
+		|| XboxClassNameContains( Class, TEXT("BlackSmoke") )
+		|| XboxClassNameContains( Class, TEXT("BloodPuff") )
+		|| XboxClassNameContains( Class, TEXT("GreenGelPuff") );
+}
+
+static void XboxFixSkaarjHybridBloodColor( AActor* Actor )
+{
+	if
+	(
+		!Actor
+	||	!Actor->GetClass()
+	||	!XboxClassNameContains( Actor->GetClass(), TEXT("SkaarjHybrid") )
+	)
+		return;
+
+	UBoolProperty* GreenBloodProperty
+		= FindField<UBoolProperty>( Actor->GetClass(), TEXT("bGreenBlood") );
+	if( !GreenBloodProperty )
+		return;
+
+	BITFIELD* Value = (BITFIELD*)((BYTE*)Actor + GreenBloodProperty->Offset);
+	if( (*Value & GreenBloodProperty->BitMask) == 0 )
+	{
+		*Value |= GreenBloodProperty->BitMask;
+		debugf
+		(
+			NAME_Log,
+			TEXT("XSKAARJBLOOD actor=%s class=%s green=1"),
+			Actor->GetFullName(),
+			Actor->GetClass()->GetFullName()
+		);
+	}
+}
+
+static INT XboxCountSmokePuffs( ULevel* Level )
+{
+	INT Count = 0;
+	for( INT i=0; i<Level->Actors.Num(); i++ )
+	{
+		AActor* Test = Level->Actors(i);
+		if( Test && !Test->bDeleteMe && XboxIsSmokePuffClass( Test->GetClass() ) )
+			Count++;
+	}
+	return Count;
+}
+
+static void XboxThrottleSmokePuff( ULevel* Level, AActor* Actor )
+{
+	if( !Actor || !XboxIsSmokePuffClass( Actor->GetClass() ) )
+		return;
+
+	static INT SmokeSpawnCount = 0;
+	static INT SmokeCullCount  = 0;
+	SmokeSpawnCount++;
+
+	// Hundreds of projectile smoke puffs were alive immediately before the
+	// crash. On Xbox these are visual-only, so remove their physics cost.
+	Actor->setPhysics( PHYS_None );
+	Actor->RemoteRole      = ROLE_None;
+	Actor->bCollideActors  = 0;
+	Actor->bCollideWorld   = 0;
+	Actor->bBlockActors    = 0;
+	Actor->bBlockPlayers   = 0;
+	if( Actor->LifeSpan==0.f || Actor->LifeSpan > 0.75f )
+		Actor->LifeSpan = 0.75f;
+
+	INT LiveSmoke = XboxCountSmokePuffs( Level );
+	if( LiveSmoke > 32 )
+	{
+		// The source-side generator cap should keep this rare. If a burst slips
+		// through, make it invisible and short-lived, but not an immediate
+		// same-tick destruction storm.
+		Actor->Role      = ROLE_None;
+		Actor->RemoteRole= ROLE_None;
+		Actor->bHidden   = 1;
+		Actor->DrawType  = DT_None;
+		Actor->LifeSpan  = 0.25f;
+		SmokeCullCount++;
+	}
+
+	if( SmokeSpawnCount <= 8 || (SmokeCullCount > 0 && SmokeCullCount <= 8) )
+		debugf( NAME_Log, TEXT("XSMOKE spawn=%d culled=%d live=%d class=%s life=%.3f hidden=%d"),
+			SmokeSpawnCount, SmokeCullCount, LiveSmoke, Actor->GetClass()->GetName(), Actor->LifeSpan, Actor->bHidden );
+}
+#endif
+
+//
+// Create a new actor. Returns the new actor, or NULL if failure.
+//
+AActor* ULevel::SpawnActor
+(
+	UClass*			Class,
+	FName			InName,
+	AActor*			Owner,
+	class APawn*	Instigator,
+	FVector			Location,
+	FRotator		Rotation,
+	AActor*			Template,
+	UBOOL			bNoCollisionFail,
+	UBOOL			bRemoteOwned
+)
+{
+	guard(ULevel::SpawnActor);
+
+	// Make sure this class is spawnable.
+	if( !Class )
+	{
+		debugf( NAME_Warning, TEXT("SpawnActor failed because no class was specified") );
+		return NULL;
+	}
+	if( Class->ClassFlags & CLASS_Abstract )
+	{
+		debugf( NAME_Warning, TEXT("SpawnActor failed because class %s is abstract"), Class->GetName() );
+		return NULL;
+	}
+	else if( !Class->IsChildOf(AActor::StaticClass()) )
+	{
+		debugf( NAME_Warning, TEXT("SpawnActor failed because %s is not an actor class"), Class->GetName() );
+		return NULL;
+	}
+	else if( !GIsEditor && (Class->GetDefaultActor()->bStatic || Class->GetDefaultActor()->bNoDelete) )
+	{
+		debugf( NAME_Warning, TEXT("SpawnActor failed because class %s has bStatic or bNoDelete"), Class->GetName() );
+		return NULL;		
+	}
+
+	// Use class's default actor as a template.
+	if( !Template )
+		Template = Class->GetDefaultActor();
+	check(Template!=NULL);
+
+	// Make sure actor will fit at desired location, and adjust location if necessary.
+	if( (Template->bCollideWorld || (Template->bCollideWhenPlacing && (GetLevelInfo()->NetMode != NM_Client))) && !bNoCollisionFail )
+		if( !FindSpot( Template->GetCylinderExtent(), Location, 0, 1 ) )
+			return NULL;
+
+	// Add at end of list.
+	INT iActor = Actors.Add();
+    AActor* Actor = Actors(iActor) = (AActor*)StaticConstructObject( Class, GetOuter(), InName, 0, Template );
+	Actor->SetFlags( RF_Transactional );
+
+	// Set base actor properties.
+	Actor->Tag		= Class->GetFName();
+	Actor->Region	= FPointRegion( GetLevelInfo() );
+	Actor->Level	= GetLevelInfo();
+	Actor->bTicked  = !Ticked;
+	Actor->XLevel	= this;
+
+	// Set network role.
+	check(Actor->Role==ROLE_Authority);
+	if( bRemoteOwned )
+		Exchange( Actor->Role, Actor->RemoteRole );
+
+	// Remove the actor's brush, if it has one, because moving brushes are not duplicatable.
+	if( Actor->Brush )
+		Actor->Brush = NULL;
+
+	// Set the actor's location and rotation.
+	Actor->Location = Location;
+	Actor->OldLocation = Location;
+	Actor->Rotation = Rotation;
+	if( Actor->bCollideActors && Hash  )
+		Hash->AddActor( Actor );
+
+	// Init the actor's zone.
+	Actor->Region = FPointRegion(GetLevelInfo());
+	if( Actor->IsA(APawn::StaticClass()) )
+		((APawn*)Actor)->FootRegion = ((APawn*)Actor)->HeadRegion = FPointRegion(GetLevelInfo());
+
+	// Set owner.
+	Actor->SetOwner( Owner );
+
+	// Set instigator
+	Actor->Instigator = Instigator;
+
+	// Send messages.
+	Actor->InitExecution();
+	Actor->Spawned();
+	Actor->eventSpawned();
+	Actor->eventPreBeginPlay();
+	Actor->eventBeginPlay();
+	if( Actor->bDeleteMe )
+		return NULL;
+
+	// Set the actor's zone.
+	SetActorZone( Actor, iActor==0, 1 );
+
+	// Send PostBeginPlay.
+	Actor->eventPostBeginPlay();
+
+#if TARGET_XBOX
+	// Both imported Skaarj Hybrid families derive from human player/bot bases.
+	// Preserve their species behavior explicitly so combat spawns green blood
+	// instead of red billboard bursts that appear to corrupt the body skin.
+	XboxFixSkaarjHybridBloodColor( Actor );
+#endif
+
+	// Check for encroachment.
+	if( !bNoCollisionFail && CheckEncroachment( Actor, Actor->Location, Actor->Rotation, 0 ) )
+	{
+		DestroyActor( Actor );
+		return NULL;
+	}
+
+	// Init scripting.
+	Actor->eventSetInitialState();
+
+	// Find Base
+	if( !Actor->Base && Actor->bCollideWorld
+		 && (Actor->IsA(ADecoration::StaticClass()) || Actor->IsA(AInventory::StaticClass()) || Actor->IsA(APawn::StaticClass())) 
+		 && ((Actor->Physics == PHYS_None) || (Actor->Physics == PHYS_Rotating)) )
+		Actor->FindBase();
+
+#if TARGET_XBOX
+	XboxThrottleSmokePuff( this, Actor );
+#endif
+
+	// Success: Return the actor.
+	if( InTick )
+		NewlySpawned = new(GEngineMem)FActorLink(Actor,NewlySpawned);
+
+	static UBOOL InsideNotification = 0;
+	if( !InsideNotification )
+	{
+		InsideNotification = 1;
+		// Spawn notification
+		for( ASpawnNotify* N = GetLevelInfo()->SpawnNotify; N; N = N->Next )
+		{
+			if( N->ActorClass && Actor->IsA(N->ActorClass) )
+				Actor = N->eventSpawnNotification( Actor );
+		}
+		InsideNotification = 0;
+	}
+
+	return Actor;
+	unguardf(( TEXT("(%s)"), Class->GetName() ));
+}
+
+//
+// Spawn a brush.
+//
+ABrush* ULevel::SpawnBrush()
+{
+	guard(ULevel::SpawnBrush);
+
+	ABrush* Result = (ABrush*)SpawnActor( ABrush::StaticClass() );
+	check(Result);
+
+	return Result;
+	unguard;
+}
+
+//
+// Destroy an actor.
+// Returns 1 if destroyed, 0 if it couldn't be destroyed.
+//
+// What this routine does:
+// * Remove the actor from the actor list.
+// * Generally cleans up the engine's internal state.
+//
+// What this routine does not do, but is done in ULevel::Tick instead:
+// * Removing references to this actor from all other actors.
+// * Killing the actor resource.
+//
+// This routine is set up so that no problems occur even if the actor
+// being destroyed inside its recursion stack.
+//
+UBOOL ULevel::DestroyActor( AActor* ThisActor, UBOOL bNetForce )
+{
+	guard(ULevel::DestroyActor);
+	check(ThisActor);
+	check(ThisActor->IsValid());
+	//debugf( NAME_Log, "Destroy %s", ThisActor->GetClass()->GetName() );
+
+	// In-game deletion rules.
+	guard(DestroyRules);
+	if( !GIsEditor )
+	{
+		// Can't kill bStatic and bNoDelete actors during play.
+		if( ThisActor->bStatic || ThisActor->bNoDelete )
+			return 0;
+
+		// If already on list to be deleted, pretend the call was successful.
+		if( ThisActor->bDeleteMe )
+			return 1;
+
+		// Can't kill if wrong role.
+		if( ThisActor->Role!=ROLE_Authority && !bNetForce && !ThisActor->bNetTemporary )
+			return 0;
+
+		// Don't destroy player actors.
+		APlayerPawn* P = Cast<APlayerPawn>( ThisActor );
+		if( P )
+		{
+			UNetConnection* C = Cast<UNetConnection>(P->Player);
+			if( C && C->Channels[0] && C->State!=USOCK_Closed )
+			{
+				C->Channels[0]->Close();
+				return 0;
+			}
+		}
+	}
+	unguard;
+
+	// Get index.
+	INT iActor = GetActorIndex( ThisActor );
+	guard(ModifyActor);
+	Actors.ModifyItem( iActor );
+	ThisActor->Modify();
+	unguard;
+
+	// Send EndState notification.
+	guard(EndState);
+	if( ThisActor->GetStateFrame() && ThisActor->GetStateFrame()->StateNode && ThisActor->IsProbing(NAME_EndState) )
+	{
+		ThisActor->eventEndState();
+		if( ThisActor->bDeleteMe )
+			return 1;
+	}
+	unguard;
+
+	// Remove from base.
+	guard(Debase);
+	if( ThisActor->Base )
+	{
+		ThisActor->SetBase( NULL );
+		if( ThisActor->bDeleteMe )
+			return 1;
+	}
+	if( ThisActor->StandingCount > 0 )
+		for( INT i=0; i<Actors.Num(); i++ )
+			if( Actors(i) && Actors(i)->Base == ThisActor ) 
+				Actors(i)->SetBase( NULL );
+	unguard;
+
+	// Remove from world collision hash.
+	guard(Unhash);
+	if( Hash )
+	{
+		if( ThisActor->bCollideActors )
+			Hash->RemoveActor( ThisActor );
+		Hash->CheckActorNotReferenced( ThisActor );
+	}
+	unguard;
+
+	// Tell this actor it's about to be destroyed.
+	guard(ProcessDestroyed);
+	ThisActor->eventDestroyed();
+	if( ThisActor->bDeleteMe )
+		return 1;
+	unguard;
+
+	// Clean up all owned and touching actors.
+	guard(CleanupStandardRefs);
+	for( INT iActor=0; iActor<Actors.Num(); iActor++ )
+	{
+		AActor* Other = Actors(iActor);
+		if( Other )
+		{
+			if( Other->Owner==ThisActor )
+			{
+				Other->SetOwner( NULL );
+				if( ThisActor->bDeleteMe )
+					return 1;
+			}
+			else
+			{
+				for( INT j=0; j<ARRAY_COUNT(Other->Touching); j++ )
+				{
+					if( Other->Touching[j]==ThisActor )
+					{
+						ThisActor->EndTouch( Other, 1 );
+						if( ThisActor->bDeleteMe )
+							return 1;
+					}
+				}
+			}
+		}
+	}
+	unguard;
+
+	// If this actor has an owner, notify it that it has lost a child.
+	guard(Disown);
+	if( ThisActor->Owner )
+	{
+		ThisActor->Owner->eventLostChild( ThisActor );
+		if( ThisActor->bDeleteMe )
+			return 1;
+	}
+	unguard;
+
+	// Notify net players that this guy has been destroyed.
+	if( NetDriver )
+		NetDriver->NotifyActorDestroyed( ThisActor );
+
+	// If demo recording, notify the demo.
+	if( DemoRecDriver && !DemoRecDriver->ServerConnection )
+		DemoRecDriver->NotifyActorDestroyed( ThisActor );
+
+	// Remove the actor from the actor list.
+	guard(Unlist);
+	check(Actors(iActor)==ThisActor);
+	Actors(iActor) = NULL;
+	ThisActor->bDeleteMe = 1;
+	unguard;
+
+	// Do object destroy.
+	guard(ShutupSound);
+	if( Engine->Audio )
+		Engine->Audio->NoteDestroy( ThisActor );
+	ThisActor->ConditionalDestroy();
+	unguard;
+
+	// Cleanup.
+	guard(Cleanup);
+	if( !GIsEditor )
+	{
+		// During play, just add to delete-list list and destroy when level is unlocked.
+		ThisActor->Deleted = FirstDeleted;
+		FirstDeleted       = ThisActor;
+	}
+	else
+	{
+		// Destroy them now.
+		CleanupDestroyed( 1 );
+	}
+	unguard;
+
+	// Return success.
+	return 1;
+	unguardf(( TEXT("(%s)"), ThisActor->GetFullName() ));
+}
+
+//
+// Compact the actor list.
+//
+void ULevel::CompactActors()
+{
+	guard(ULevel::CompactActors);
+	INT c = iFirstDynamicActor;
+	for( INT i=iFirstDynamicActor; i<Actors.Num(); i++ )
+	{
+		if( Actors(i) )
+		{
+			if( !Actors(i)->bDeleteMe )
+				Actors(c++) = Actors(i);
+			else
+				debugf( TEXT("Undeleted %s"), Actors(i)->GetFullName() );
+		}
+	}
+	if( c != Actors.Num() )
+		Actors.Remove( c, Actors.Num()-c );
+	unguard;
+}
+
+//
+// Cleanup destroyed actors.
+// During gameplay, called in ULevel::Unlock.
+// During editing, called after each actor is deleted.
+//
+void ULevel::CleanupDestroyed( UBOOL bForce )
+{
+	guard(ULevel::CleanupDestroyed);
+
+	// Pack actor list.
+	if( !GIsEditor && !bForce )
+		CompactActors();
+
+	// If nothing deleted, exit.
+	if( !FirstDeleted )
+		return;
+
+	// Don't do anything unless a bunch of actors are in line to be destroyed.
+	guard(CheckDeleted);
+	INT c=0;
+	for( AActor* A=FirstDeleted; A; A=A->Deleted )
+		c++;
+	if( c<128 && !bForce )
+		return;
+	unguard;
+
+	// Remove all references to actors tagged for deletion.
+	guard(CleanupRefs);
+	for( INT iActor=0; iActor<Actors.Num(); iActor++ )
+	{
+		AActor* Actor = Actors(iActor);
+		if( Actor )
+		{
+			// Would be nice to say if(!Actor->bStatic), but we can't count on it.
+			checkSlow(!Actor->bDeleteMe);
+			Actor->GetClass()->CleanupDestroyed( (BYTE*)Actor );
+		}
+	}
+	unguard;
+
+	// If editor, let garbage collector destroy objects.
+	if( GIsEditor )
+		return;
+
+	guard(FinishDestroyedActors);
+	while( FirstDeleted!=NULL )
+	{
+		// Physically destroy the actor-to-delete.
+		check(FirstDeleted->bDeleteMe);
+		AActor* ActorToKill = FirstDeleted;
+		FirstDeleted        = FirstDeleted->Deleted;
+		check(ActorToKill->bDeleteMe);
+
+		// Destroy the actor.
+		delete ActorToKill;
+	}
+	unguard;
+
+	unguard;
+}
+
+/*-----------------------------------------------------------------------------
+	Player spawning.
+-----------------------------------------------------------------------------*/
+
+//
+// Find an available camera actor in the level and return it, or spawn a new
+// one if none are available.  Returns actor number or NULL if none are
+// available.
+//
+void ULevel::SpawnViewActor( UViewport* Viewport )
+{
+	guard(ULevel::SpawnViewActor);
+	check(Engine->Client);
+	check(Viewport->Actor==NULL);
+
+	// Find an existing camera actor.
+	guard(FindExisting);
+	for( INT iActor=0; iActor<Actors.Num(); iActor++ )
+	{
+		ACamera* TestActor = Cast<ACamera>( Actors(iActor) );
+		if( TestActor && !TestActor->Player && (Viewport->GetFName()==TestActor->Tag) ) 
+		{
+			Viewport->Actor = TestActor;
+            break;
+		}
+    }
+	unguard;
+
+	guard(SpawnNew);
+    if( !Viewport->Actor )
+	{
+		// None found, spawn a new one and set default position.
+		Viewport->Actor = (ACamera*)SpawnActor( ACamera::StaticClass(), NAME_None, NULL, NULL, FVector(-500,-300,+300), FRotator(0,0,0), NULL, 1 );
+		check(Viewport->Actor);
+		Viewport->Actor->Tag = Viewport->GetFName();
+	}
+	unguard;
+
+	// Set the new actor's properties.
+	guard(SetProperties);
+	Viewport->Actor->SetFlags( RF_NotForClient | RF_NotForServer );
+	Viewport->Actor->ClearFlags( RF_Transactional );
+	Viewport->Actor->Player		= Viewport;
+	Viewport->Actor->ShowFlags	= SHOW_Frame | SHOW_MovingBrushes | SHOW_Actors | SHOW_Brush;
+	Viewport->Actor->RendMap    = REN_DynLight;
+	Viewport->Actor->bAdmin     = 1;
+	unguard;
+
+	// Set the zone.
+	SetActorZone( Viewport->Actor, 0, 1 );
+
+	unguard;
+}
+
+//
+// Spawn an actor for gameplay.
+//
+struct FAcceptInfo
+{
+	AActor*			Actor;
+	FString			Name;
+	TArray<FString> Parms;
+	FAcceptInfo( AActor* InActor, const TCHAR* InName )
+	: Actor( InActor ), Name( InName ), Parms()
+	{}
+};
+APlayerPawn* ULevel::SpawnPlayActor( UPlayer* Player, ENetRole RemoteRole, const FURL& URL, FString& Error )
+{
+	guard(ULevel::SpawnPlayActor);
+	Error=TEXT("");
+
+	// Get package map.
+	UPackageMap*    PackageMap = NULL;
+	UNetConnection* Conn       = Cast<UNetConnection>( Player );
+	if( Conn )
+		PackageMap = Conn->PackageMap;
+
+	// Get PlayerClass.
+	UClass* PlayerClass=NULL;
+	const TCHAR* Str = NULL;
+#if TARGET_XBOX
+	const FLOAT XboxFrontendIntroPhysRate = 0.5f;
+	UBOOL bXboxFrontendIntro =
+	(	(URL.Map.Len() && (appStricmp( *URL.Map, TEXT("CityIntro") ) == 0 || appStricmp( *URL.Map, TEXT("CityIntro.unr") ) == 0))
+	||	(GetLevelInfo()
+		&&	GetLevelInfo()->Game
+		&&	GetLevelInfo()->Game->GetClass()
+		&&	appStricmp( GetLevelInfo()->Game->GetClass()->GetName(), TEXT("UTIntro") ) == 0) );
+	if( !bXboxFrontendIntro )
+#endif
+	{
+	Str = URL.GetOption( TEXT("CLASS="), NULL );
+	if( Str )
+		PlayerClass = StaticLoadClass( APlayerPawn::StaticClass(), NULL, Str, NULL, LOAD_NoWarn, PackageMap );
+	if( !PlayerClass )
+		PlayerClass = StaticLoadClass( APlayerPawn::StaticClass(), NULL, TEXT("usr:DefaultPlayer.Class"), NULL, LOAD_NoWarn, PackageMap );
+	if( !PlayerClass )
+		PlayerClass = StaticLoadClass( APlayerPawn::StaticClass(), NULL, TEXT("ini:URL.Class"), NULL, LOAD_NoWarn, PackageMap );
+	if( !PlayerClass )
+		appErrorf( TEXT("%s"), LocalizeError("LoadPlayerClass") );
+	}
+
+	// Make the option string.
+	TCHAR Options[1024]=TEXT("");
+	for( INT i=0; i<URL.Op.Num(); i++ )
+	{
+		appStrcat( Options, TEXT("?") );
+		appStrcat( Options, *URL.Op(i) );
+	}
+
+	// Tell UnrealScript to log in.
+	INT SavedActorCount = Actors.Num();//oldver: Login should say whether to accept inventory.
+	APlayerPawn* Actor = NULL;
+#if TARGET_XBOX
+	AInterpolationPoint* XboxFrontendPathStart = NULL;
+	if( bXboxFrontendIntro )
+	{
+		UClass* IntroSpectatorClass = StaticLoadClass( APlayerPawn::StaticClass(), NULL, TEXT("Engine.Spectator"), NULL, LOAD_NoWarn, PackageMap );
+		if( IntroSpectatorClass )
+		{
+			AActor* IntroViewTarget = NULL;
+			AInterpolationPoint* IntroPathStart = NULL;
+			INT IntroCamCount = 0;
+			INT IntroPathCount = 0;
+			for( INT ViewIndex=0; ViewIndex<Actors.Num(); ViewIndex++ )
+			{
+				AActor* ViewActor = Actors(ViewIndex);
+				if( ViewActor && ViewActor->GetClass() && appStricmp( ViewActor->GetClass()->GetName(), TEXT("SpectatorCam") ) == 0 )
+				{
+					IntroViewTarget = ViewActor;
+					IntroCamCount++;
+				}
+			}
+			for( INT PathIndex=0; PathIndex<Actors.Num(); PathIndex++ )
+			{
+				AInterpolationPoint* PathActor = Cast<AInterpolationPoint>( Actors(PathIndex) );
+					if( PathActor )
+					{
+						IntroPathCount++;
+						if( PathActor->Position == 0 && (PathActor->Tag == FName(TEXT("Path")) || !IntroPathStart) )
+							IntroPathStart = PathActor;
+					}
+				}
+			XboxFrontendPathStart = IntroPathStart;
+			FVector IntroSpawnLocation = IntroViewTarget ? IntroViewTarget->Location : (IntroPathStart ? IntroPathStart->Location : FVector(0,0,0));
+			FRotator IntroSpawnRotation = IntroViewTarget ? IntroViewTarget->Rotation : (IntroPathStart ? IntroPathStart->Rotation : FRotator(0,0,0));
+			Actor = (APlayerPawn*)SpawnActor( IntroSpectatorClass, NAME_None, NULL, NULL, IntroSpawnLocation, IntroSpawnRotation, NULL, 1 );
+			if( Actor )
+			{
+				Actor->bHidden = 1;
+				Actor->ViewTarget = IntroViewTarget;
+				Actor->ViewRotation = IntroSpawnRotation;
+				if( IntroPathStart && !IntroViewTarget )
+				{
+					// CityIntro's scripted flythrough uses proximity triggers; overlap them without blocking.
+					Actor->SetCollision( 1, 0, 0 );
+					Actor->bCollideWorld = 0;
+					Actor->Target = IntroPathStart;
+					Actor->setPhysics( PHYS_Interpolating );
+					Actor->PhysRate = XboxFrontendIntroPhysRate;
+					Actor->PhysAlpha = 0.0f;
+					Actor->bInterpolating = 1;
+				}
+				debugf( NAME_Init, TEXT("Xbox: UTIntro spawned lightweight frontend spectator cams=%i interp=%i path=%s pos=%i tag=%s viewTarget=%s physics=%i"),
+					IntroCamCount,
+					IntroPathCount,
+					IntroPathStart ? IntroPathStart->GetName() : TEXT("None"),
+					IntroPathStart ? IntroPathStart->Position : -1,
+					IntroPathStart ? *IntroPathStart->Tag : TEXT("None"),
+					Actor->ViewTarget ? Actor->ViewTarget->GetName() : TEXT("None"),
+					(INT)Actor->Physics );
+			}
+		}
+	}
+	if( !Actor )
+#endif
+	{
+#if TARGET_XBOX
+		if( !PlayerClass )
+		{
+			Str = URL.GetOption( TEXT("CLASS="), NULL );
+			if( Str )
+				PlayerClass = StaticLoadClass( APlayerPawn::StaticClass(), NULL, Str, NULL, LOAD_NoWarn, PackageMap );
+			if( !PlayerClass )
+				PlayerClass = StaticLoadClass( APlayerPawn::StaticClass(), NULL, TEXT("usr:DefaultPlayer.Class"), NULL, LOAD_NoWarn, PackageMap );
+			if( !PlayerClass )
+				PlayerClass = StaticLoadClass( APlayerPawn::StaticClass(), NULL, TEXT("ini:URL.Class"), NULL, LOAD_NoWarn, PackageMap );
+			if( !PlayerClass )
+				appErrorf( TEXT("%s"), LocalizeError("LoadPlayerClass") );
+		}
+#endif
+	#if TARGET_XBOX
+	debugf( NAME_Log, TEXT("XSPAWN before Login map=%s net=%i remoteRole=%i class=%s options=%s actors=%i"),
+		*URL.Map,
+		(INT)GetLevelInfo()->NetMode,
+		(INT)RemoteRole,
+		PlayerClass ? PlayerClass->GetName() : TEXT("NULL"),
+		Options,
+		Actors.Num() );
+	#endif
+	Actor = GetLevelInfo()->Game->eventLogin( *URL.Portal, Options, Error, PlayerClass );
+	#if TARGET_XBOX
+	debugf( NAME_Log, TEXT("XSPAWN after Login actor=0x%08X class=%s error=%s actors=%i"),
+		(DWORD)Actor,
+		(Actor && Actor->GetClass()) ? Actor->GetClass()->GetName() : TEXT("NULL"),
+		*Error,
+		Actors.Num() );
+	#endif
+	}
+	if( !Actor )
+	{
+		debugf( NAME_Warning, TEXT("Login failed: %s"), *Error);
+		return NULL;
+	}
+	UBOOL AcceptInventory = (SavedActorCount!=Actors.Num());//oldver: Hack, accepts inventory iff actor was spawned.
+
+	// Possess the newly-spawned player.
+	#if TARGET_XBOX
+	const TCHAR* XboxSystemLinkSlotText = URL.GetOption( TEXT("XSLOT="), NULL );
+	INT XboxSystemLinkSlot = XboxSystemLinkSlotText ? appAtoi(XboxSystemLinkSlotText) : -1;
+	UBOOL bXboxSystemLinkChildPlayer =
+	(	Conn
+	&&	Conn->Actor
+	&&	XboxSystemLinkSlot >= 1
+	&&	XboxSystemLinkSlot < 4 );
+	debugf( NAME_Log, TEXT("XSPAWN before SetPlayer actor=0x%08X player=0x%08X pri=0x%08X savedActors=%i nowActors=%i acceptInventory=%i"),
+		(DWORD)Actor,
+		(DWORD)Player,
+		(DWORD)Actor->PlayerReplicationInfo,
+		SavedActorCount,
+		Actors.Num(),
+		AcceptInventory ? 1 : 0 );
+	if( bXboxSystemLinkChildPlayer )
+	{
+		Actor->Player = Player;
+		Conn->XboxChildActors.AddUniqueItem( Actor );
+		Actor->eventPossess();
+		Actor->bAlwaysRelevant = 1;
+		debugf( NAME_Log, TEXT("XSPAWN system-link child possessed slot=%i actor=0x%08X primary=0x%08X children=%i"),
+			XboxSystemLinkSlot,
+			(DWORD)Actor,
+			(DWORD)Conn->Actor,
+			Conn->XboxChildActors.Num() );
+	}
+	else
+	#endif
+	Actor->SetPlayer( Player );
+	#if TARGET_XBOX
+	debugf( NAME_Log, TEXT("XSPAWN after SetPlayer actor=0x%08X player=0x%08X viewportActor=0x%08X"),
+		(DWORD)Actor,
+		(DWORD)Actor->Player,
+		(DWORD)(Player ? Player->Actor : NULL) );
+	#endif
+	Actor->Role       = ROLE_Authority;
+	Actor->RemoteRole = RemoteRole;
+	Actor->ShowFlags  = SHOW_Backdrop | SHOW_Actors | SHOW_PlayerCtrl | SHOW_RealTime;
+	Actor->RendMap	  = REN_DynLight;
+	if( ParseParam(appCmdLine(),TEXT("alladmin")) || !NetDriver )
+		Actor->bAdmin = 1;
+	#if TARGET_XBOX
+	debugf( NAME_Log, TEXT("XSPAWN before TravelPreAccept actor=%s role=%i remoteRole=%i admin=%i"),
+		Actor->GetFullName(),
+		(INT)Actor->Role,
+		(INT)Actor->RemoteRole,
+		Actor->bAdmin ? 1 : 0 );
+	#endif
+	Actor->eventTravelPreAccept();
+	#if TARGET_XBOX
+	debugf( NAME_Log, TEXT("XSPAWN after TravelPreAccept actor=%s state=%s"),
+		Actor->GetFullName(),
+		(Actor->GetStateFrame() && Actor->GetStateFrame()->StateNode) ? Actor->GetStateFrame()->StateNode->GetName() : TEXT("None") );
+	#endif
+#if TARGET_XBOX
+	if( bXboxFrontendIntro && XboxFrontendPathStart && !Actor->ViewTarget )
+	{
+		Actor->SetCollision( 1, 0, 0 );
+		Actor->bCollideWorld = 0;
+		Actor->Target = XboxFrontendPathStart;
+		Actor->setPhysics( PHYS_Interpolating );
+		Actor->PhysRate = XboxFrontendIntroPhysRate;
+		Actor->PhysAlpha = 0.0f;
+		Actor->bInterpolating = 1;
+		Actor->Velocity = FVector(0,0,0);
+		Actor->Acceleration = FVector(0,0,0);
+		Actor->ViewRotation = XboxFrontendPathStart->Rotation;
+		debugf( NAME_Init, TEXT("Xbox: UTIntro activated frontend path after possess path=%s next=%s physics=%i interp=%u collideActors=%u blockActors=%u blockPlayers=%u collideWorld=%u"),
+			XboxFrontendPathStart->GetName(),
+			XboxFrontendPathStart->Next ? XboxFrontendPathStart->Next->GetName() : TEXT("None"),
+			(INT)Actor->Physics,
+			(DWORD)Actor->bInterpolating,
+			(DWORD)Actor->bCollideActors,
+			(DWORD)Actor->bBlockActors,
+			(DWORD)Actor->bBlockPlayers,
+			(DWORD)Actor->bCollideWorld );
+	}
+#endif
+
+	// Any saved items?
+	Str = NULL;
+	if( AcceptInventory )
+	{
+		const TCHAR* PlayerName = URL.GetOption( TEXT("NAME="), *FURL::DefaultName );
+		if( PlayerName )
+		{
+			FString* FoundItems = TravelInfo.Find( PlayerName );
+			if( FoundItems )
+				Str = **FoundItems;
+		}
+		if( !Str && GetLevelInfo()->NetMode==NM_Standalone )
+		{
+			TMap<FString,FString>::TIterator It(TravelInfo);
+			if( It )
+				Str = *It.Value();
+		}
+	}
+
+	// Handle inventory items.
+	TCHAR ClassName[256], ActorName[256];
+	TArray<FAcceptInfo> Accepted;
+	while( Str && Parse(Str,TEXT("CLASS="),ClassName,ARRAY_COUNT(ClassName)) && Parse(Str,TEXT("NAME="),ActorName,ARRAY_COUNT(ActorName)) )
+	{
+		// Load class.
+		debugf( TEXT("Incoming travelling actor of class %s"), ClassName );//!!xyzzy
+		FAcceptInfo* Accept=NULL;
+		AActor* Spawned=NULL;
+		UClass* Class=StaticLoadClass( AActor::StaticClass(), NULL, ClassName, NULL, LOAD_NoWarn|LOAD_AllowDll, PackageMap );
+		if( !Class )
+		{
+			debugf( NAME_Log, TEXT("SpawnPlayActor: Cannot accept travelling class '%s'"), ClassName );
+		}
+		else if( Class->IsChildOf(APlayerPawn::StaticClass()) )
+		{
+			Accept = new(Accepted)FAcceptInfo(Actor,ActorName);
+		}
+		else if( (Spawned=SpawnActor( Class, NAME_None, Actor, NULL, Actor->Location, Actor->Rotation, NULL, 1 ))==NULL )
+		{
+			debugf( NAME_Log, TEXT("SpawnPlayActor: Failed to spawn travelling class '%s'"), ClassName );
+		}
+		else
+		{
+			debugf( NAME_Log, TEXT("SpawnPlayActor: Spawned travelling actor") );
+			Accept = new(Accepted)FAcceptInfo(Spawned,ActorName);
+		}
+
+		// Save properties.
+		TCHAR Buffer[256];
+		ParseLine(&Str,Buffer,ARRAY_COUNT(Buffer),1);
+		ParseLine(&Str,Buffer,ARRAY_COUNT(Buffer),1);
+		while( ParseLine(&Str,Buffer,ARRAY_COUNT(Buffer),1) && appStrcmp(Buffer,TEXT("}"))!=0 )
+			if( Accept )
+				new(Accept->Parms)FString(Buffer);
+	}
+
+	// Import properties.
+	for( i=0; i<Accepted.Num(); i++ )
+	{
+		// Parse all properties.
+		for( INT j=0; j<Accepted(i).Parms.Num(); j++ )
+		{
+			const TCHAR* Ptr = *Accepted(i).Parms(j);
+			while( *Ptr==' ' )
+				Ptr++;
+			TCHAR VarName[256], *VarEnd=VarName;
+			while( appIsAlnum(*Ptr) || *Ptr=='_' )
+				*VarEnd++ = *Ptr++;
+			*VarEnd=0;
+			INT Element=0;
+			if( *Ptr=='[' )
+			{
+				Element=appAtoi(++Ptr);
+				while( appIsDigit(*Ptr) )
+					Ptr++;
+				if( *Ptr++!=']' )
+					continue;
+			}
+			if( *Ptr++!='=' )
+				continue;
+			for( TFieldIterator<UProperty> It(Accepted(i).Actor->GetClass()); It; ++It )
+			{
+				if
+				(	(It->PropertyFlags & CPF_Travel)
+				&&	appStricmp( It->GetName(), VarName )==0 
+				&&	Element<It->ArrayDim )
+				{
+					// Import the property.
+					BYTE* Data = (BYTE*)Accepted(i).Actor + It->Offset + Element*It->ElementSize;
+					UObjectProperty* Ref = Cast<UObjectProperty>( *It );
+					if( Ref && Ref->PropertyClass->IsChildOf(AActor::StaticClass()) )
+					{
+						for( INT k=0; k<Accepted.Num(); k++ )
+						{
+							if( Accepted(k).Name==Ptr )
+							{
+								*(UObject**)Data = Accepted(k).Actor;
+								break;
+							}
+						}
+					}
+					else It->ImportText( Ptr, Data, 0 );
+				}
+			}
+		}
+	}
+
+	// Call travel-acceptance functions in reverse order to avoid inventory flipping.
+	for( i=Accepted.Num()-1; i>=0; i-- )
+		Accepted(i).Actor->eventTravelPreAccept();
+	#if TARGET_XBOX
+	debugf( NAME_Log, TEXT("XSPAWN before AcceptInventory actor=%s accepted=%i inventory=0x%08X"),
+		Actor->GetFullName(),
+		Accepted.Num(),
+		(DWORD)Actor->Inventory );
+	#endif
+	GetLevelInfo()->Game->eventAcceptInventory( Actor );
+	for( i=Accepted.Num()-1; i>=0; i-- )
+		Accepted(i).Actor->eventTravelPostAccept();
+	Actor->eventTravelPostAccept();
+	#if TARGET_XBOX
+	debugf( NAME_Log, TEXT("XSPAWN before PostLogin actor=%s pri=0x%08X team=%i name=%s"),
+		Actor->GetFullName(),
+		(DWORD)Actor->PlayerReplicationInfo,
+		Actor->PlayerReplicationInfo ? Actor->PlayerReplicationInfo->Team : -1,
+		Actor->PlayerReplicationInfo ? *Actor->PlayerReplicationInfo->PlayerName : TEXT("NULL") );
+	#endif
+	GetLevelInfo()->Game->eventPostLogin( Actor );
+	#if TARGET_XBOX
+	debugf( NAME_Log, TEXT("XSPAWN after PostLogin actor=%s state=%s weapon=0x%08X"),
+		Actor->GetFullName(),
+		(Actor->GetStateFrame() && Actor->GetStateFrame()->StateNode) ? Actor->GetStateFrame()->StateNode->GetName() : TEXT("None"),
+		(DWORD)Actor->Weapon );
+	#endif
+
+	return Actor;
+	unguard;
+}
+
+/*-----------------------------------------------------------------------------
+	Level actor moving/placing.
+-----------------------------------------------------------------------------*/
+
+//
+// Find a suitable nearby location to place a collision box.
+// No suitable location will ever be found if Location is not a valid point inside the level ( and not in 
+// a wall)
+
+// AdjustSpot used by FindSpot
+void ULevel::AdjustSpot( FVector& Adjusted, FVector TraceDest, FLOAT TraceLen, FCheckResult& Hit )
+{
+	SingleLineCheck( Hit, NULL, TraceDest, Adjusted, TRACE_VisBlocking );
+	if( Hit.Time < 1.0 )
+		Adjusted = Adjusted + Hit.Normal * (1.05 - Hit.Time) * TraceLen;
+}
+
+UBOOL ULevel::FindSpot
+(
+	FVector  Extent,
+	FVector& Location,
+	UBOOL	 bCheckActors,
+	UBOOL	 bAssumeFit
+)
+{
+	guard(ULevel::FindSpot);
+
+	// trace to all corners to find interpenetrating walls
+	FCheckResult Hit(1.0);
+	if( Extent==FVector(0,0,0) )
+		return SinglePointCheck( Hit, Location, Extent, 0, GetLevelInfo(), bCheckActors )==1;
+
+	if( bAssumeFit && SinglePointCheck( Hit,Location, Extent, 0, GetLevelInfo(), bCheckActors )==1 )
+		return 1;
+	FVector Adjusted = Location;
+	FLOAT TraceLen = Extent.Size() + 2.0;
+
+	for (int i=-1;i<2;i+=2)
+	{
+		AdjustSpot(Adjusted, Adjusted + FVector(i * Extent.X,0,0), Extent.X, Hit); 
+		AdjustSpot(Adjusted, Adjusted + FVector(0,i * Extent.Y,0), Extent.Y, Hit); 
+		AdjustSpot(Adjusted, Adjusted + FVector(0,0,i * Extent.Z), Extent.Z, Hit); 
+	}
+	if( SinglePointCheck( Hit, Adjusted, Extent, 0, GetLevelInfo(), bCheckActors )==1 )
+	{
+		Location = Adjusted;
+		return 1;
+	}
+
+	for (i=-1;i<2;i+=2)
+		for (int j=-1;j<2;j+=2)
+			for (int k=-1;k<2;k+=2)
+				AdjustSpot(Adjusted, Adjusted + FVector(i * Extent.X, j * Extent.Y, k * Extent.Z), TraceLen, Hit); 
+
+	if( (Adjusted - Location).SizeSquared() > 1.5 * Extent.SizeSquared() )
+		return 0;
+
+	if( SinglePointCheck( Hit, Adjusted, Extent, 0, GetLevelInfo(), bCheckActors )==1 )
+	{
+		Location = Adjusted;
+		return 1;
+	}
+	return 0;
+	unguard;
+}
+
+//
+// Try to place an actor that has moved a long way.  This is for
+// moving actors through teleporters, adding them to levels, and
+// starting them out in levels.  The results of this function is independent
+// of the actor's current location and rotation.
+//
+// If the actor doesn't fit exactly in the location specified, tries
+// to slightly move it out of walls and such.
+//
+// Returns 1 if the actor has been successfully moved, or 0 if it couldn't fit.
+//
+// Updates the actor's Zone and sends ZoneChange if it changes.
+//
+UBOOL ULevel::FarMoveActor( AActor* Actor, FVector DestLocation,  UBOOL test, UBOOL bNoCheck )
+{
+	guard(ULevel::FarMoveActor);
+	check(Actor!=NULL);
+	if( (Actor->bStatic || !Actor->bMovable) && !GIsEditor )
+		return 0;
+
+	if( Actor->bCollideActors && Hash ) //&& !test
+		Hash->RemoveActor( Actor );
+
+	FVector newLocation = DestLocation;
+	int result = 1;
+	if (!bNoCheck && (Actor->bCollideWorld || (Actor->bCollideWhenPlacing && (GetLevelInfo()->NetMode != NM_Client))) ) 
+		result = FindSpot( Actor->GetCylinderExtent(), newLocation, 0, 0 );
+
+	if (result && !test && !bNoCheck)
+		result = !CheckEncroachment( Actor, newLocation, Actor->Rotation, 1);
+	
+	if( result )
+	{
+		if( !test )
+		{
+			if( Actor->StandingCount > 0 )
+				for( INT i=0; i<Actors.Num(); i++ )
+					if( Actors(i) && Actors(i)->Base == Actor ) 
+						Actors(i)->SetBase( NULL );
+			Actor->bJustTeleported = true;
+		}
+		Actor->Location = newLocation;
+		Actor->OldLocation = newLocation; //to zero velocity
+	}
+
+	if( Actor->bCollideActors && Hash ) //&& !test
+		Hash->AddActor( Actor );
+
+	// Set the zone after moving, so that if a ZoneChange or ActorEntered/ActorEntered message
+	// tries to move the actor, the hashing will be correct.
+	if( result )
+		SetActorZone( Actor, test );
+
+	return result;
+	unguard;
+}
+
+//
+// Place the actor on the floor below.  May move the actor a long way down.
+// Updates the actor's Zone and sends ZoneChange if it changes.
+//
+//
+
+UBOOL ULevel::DropToFloor( AActor *Actor)
+{
+	guard(ULevel::DropToFloor);
+	check(Actor!=NULL);
+
+	// Try moving down a long way and see if we hit the floor.
+
+	FCheckResult Hit(1.0);
+	MoveActor( Actor, FVector( 0, 0, -1000 ), Actor->Rotation, Hit );
+	return (Hit.Time < 1.0);
+
+	unguard;
+}
+
+//
+// Tries to move the actor by a movement vector.  If no collision occurs, this function 
+// just does a Location+=Move.
+//
+// Assumes that the actor's Location is valid and that the actor
+// does fit in its current Location. Assumes that the level's 
+// Dynamics member is locked, which will always be the case during
+// a call to ULevel::Tick; if not locked, no actor-actor collision
+// checking is performed.
+//
+// If bCollideWorld, checks collision with the world.
+//
+// For every actor-actor collision pair:
+//
+// If both have bCollideActors and bBlocksActors, performs collision
+//    rebound, and dispatches Touch messages to touched-and-rebounded 
+//    actors.  
+//
+// If both have bCollideActors but either one doesn't have bBlocksActors,
+//    checks collision with other actors (but lets this actor 
+//    interpenetrate), and dispatches Touch and UnTouch messages.
+//
+// Returns 1 if some movement occured, 0 if no movement occured.
+//
+// Updates actor's Zone and sends ZoneChange if it changes.
+//
+// If Test = 1 (default 0), do not send notifications.
+//
+UBOOL ULevel::MoveActor
+(
+	AActor*			Actor,
+	FVector			Delta,
+	FRotator		NewRotation,
+	FCheckResult&	Hit,
+	UBOOL			bTest,
+	UBOOL			bIgnorePawns,
+	UBOOL			bIgnoreBases,
+	UBOOL			bNoFail
+)
+{
+	guard(ULevel::MoveActor);
+	check(Actor!=NULL);
+	if( (Actor->bStatic || !Actor->bMovable) && !GIsEditor )
+		return 0;
+
+	// Skip if no vector.
+	if( Delta.IsNearlyZero() )
+	{
+		if( NewRotation==Actor->Rotation )
+		{
+			return 1;
+		}
+		else if( !Actor->StandingCount && !Actor->IsMovingBrush() )
+		{
+			Actor->Rotation  = NewRotation;
+			return 1;
+		}
+	}
+
+	// Set up.
+	Hit = FCheckResult(1.0);
+	NumMoves++;
+	clock(MoveCycles);
+	FMemMark Mark(GMem);
+	FLOAT DeltaSize;
+	FVector DeltaDir;
+	if( Delta.IsNearlyZero() )
+	{
+		DeltaSize = 0;
+		DeltaDir = Delta;
+	}
+	else
+	{
+		DeltaSize = Delta.Size();
+		DeltaDir       = Delta/DeltaSize;
+	}
+	FLOAT TestAdjust	   = 2.0;
+	FVector TestDelta      = Delta + TestAdjust * DeltaDir;
+	INT     MaybeTouched   = 0;
+	FCheckResult* FirstHit = NULL;
+
+	// Perform movement collision checking if needed for this actor.
+	if( (Actor->bCollideActors || Actor->bCollideWorld) && !Actor->IsMovingBrush() && Delta!=FVector(0,0,0) )
+	{
+		// Check collision along the line.
+		FirstHit = MultiLineCheck
+		(
+			GMem,
+			Actor->Location + TestDelta,
+			Actor->Location,
+			Actor->GetCylinderExtent(),
+			(Actor->bCollideActors && !Actor->IsMovingBrush()) ? 1              : 0,
+			(Actor->bCollideWorld  && !Actor->IsMovingBrush()) ? GetLevelInfo() : NULL,
+			0
+		);
+
+		// Handle first blocking actor.
+		if( Actor->bCollideWorld || Actor->bBlockActors || Actor->bBlockPlayers )
+		{
+			for( FCheckResult* Test=FirstHit; Test; Test=Test->GetNext() )
+			{
+				if
+				(	(!bIgnorePawns || Test->Actor->bStatic || (!Test->Actor->IsA(APawn::StaticClass()) && !Test->Actor->IsA(ADecoration::StaticClass())))
+				&&	(!bIgnoreBases || !Actor->IsBasedOn(Test->Actor))
+				&&	(!Test->Actor->IsBasedOn(Actor)               ) )
+				{
+					MaybeTouched = 1;
+					if( Actor->IsBlockedBy(Test->Actor) )
+					{
+						Hit = *Test;
+						break;
+					}
+				}
+			}
+		}
+	}
+
+	// Attenuate movement.
+	FVector FinalDelta = Delta;
+	if( Hit.Time < 1.0 && !bNoFail )
+	{
+		// Fix up delta, given that TestDelta = Delta + TestAdjust.
+		FLOAT FinalDeltaSize = (DeltaSize + TestAdjust) * Hit.Time;
+		if ( FinalDeltaSize <= TestAdjust)
+		{
+			FinalDelta = FVector(0,0,0);
+			Hit.Time = 0;
+		}
+		else 
+		{
+			FinalDelta = TestDelta * Hit.Time - TestAdjust * DeltaDir;
+			Hit.Time   = (FinalDeltaSize - TestAdjust) / DeltaSize;
+		}
+	}
+
+	// Move the based actors (before encroachment checking).
+	if( Actor->StandingCount && !bTest )
+	{
+		for( int i=0; i<Actors.Num(); i++ )
+		{
+			AActor* Other = Actors(i);
+			if( Other && Other->Base==Actor )
+			{
+				// Move base.
+				FVector   RotMotion( 0, 0, 0 );
+				FRotator DeltaRot ( 0, NewRotation.Yaw - Actor->Rotation.Yaw, 0 );
+				if( NewRotation != Actor->Rotation )
+				{
+					// Handle rotation-induced motion.
+					FRotator ReducedRotation = FRotator( 0, ReduceAngle(NewRotation.Yaw) - ReduceAngle(Actor->Rotation.Yaw), 0 );
+					FVector   Pointer         = Actor->Location - Other->Location;
+					RotMotion                 = Pointer - Pointer.TransformVectorBy( GMath.UnitCoords * ReducedRotation );
+				}
+				FCheckResult Hit(1.0);
+				MoveActor( Other, FinalDelta + RotMotion, Other->Rotation + DeltaRot, Hit, 0, 0, 1 );
+
+				// Update pawn view.
+				if( Other->IsA(APawn::StaticClass()) )
+					((APawn*)Other)->ViewRotation += DeltaRot;
+			}
+		}
+	}
+
+	// Abort if encroachment declined.
+	if( !bTest && !bNoFail && !Actor->IsA(APawn::StaticClass()) && CheckEncroachment( Actor, Actor->Location + FinalDelta, NewRotation, 0 ) )
+	{
+		unclock(MoveCycles);
+		return 0;
+	}
+
+	// Update the location.
+	if( Actor->bCollideActors && Hash )
+		Hash->RemoveActor( Actor );
+	Actor->Location += FinalDelta;
+	Actor->Rotation  = NewRotation;
+	if( Actor->bCollideActors && Hash )
+		Hash->AddActor( Actor );
+
+	// Handle bump and touch notifications.
+	if( !bTest )
+	{
+		// Notify first bumped actor unless it's the level or the actor's base.
+		if( Hit.Actor && Hit.Actor!=GetLevelInfo() && !Actor->IsBasedOn(Hit.Actor) )
+		{
+			// Notify both actors of the bump.
+			Hit.Actor->eventBump(Actor);
+			Actor->eventBump(Hit.Actor);
+		}
+
+		// Handle Touch notifications.
+		if( MaybeTouched || !Actor->bBlockActors || !Actor->bBlockPlayers )
+			for( FCheckResult* Test=FirstHit; Test && Test->Time<Hit.Time; Test=Test->GetNext() )
+				if
+				(	(!Test->Actor->IsBasedOn(Actor))
+				&&	(!bIgnoreBases || !Actor->IsBasedOn(Test->Actor))
+				&&	(!Actor->IsBlockedBy(Test->Actor)) )
+					Actor->BeginTouch( Test->Actor );
+
+		// UnTouch notifications.
+		for( int i=0; i<ARRAY_COUNT(Actor->Touching); i++ )
+			if( Actor->Touching[i] && !Actor->IsOverlapping(Actor->Touching[i]) )
+				Actor->EndTouch( Actor->Touching[i], 0 );
+	}
+
+	// Set actor zone.
+	SetActorZone( Actor, bTest );
+	Mark.Pop();
+
+	// Return whether we moved at all.
+	unclock(MoveCycles);
+	return Hit.Time>0.0;
+	unguard;
+}
+
+/*-----------------------------------------------------------------------------
+	Encroachment.
+-----------------------------------------------------------------------------*/
+
+//
+// Check whether Actor is encroaching other actors after a move, and return
+// 0 to ok the move, or 1 to abort it.
+//
+UBOOL ULevel::CheckEncroachment
+(
+	AActor*		Actor,
+	FVector		TestLocation,
+	FRotator	TestRotation,
+	UBOOL		bTouchNotify
+)
+{
+	guard(ULevel::CheckEncroachment);
+	check(Actor);
+
+	// If this actor doesn't need encroachment checking, allow the move.
+	if( !Actor->bCollideActors && !Actor->bBlockActors && !Actor->bBlockPlayers && !Actor->IsMovingBrush() )
+		return 0;
+
+	// Query the mover about what he wants to do with the actors he is encroaching.
+	FMemMark Mark(GMem);
+	FCheckResult* FirstHit = Hash ? Hash->ActorEncroachmentCheck( GMem, Actor, TestLocation, TestRotation, 0 ) : NULL;	
+	for( FCheckResult* Test = FirstHit; Test!=NULL; Test=Test->GetNext() )
+	{
+		int noProcess = 0;
+		if
+		(	Test->Actor!=Actor
+		&&	Test->Actor!=GetLevelInfo()
+		&&	Actor->IsBlockedBy( Test->Actor ) )
+		{
+			if ( Actor->IsMovingBrush() && !Test->Actor->IsMovingBrush() ) 
+			{
+				// check if mover can safely push encroached actor
+				//Move test actor away from mover
+				FVector MoveDir = TestLocation - Actor->Location;
+				FVector OldLoc = Test->Actor->Location;
+				Test->Actor->moveSmooth(MoveDir);
+				// see if mover still encroaches test actor
+				FCheckResult* RecheckHit = Hash->ActorEncroachmentCheck( GMem, Actor, TestLocation, TestRotation, 0 );
+				noProcess = 1;
+				for ( FCheckResult* Recheck = RecheckHit; Recheck!=NULL; Recheck=Recheck->GetNext() )
+					if ( Recheck->Actor == Test->Actor )
+					{
+						noProcess = 0;
+						break;
+					}
+				if ( !noProcess ) //push test actor back toward brush
+				{
+					FVector realLoc = Actor->Location;
+					Actor->Location = TestLocation;
+					Test->Actor->moveSmooth(-1 * MoveDir);
+					Actor->Location = realLoc;
+				}
+			}
+			if ( !noProcess && Actor->eventEncroachingOn(Test->Actor) )
+			{
+				Mark.Pop();
+				return 1;
+			}
+		}
+	}
+
+	// If bTouchNotify, send Touch and UnTouch notifies.
+	if( bTouchNotify )
+	{
+		// UnTouch notifications.
+		for( int i=0; i<ARRAY_COUNT(Actor->Touching); i++ )
+			if( Actor->Touching[i] && !Actor->IsOverlapping(Actor->Touching[i]) )
+				Actor->EndTouch( Actor->Touching[i], 0 );
+	}
+
+	// Notify the encroached actors but not the level.
+	for( Test = FirstHit; Test; Test=Test->GetNext() )
+		if
+		(	Test->Actor!=Actor
+		&&	Test->Actor!=GetLevelInfo() )
+		{ 
+			if( Actor->IsBlockedBy(Test->Actor) ) 
+				Test->Actor->eventEncroachedBy(Actor);
+			else if( bTouchNotify )
+				Actor->BeginTouch( Test->Actor );
+		}
+							
+	Mark.Pop();
+
+
+	// Ok the move.
+	return 0;
+	unguard;
+}
+
+/*-----------------------------------------------------------------------------
+	SinglePointCheck.
+-----------------------------------------------------------------------------*/
+
+//
+// Check for nearest hit.
+// Return 1 if no hit, 0 if hit.
+//
+UBOOL ULevel::SinglePointCheck
+(
+	FCheckResult&	Hit,
+	FVector			Location,
+	FVector			Extent,
+	DWORD			ExtraNodeFlags,
+	ALevelInfo*		Level,
+	UBOOL			bActors
+)
+{
+	guard(ULevel::SinglePointCheck);
+	FMemMark Mark(GMem);
+	FCheckResult* Hits = MultiPointCheck( GMem, Location, Extent, ExtraNodeFlags, Level, bActors );
+	if( !Hits )
+	{
+		Mark.Pop();
+		return 1;
+	}
+	Hit = *Hits;
+	for( Hits = Hits->GetNext(); Hits!=NULL; Hits = Hits->GetNext() )
+		if( (Hits->Location-Location).SizeSquared() < (Hit.Location-Location).SizeSquared() )
+			Hit = *Hits;
+	Mark.Pop();
+	return 0;
+	unguard;
+}
+
+/*-----------------------------------------------------------------------------
+	MultiPointCheck.
+-----------------------------------------------------------------------------*/
+
+FCheckResult* ULevel::MultiPointCheck( FMemStack& Mem, FVector Location, FVector Extent, DWORD ExtraNodeFlags, ALevelInfo* Level, UBOOL bActors )
+{
+	guard(ULevel::MultiPointCheck);
+	FCheckResult* Result=NULL;
+
+	// Check with actors.
+	if( bActors && Hash )
+		Result = Hash->ActorPointCheck( Mem, Location, Extent, ExtraNodeFlags );
+
+	// Check with level.
+	if( Level )
+	{
+		FCheckResult TestHit(1.0);
+		if( Level->GetLevel()->Model->PointCheck( TestHit, NULL, Location, Extent, 0 )==0 )
+		{
+			// Hit.
+			TestHit.GetNext() = Result;
+			Result            = new(GMem)FCheckResult(TestHit);
+			Result->Actor     = Level;
+		}
+	}
+	return Result;
+	unguard;
+}
+
+/*-----------------------------------------------------------------------------
+	SingleLineCheck.
+-----------------------------------------------------------------------------*/
+
+//
+// Trace a line and return the first hit actor (LevelInfo means hit the world geomtry).
+//
+UBOOL ULevel::SingleLineCheck
+(
+	FCheckResult&	Hit,
+	AActor*			SourceActor,
+	const FVector&	End,
+	const FVector&	Start,
+	DWORD           TraceFlags,
+	FVector			Extent,
+	BYTE			ExtraNodeFlags
+)
+{
+	guard(ULevel::Trace);
+
+	// Get list of hit actors.
+	FMemMark Mark(GMem);
+	FCheckResult* FirstHit = MultiLineCheck
+	(
+		GMem,
+		End,
+		Start,
+		Extent,
+		(TraceFlags & TRACE_AllColliding) ? 1 : 0,
+		(TraceFlags & TRACE_Level       ) ? GetLevelInfo() : NULL,
+		ExtraNodeFlags
+	);
+
+	// Skip owned actors and return the one nearest actor.
+	for( FCheckResult* Check = FirstHit; Check!=NULL; Check=Check->GetNext() )
+	{
+		if( !SourceActor || !SourceActor->IsOwnedBy( Check->Actor ) )
+		{
+			if( Check->Actor->IsA(ALevelInfo::StaticClass()) )
+			{
+				if( TraceFlags & TRACE_Level )
+					break;
+			}
+			else if( Check->Actor->IsA(APawn::StaticClass()) )
+			{
+				if( TraceFlags & TRACE_Pawns )
+					break;
+			}
+			else if( Check->Actor->IsA(AMover::StaticClass()) )
+			{
+				if( TraceFlags & TRACE_Movers )
+					break;
+			}
+			else if( Check->Actor->IsA(AZoneInfo::StaticClass()) )
+			{
+				if( TraceFlags & TRACE_ZoneChanges )
+					break;
+			}
+			else
+			{
+				if( TraceFlags & TRACE_Others )
+				{
+					if( TraceFlags & TRACE_OnlyProjActor )
+					{
+						if( Check->Actor->bProjTarget || (Check->Actor->bBlockActors && Check->Actor->bBlockPlayers) )
+							break;
+					}
+					else break;
+				}
+			}
+		}
+	}
+	if( Check )
+	{
+		Hit = *Check;
+	}
+	else
+	{
+		Hit.Time = 1.0;
+		Hit.Actor = NULL;
+	}
+
+	Mark.Pop();
+	return Check==NULL;
+	unguard;
+}
+
+/*-----------------------------------------------------------------------------
+	MultiLineCheck.
+-----------------------------------------------------------------------------*/
+
+FCheckResult* ULevel::MultiLineCheck
+(
+	FMemStack&		Mem,
+	FVector			End,
+	FVector			Start,
+	FVector			Extent,
+	UBOOL			bCheckActors,
+	ALevelInfo*		LevelInfo,
+	BYTE			ExtraNodeFlags
+)
+{
+	guard(ULevel::MultiLineCheck);
+	INT NumHits=0;
+	FCheckResult Hits[64];
+
+	// Check for collision with the level, and cull by the end point for speed.
+	FLOAT Dilation = 1.0;
+	INT bOnlyCheckForMovers = 0;
+	INT bHitWorld = 0;
+
+	guard(CheckWithLevel);
+	if( LevelInfo && LevelInfo->GetLevel()->Model->LineCheck( Hits[NumHits], NULL, End, Start, Extent, ExtraNodeFlags )==0 )
+	{
+		bHitWorld = 1;
+		Hits[NumHits].Actor = LevelInfo;
+		FLOAT Dist = (Hits[NumHits].Location - Start).Size();
+		Dilation = ::Min(1.f, Hits[NumHits].Time * (Dist + 5)/(Dist+0.0001f));
+		End = Start + (End - Start) * Dilation;
+		if( (Hits[NumHits].Time < 0.01) && (Dist < 30) )
+			bOnlyCheckForMovers = 1;
+		NumHits++;
+	}
+	unguard;
+
+	// Check with actors.
+	guard(CheckWithActors);
+	if( bCheckActors && Hash )
+	{
+		for( FCheckResult* Link=Hash->ActorLineCheck( Mem, End, Start, Extent, ExtraNodeFlags ); Link && NumHits<ARRAY_COUNT(Hits); Link=Link->GetNext() )
+		{
+			if ( !bOnlyCheckForMovers || Link->Actor->IsA(AMover::StaticClass()) )
+			{
+				if ( bHitWorld && Link->Actor->IsA(AMover::StaticClass()) 
+					&& (Link->Normal == Hits[0].Normal)
+					&& ((Link->Location - Hits[0].Location).SizeSquared() < 4) ) // make sure it wins compared to world
+				{
+					FVector TraceDir = End - Start;
+					FLOAT TraceDist = TraceDir.Size();
+					TraceDir = TraceDir/TraceDist;
+					Link->Location = Hits[0].Location - 2 * TraceDir;
+					Link->Time = (Link->Location - Start).Size();
+					Link->Time = Link->Time/TraceDist;
+				}
+				Link->Time *= Dilation;
+				Hits[NumHits++] = *Link;
+			}
+		}
+	}
+	unguard;
+
+	// Sort the list.
+	FCheckResult* Result = NULL;
+	if( NumHits )
+	{
+		appQsort( Hits, NumHits, sizeof(Hits[0]), (QSORT_COMPARE)CompareHits );
+		Result = new(Mem,NumHits)FCheckResult;
+		for( INT i=0; i<NumHits; i++ )
+		{
+			Result[i]      = Hits[i];
+			Result[i].Next = (i+1<NumHits) ? &Result[i+1] : NULL;
+		}
+	}
+	return Result;
+	unguard;
+}
+
+/*-----------------------------------------------------------------------------
+	ULevel zone functions.
+-----------------------------------------------------------------------------*/
+
+//
+// Figure out which zone an actor is in, update the actor's iZone,
+// and notify the actor of the zone change.  Skips the zone notification
+// if the zone hasn't changed.
+//
+void ULevel::SetActorZone( AActor* Actor, UBOOL bTest, UBOOL bForceRefresh )
+{
+	guard(ULevel::SetActorZone);
+	check(Actor);
+	if( Actor->bDeleteMe )
+		return;
+
+	// If LevelInfo actor, handle specially.
+	if( Actor == GetLevelInfo() )
+	{
+		Actor->Region = FPointRegion( GetLevelInfo() );
+		return;
+	}
+
+	// See if this is a pawn.
+	APawn* Pawn = Actor->IsA(APawn::StaticClass()) ? (APawn*)Actor : NULL;
+
+	// If refreshing, init the actor's current zone.
+	if( bForceRefresh )
+	{
+		// Init the actor's zone.
+		Actor->Region = FPointRegion(GetLevelInfo());
+		if( Pawn )
+			Pawn->FootRegion = Pawn->HeadRegion = FPointRegion(GetLevelInfo());
+	}
+
+	// Find zone based on actor's location and see if it has changed.
+	FPointRegion NewRegion = Model->PointRegion( Actors.Num() ? GetLevelInfo() : (ALevelInfo*)Actor, Actor->Location );
+	if( NewRegion.Zone!=Actor->Region.Zone )
+	{
+		// Notify old zone info of player leaving.
+		if( !bTest )
+		{
+			Actor->Region.Zone->eventActorLeaving(Actor);
+			Actor->eventZoneChange( NewRegion.Zone );
+		}
+		Actor->Region = NewRegion;
+		if( !bTest )
+		{
+			Actor->Region.Zone->eventActorEntered(Actor);
+		}
+	}
+	else Actor->Region = NewRegion;
+	checkSlow(Actor->Region.Zone!=NULL);
+
+	if( Pawn )
+	{
+		// Update foot region.
+		FPointRegion NewFootRegion = Model->PointRegion( GetLevelInfo(), Pawn->Location - FVector(0,0,Pawn->CollisionHeight) );
+		if( NewFootRegion.Zone!=Pawn->FootRegion.Zone && !bTest )
+			Pawn->eventFootZoneChange(NewFootRegion.Zone);
+		Pawn->FootRegion = NewFootRegion;
+
+		// Update head region.
+		FPointRegion NewHeadRegion = Model->PointRegion( GetLevelInfo(), Pawn->Location + FVector(0,0,Pawn->EyeHeight) );
+		if( NewHeadRegion.Zone!=Pawn->HeadRegion.Zone && !bTest )
+			Pawn->eventHeadZoneChange(NewHeadRegion.Zone);
+		Pawn->HeadRegion = NewHeadRegion;
+
+		// update player replication info
+		if ( (GetLevelInfo()->NetMode != NM_Client) && Pawn->PlayerReplicationInfo )
+			Pawn->PlayerReplicationInfo->PlayerZone = Pawn->Region.Zone;
+	}
+	unguard;
+}
+
+/*-----------------------------------------------------------------------------
+	The End.
+-----------------------------------------------------------------------------*/

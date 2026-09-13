@@ -1,0 +1,1177 @@
+{
+  "xbeSha256": "17cc369bdd870940e1ed980b5922499b717286f4020a9aa1fec56bbeaf0489bd",
+  "runs": [
+    {
+      "players": 1,
+      "windows": 15,
+      "source": "UT99-Xbox\\build_cli\\sensitivity_verified_1p\\01_DM-Oblivion\\xemu_ram_log_accumulated.txt",
+      "measurements": [
+        {
+          "slot": 1,
+          "allocatedViewports": 1,
+          "phase": 0,
+          "seconds": 4.0018,
+          "samples": 189,
+          "simulationFPS": 47.22874706382128,
+          "yawDPS": 298.48,
+          "pitchDPS": 0.0
+        },
+        {
+          "slot": 1,
+          "allocatedViewports": 1,
+          "phase": 1,
+          "seconds": 4.0084,
+          "samples": 201,
+          "simulationFPS": 50.14469613810997,
+          "yawDPS": 149.23,
+          "pitchDPS": 0.0
+        },
+        {
+          "slot": 1,
+          "allocatedViewports": 1,
+          "phase": 2,
+          "seconds": 4.004,
+          "samples": 209,
+          "simulationFPS": 52.197802197802204,
+          "yawDPS": 149.225,
+          "pitchDPS": 0.0
+        },
+        {
+          "slot": 1,
+          "allocatedViewports": 1,
+          "phase": 3,
+          "seconds": 4.0018,
+          "samples": 211,
+          "simulationFPS": 52.72627317707032,
+          "yawDPS": 0.0,
+          "pitchDPS": 151.592
+        },
+        {
+          "slot": 1,
+          "allocatedViewports": 1,
+          "phase": 0,
+          "seconds": 4.0029,
+          "samples": 211,
+          "simulationFPS": 52.711783956631436,
+          "yawDPS": 298.46,
+          "pitchDPS": 0.0
+        },
+        {
+          "slot": 1,
+          "allocatedViewports": 1,
+          "phase": 1,
+          "seconds": 4.0029,
+          "samples": 211,
+          "simulationFPS": 52.711783956631436,
+          "yawDPS": 149.229,
+          "pitchDPS": 0.0
+        },
+        {
+          "slot": 1,
+          "allocatedViewports": 1,
+          "phase": 2,
+          "seconds": 4.004,
+          "samples": 209,
+          "simulationFPS": 52.197802197802204,
+          "yawDPS": 149.224,
+          "pitchDPS": 0.0
+        },
+        {
+          "slot": 1,
+          "allocatedViewports": 1,
+          "phase": 3,
+          "seconds": 4.015,
+          "samples": 206,
+          "simulationFPS": 51.30759651307597,
+          "yawDPS": 0.0,
+          "pitchDPS": 151.616
+        },
+        {
+          "slot": 1,
+          "allocatedViewports": 1,
+          "phase": 0,
+          "seconds": 4.0161,
+          "samples": 203,
+          "simulationFPS": 50.5465501357038,
+          "yawDPS": 298.475,
+          "pitchDPS": 0.0
+        },
+        {
+          "slot": 1,
+          "allocatedViewports": 1,
+          "phase": 1,
+          "seconds": 4.0018,
+          "samples": 203,
+          "simulationFPS": 50.72717277225248,
+          "yawDPS": 149.226,
+          "pitchDPS": 0.0
+        },
+        {
+          "slot": 1,
+          "allocatedViewports": 1,
+          "phase": 2,
+          "seconds": 4.0161,
+          "samples": 211,
+          "simulationFPS": 52.53853240706158,
+          "yawDPS": 149.222,
+          "pitchDPS": 0.0
+        },
+        {
+          "slot": 1,
+          "allocatedViewports": 1,
+          "phase": 3,
+          "seconds": 4.0117,
+          "samples": 211,
+          "simulationFPS": 52.59615624298925,
+          "yawDPS": 0.0,
+          "pitchDPS": 151.589
+        },
+        {
+          "slot": 1,
+          "allocatedViewports": 1,
+          "phase": 0,
+          "seconds": 4.0183,
+          "samples": 212,
+          "simulationFPS": 52.758629271084786,
+          "yawDPS": 298.455,
+          "pitchDPS": 0.0
+        },
+        {
+          "slot": 1,
+          "allocatedViewports": 1,
+          "phase": 1,
+          "seconds": 4.0117,
+          "samples": 212,
+          "simulationFPS": 52.84542712565745,
+          "yawDPS": 149.228,
+          "pitchDPS": 0.0
+        },
+        {
+          "slot": 1,
+          "allocatedViewports": 1,
+          "phase": 2,
+          "seconds": 4.0106,
+          "samples": 212,
+          "simulationFPS": 52.859921208796685,
+          "yawDPS": 149.229,
+          "pitchDPS": 0.0
+        }
+      ],
+      "simulationFPSRange": [
+        47.22874706382128,
+        52.859921208796685
+      ],
+      "phaseMeans": [
+        298.4675,
+        149.22825,
+        149.225,
+        151.59900000000002
+      ],
+      "originalHarnessOK": true,
+      "qualification": "Passed"
+    },
+    {
+      "players": 2,
+      "windows": 31,
+      "source": "UT99-Xbox\\build_cli\\sensitivity_verified_2p\\01_DM-Oblivion\\xemu_ram_log_accumulated.txt",
+      "measurements": [
+        {
+          "slot": 1,
+          "allocatedViewports": 4,
+          "phase": 0,
+          "seconds": 4.0168,
+          "samples": 157,
+          "simulationFPS": 39.08583947420833,
+          "yawDPS": 298.525,
+          "pitchDPS": 0.0
+        },
+        {
+          "slot": 2,
+          "allocatedViewports": 4,
+          "phase": 0,
+          "seconds": 4.0168,
+          "samples": 157,
+          "simulationFPS": 39.08583947420833,
+          "yawDPS": 298.525,
+          "pitchDPS": 0.0
+        },
+        {
+          "slot": 1,
+          "allocatedViewports": 4,
+          "phase": 1,
+          "seconds": 4.0062,
+          "samples": 205,
+          "simulationFPS": 51.17068543757177,
+          "yawDPS": 149.223,
+          "pitchDPS": 0.0
+        },
+        {
+          "slot": 2,
+          "allocatedViewports": 4,
+          "phase": 1,
+          "seconds": 4.0062,
+          "samples": 205,
+          "simulationFPS": 51.17068543757177,
+          "yawDPS": 149.223,
+          "pitchDPS": 0.0
+        },
+        {
+          "slot": 1,
+          "allocatedViewports": 4,
+          "phase": 2,
+          "seconds": 4.0106,
+          "samples": 199,
+          "simulationFPS": 49.618510945993116,
+          "yawDPS": 149.226,
+          "pitchDPS": 0.0
+        },
+        {
+          "slot": 2,
+          "allocatedViewports": 4,
+          "phase": 2,
+          "seconds": 4.0106,
+          "samples": 199,
+          "simulationFPS": 49.618510945993116,
+          "yawDPS": 149.226,
+          "pitchDPS": 0.0
+        },
+        {
+          "slot": 1,
+          "allocatedViewports": 4,
+          "phase": 3,
+          "seconds": 4.0084,
+          "samples": 211,
+          "simulationFPS": 52.63945714000599,
+          "yawDPS": 0.0,
+          "pitchDPS": 151.589
+        },
+        {
+          "slot": 2,
+          "allocatedViewports": 4,
+          "phase": 3,
+          "seconds": 4.0084,
+          "samples": 211,
+          "simulationFPS": 52.63945714000599,
+          "yawDPS": 0.0,
+          "pitchDPS": 151.589
+        },
+        {
+          "slot": 2,
+          "allocatedViewports": 4,
+          "phase": 0,
+          "seconds": 4.0073,
+          "samples": 198,
+          "simulationFPS": 49.40982706560527,
+          "yawDPS": 298.478,
+          "pitchDPS": 0.0
+        },
+        {
+          "slot": 1,
+          "allocatedViewports": 4,
+          "phase": 0,
+          "seconds": 4.0139,
+          "samples": 205,
+          "simulationFPS": 51.07252298263535,
+          "yawDPS": 298.471,
+          "pitchDPS": 0.0
+        },
+        {
+          "slot": 2,
+          "allocatedViewports": 4,
+          "phase": 1,
+          "seconds": 4.0007,
+          "samples": 200,
+          "simulationFPS": 49.991251530982076,
+          "yawDPS": 149.223,
+          "pitchDPS": 0.0
+        },
+        {
+          "slot": 1,
+          "allocatedViewports": 4,
+          "phase": 1,
+          "seconds": 4.0018,
+          "samples": 193,
+          "simulationFPS": 48.22829726623019,
+          "yawDPS": 149.217,
+          "pitchDPS": 0.0
+        },
+        {
+          "slot": 2,
+          "allocatedViewports": 4,
+          "phase": 2,
+          "seconds": 4.0227,
+          "samples": 194,
+          "simulationFPS": 48.226315658637226,
+          "yawDPS": 149.216,
+          "pitchDPS": 0.0
+        },
+        {
+          "slot": 1,
+          "allocatedViewports": 4,
+          "phase": 2,
+          "seconds": 4.0051,
+          "samples": 197,
+          "simulationFPS": 49.18728621008215,
+          "yawDPS": 149.217,
+          "pitchDPS": 0.0
+        },
+        {
+          "slot": 2,
+          "allocatedViewports": 4,
+          "phase": 3,
+          "seconds": 4.0381,
+          "samples": 196,
+          "simulationFPS": 48.53767861122805,
+          "yawDPS": 0.0,
+          "pitchDPS": 151.641
+        },
+        {
+          "slot": 1,
+          "allocatedViewports": 4,
+          "phase": 3,
+          "seconds": 4.0062,
+          "samples": 152,
+          "simulationFPS": 37.94119115371175,
+          "yawDPS": 0.0,
+          "pitchDPS": 151.726
+        },
+        {
+          "slot": 2,
+          "allocatedViewports": 4,
+          "phase": 0,
+          "seconds": 4.0183,
+          "samples": 162,
+          "simulationFPS": 40.31555632979121,
+          "yawDPS": 298.526,
+          "pitchDPS": 0.0
+        },
+        {
+          "slot": 1,
+          "allocatedViewports": 4,
+          "phase": 0,
+          "seconds": 4.015,
+          "samples": 199,
+          "simulationFPS": 49.56413449564135,
+          "yawDPS": 298.482,
+          "pitchDPS": 0.0
+        },
+        {
+          "slot": 2,
+          "allocatedViewports": 4,
+          "phase": 1,
+          "seconds": 4.0018,
+          "samples": 201,
+          "simulationFPS": 50.227397671048024,
+          "yawDPS": 149.226,
+          "pitchDPS": 0.0
+        },
+        {
+          "slot": 1,
+          "allocatedViewports": 4,
+          "phase": 1,
+          "seconds": 4.0007,
+          "samples": 196,
+          "simulationFPS": 48.99142650036244,
+          "yawDPS": 149.219,
+          "pitchDPS": 0.0
+        },
+        {
+          "slot": 2,
+          "allocatedViewports": 4,
+          "phase": 2,
+          "seconds": 4.0183,
+          "samples": 197,
+          "simulationFPS": 49.025707388696716,
+          "yawDPS": 149.218,
+          "pitchDPS": 0.0
+        },
+        {
+          "slot": 2,
+          "allocatedViewports": 4,
+          "phase": 3,
+          "seconds": 4.0128,
+          "samples": 198,
+          "simulationFPS": 49.34210526315789,
+          "yawDPS": 0.0,
+          "pitchDPS": 151.648
+        },
+        {
+          "slot": 1,
+          "allocatedViewports": 4,
+          "phase": 2,
+          "seconds": 4.0084,
+          "samples": 196,
+          "simulationFPS": 48.89731563716196,
+          "yawDPS": 149.222,
+          "pitchDPS": 0.0
+        },
+        {
+          "slot": 2,
+          "allocatedViewports": 4,
+          "phase": 0,
+          "seconds": 4.0051,
+          "samples": 193,
+          "simulationFPS": 48.188559586527184,
+          "yawDPS": 298.494,
+          "pitchDPS": 0.0
+        },
+        {
+          "slot": 1,
+          "allocatedViewports": 4,
+          "phase": 3,
+          "seconds": 4.0249,
+          "samples": 168,
+          "simulationFPS": 41.74016745757659,
+          "yawDPS": 0.0,
+          "pitchDPS": 151.711
+        },
+        {
+          "slot": 2,
+          "allocatedViewports": 4,
+          "phase": 1,
+          "seconds": 4.0172,
+          "samples": 176,
+          "simulationFPS": 43.81161007667032,
+          "yawDPS": 149.223,
+          "pitchDPS": 0.0
+        },
+        {
+          "slot": 1,
+          "allocatedViewports": 4,
+          "phase": 0,
+          "seconds": 4.0183,
+          "samples": 202,
+          "simulationFPS": 50.27001468282607,
+          "yawDPS": 298.474,
+          "pitchDPS": 0.0
+        },
+        {
+          "slot": 2,
+          "allocatedViewports": 4,
+          "phase": 2,
+          "seconds": 4.0161,
+          "samples": 206,
+          "simulationFPS": 51.29354348746296,
+          "yawDPS": 149.226,
+          "pitchDPS": 0.0
+        },
+        {
+          "slot": 1,
+          "allocatedViewports": 4,
+          "phase": 1,
+          "seconds": 4.0029,
+          "samples": 212,
+          "simulationFPS": 52.961602837942486,
+          "yawDPS": 149.229,
+          "pitchDPS": 0.0
+        },
+        {
+          "slot": 2,
+          "allocatedViewports": 4,
+          "phase": 3,
+          "seconds": 4.0183,
+          "samples": 214,
+          "simulationFPS": 53.25635218873653,
+          "yawDPS": 0.0,
+          "pitchDPS": 151.583
+        },
+        {
+          "slot": 1,
+          "allocatedViewports": 4,
+          "phase": 2,
+          "seconds": 4.0095,
+          "samples": 205,
+          "simulationFPS": 51.12856964708816,
+          "yawDPS": 149.227,
+          "pitchDPS": 0.0
+        }
+      ],
+      "simulationFPSRange": [
+        37.94119115371175,
+        53.25635218873653
+      ],
+      "phaseMeans": [
+        298.496875,
+        149.22287500000002,
+        149.22225,
+        151.641
+      ],
+      "originalHarnessOK": false,
+      "qualification": "Measured rotation validator passed; original 2P harness rejected inactive dummy viewport count.",
+      "identity": {
+        "files": {
+          "xbe": {
+            "path": "C:\\Programming\\GitHub\\UnrealTournament_1.40\\UT99-Xbox\\build_cli\\sensitivity_stage\\default.xbe",
+            "sha256": "17cc369bdd870940e1ed980b5922499b717286f4020a9aa1fec56bbeaf0489bd"
+          },
+          "symbols": {
+            "path": "C:\\Programming\\GitHub\\UnrealTournament_1.40\\build\\UnrealTournament.map",
+            "sha256": "f5e2fae85ca4f33e6e0dbac367895175cf431e4300ba5afc5c55811270f77ac0"
+          },
+          "map": {
+            "path": "C:\\Programming\\GitHub\\UnrealTournament_1.40\\UT99-Xbox\\build_cli\\sensitivity_stage\\Maps\\DM-Oblivion.unr",
+            "sha256": "d28969118beec6c481a9c48e13bb8cff3156ca239b8dc808ed2f5a0a1a644544"
+          }
+        },
+        "players": 2,
+        "bots": 8,
+        "seconds": 60,
+        "profiling": true,
+        "rasterMode": "optimized",
+        "auditOverhead": false
+      }
+    },
+    {
+      "players": 4,
+      "windows": 61,
+      "source": "UT99-Xbox\\build_cli\\sensitivity_verified_4p\\01_DM-Oblivion\\xemu_ram_log_accumulated.txt",
+      "measurements": [
+        {
+          "slot": 1,
+          "allocatedViewports": 4,
+          "phase": 0,
+          "seconds": 4.0113,
+          "samples": 95,
+          "simulationFPS": 23.683095255902074,
+          "yawDPS": 298.577,
+          "pitchDPS": 0.0
+        },
+        {
+          "slot": 2,
+          "allocatedViewports": 4,
+          "phase": 0,
+          "seconds": 4.0113,
+          "samples": 95,
+          "simulationFPS": 23.683095255902074,
+          "yawDPS": 298.577,
+          "pitchDPS": 0.0
+        },
+        {
+          "slot": 4,
+          "allocatedViewports": 4,
+          "phase": 0,
+          "seconds": 4.0113,
+          "samples": 95,
+          "simulationFPS": 23.683095255902074,
+          "yawDPS": 298.577,
+          "pitchDPS": 0.0
+        },
+        {
+          "slot": 3,
+          "allocatedViewports": 4,
+          "phase": 0,
+          "seconds": 4.0326,
+          "samples": 123,
+          "simulationFPS": 30.501413480136883,
+          "yawDPS": 298.555,
+          "pitchDPS": 0.0
+        },
+        {
+          "slot": 1,
+          "allocatedViewports": 4,
+          "phase": 1,
+          "seconds": 4.0337,
+          "samples": 141,
+          "simulationFPS": 34.95549991323103,
+          "yawDPS": 149.229,
+          "pitchDPS": 0.0
+        },
+        {
+          "slot": 2,
+          "allocatedViewports": 4,
+          "phase": 1,
+          "seconds": 4.0337,
+          "samples": 141,
+          "simulationFPS": 34.95549991323103,
+          "yawDPS": 149.229,
+          "pitchDPS": 0.0
+        },
+        {
+          "slot": 4,
+          "allocatedViewports": 4,
+          "phase": 1,
+          "seconds": 4.0337,
+          "samples": 141,
+          "simulationFPS": 34.95549991323103,
+          "yawDPS": 149.229,
+          "pitchDPS": 0.0
+        },
+        {
+          "slot": 3,
+          "allocatedViewports": 4,
+          "phase": 1,
+          "seconds": 4.0128,
+          "samples": 144,
+          "simulationFPS": 35.88516746411483,
+          "yawDPS": 149.233,
+          "pitchDPS": 0.0
+        },
+        {
+          "slot": 1,
+          "allocatedViewports": 4,
+          "phase": 2,
+          "seconds": 4.0128,
+          "samples": 129,
+          "simulationFPS": 32.14712918660287,
+          "yawDPS": 149.24,
+          "pitchDPS": 0.0
+        },
+        {
+          "slot": 2,
+          "allocatedViewports": 4,
+          "phase": 2,
+          "seconds": 4.0128,
+          "samples": 129,
+          "simulationFPS": 32.14712918660287,
+          "yawDPS": 149.24,
+          "pitchDPS": 0.0
+        },
+        {
+          "slot": 4,
+          "allocatedViewports": 4,
+          "phase": 2,
+          "seconds": 4.0128,
+          "samples": 129,
+          "simulationFPS": 32.14712918660287,
+          "yawDPS": 149.24,
+          "pitchDPS": 0.0
+        },
+        {
+          "slot": 3,
+          "allocatedViewports": 4,
+          "phase": 2,
+          "seconds": 4.0018,
+          "samples": 136,
+          "simulationFPS": 33.98470688190314,
+          "yawDPS": 149.227,
+          "pitchDPS": 0.0
+        },
+        {
+          "slot": 2,
+          "allocatedViewports": 4,
+          "phase": 3,
+          "seconds": 4.0095,
+          "samples": 139,
+          "simulationFPS": 34.667664297293925,
+          "yawDPS": 0.0,
+          "pitchDPS": 151.762
+        },
+        {
+          "slot": 4,
+          "allocatedViewports": 4,
+          "phase": 3,
+          "seconds": 4.0095,
+          "samples": 139,
+          "simulationFPS": 34.667664297293925,
+          "yawDPS": 0.0,
+          "pitchDPS": 151.762
+        },
+        {
+          "slot": 1,
+          "allocatedViewports": 4,
+          "phase": 3,
+          "seconds": 4.0062,
+          "samples": 129,
+          "simulationFPS": 32.20008986071589,
+          "yawDPS": 0.0,
+          "pitchDPS": 151.766
+        },
+        {
+          "slot": 3,
+          "allocatedViewports": 4,
+          "phase": 3,
+          "seconds": 4.026,
+          "samples": 118,
+          "simulationFPS": 29.30948832588177,
+          "yawDPS": 0.0,
+          "pitchDPS": 151.778
+        },
+        {
+          "slot": 2,
+          "allocatedViewports": 4,
+          "phase": 0,
+          "seconds": 4.0183,
+          "samples": 109,
+          "simulationFPS": 27.12589901202001,
+          "yawDPS": 298.572,
+          "pitchDPS": 0.0
+        },
+        {
+          "slot": 4,
+          "allocatedViewports": 4,
+          "phase": 0,
+          "seconds": 4.0183,
+          "samples": 109,
+          "simulationFPS": 27.12589901202001,
+          "yawDPS": 298.572,
+          "pitchDPS": 0.0
+        },
+        {
+          "slot": 1,
+          "allocatedViewports": 4,
+          "phase": 0,
+          "seconds": 4.015,
+          "samples": 106,
+          "simulationFPS": 26.400996264009965,
+          "yawDPS": 298.572,
+          "pitchDPS": 0.0
+        },
+        {
+          "slot": 2,
+          "allocatedViewports": 4,
+          "phase": 1,
+          "seconds": 4.0172,
+          "samples": 122,
+          "simulationFPS": 30.3694115304192,
+          "yawDPS": 149.239,
+          "pitchDPS": 0.0
+        },
+        {
+          "slot": 4,
+          "allocatedViewports": 4,
+          "phase": 1,
+          "seconds": 4.0172,
+          "samples": 122,
+          "simulationFPS": 30.3694115304192,
+          "yawDPS": 149.239,
+          "pitchDPS": 0.0
+        },
+        {
+          "slot": 3,
+          "allocatedViewports": 4,
+          "phase": 0,
+          "seconds": 4.0073,
+          "samples": 123,
+          "simulationFPS": 30.69398348014873,
+          "yawDPS": 298.557,
+          "pitchDPS": 0.0
+        },
+        {
+          "slot": 1,
+          "allocatedViewports": 4,
+          "phase": 1,
+          "seconds": 4.0172,
+          "samples": 127,
+          "simulationFPS": 31.61405954396097,
+          "yawDPS": 149.235,
+          "pitchDPS": 0.0
+        },
+        {
+          "slot": 4,
+          "allocatedViewports": 4,
+          "phase": 2,
+          "seconds": 4.0238,
+          "samples": 131,
+          "simulationFPS": 32.55629007405935,
+          "yawDPS": 149.233,
+          "pitchDPS": 0.0
+        },
+        {
+          "slot": 3,
+          "allocatedViewports": 4,
+          "phase": 1,
+          "seconds": 4.0139,
+          "samples": 130,
+          "simulationFPS": 32.387453598744365,
+          "yawDPS": 149.233,
+          "pitchDPS": 0.0
+        },
+        {
+          "slot": 1,
+          "allocatedViewports": 4,
+          "phase": 2,
+          "seconds": 4.0051,
+          "samples": 123,
+          "simulationFPS": 30.71084367431525,
+          "yawDPS": 149.24,
+          "pitchDPS": 0.0
+        },
+        {
+          "slot": 2,
+          "allocatedViewports": 4,
+          "phase": 2,
+          "seconds": 4.0436,
+          "samples": 131,
+          "simulationFPS": 32.39687407260857,
+          "yawDPS": 149.233,
+          "pitchDPS": 0.0
+        },
+        {
+          "slot": 3,
+          "allocatedViewports": 4,
+          "phase": 2,
+          "seconds": 4.026,
+          "samples": 119,
+          "simulationFPS": 29.557873820168904,
+          "yawDPS": 149.235,
+          "pitchDPS": 0.0
+        },
+        {
+          "slot": 2,
+          "allocatedViewports": 4,
+          "phase": 3,
+          "seconds": 4.0304,
+          "samples": 120,
+          "simulationFPS": 29.773719730051607,
+          "yawDPS": 0.0,
+          "pitchDPS": 151.771
+        },
+        {
+          "slot": 4,
+          "allocatedViewports": 4,
+          "phase": 3,
+          "seconds": 4.004,
+          "samples": 123,
+          "simulationFPS": 30.71928071928072,
+          "yawDPS": 0.0,
+          "pitchDPS": 151.769
+        },
+        {
+          "slot": 1,
+          "allocatedViewports": 4,
+          "phase": 3,
+          "seconds": 4.0293,
+          "samples": 117,
+          "simulationFPS": 29.03730176457449,
+          "yawDPS": 0.0,
+          "pitchDPS": 151.777
+        },
+        {
+          "slot": 3,
+          "allocatedViewports": 4,
+          "phase": 3,
+          "seconds": 4.0282,
+          "samples": 120,
+          "simulationFPS": 29.789980636512585,
+          "yawDPS": 0.0,
+          "pitchDPS": 151.77
+        },
+        {
+          "slot": 2,
+          "allocatedViewports": 4,
+          "phase": 0,
+          "seconds": 4.0381,
+          "samples": 119,
+          "simulationFPS": 29.469304871102747,
+          "yawDPS": 298.562,
+          "pitchDPS": 0.0
+        },
+        {
+          "slot": 4,
+          "allocatedViewports": 4,
+          "phase": 0,
+          "seconds": 4.0117,
+          "samples": 120,
+          "simulationFPS": 29.912505920183463,
+          "yawDPS": 298.565,
+          "pitchDPS": 0.0
+        },
+        {
+          "slot": 1,
+          "allocatedViewports": 4,
+          "phase": 0,
+          "seconds": 4.0029,
+          "samples": 119,
+          "simulationFPS": 29.728446876014885,
+          "yawDPS": 298.565,
+          "pitchDPS": 0.0
+        },
+        {
+          "slot": 3,
+          "allocatedViewports": 4,
+          "phase": 0,
+          "seconds": 4.0062,
+          "samples": 116,
+          "simulationFPS": 28.955119564674757,
+          "yawDPS": 298.571,
+          "pitchDPS": 0.0
+        },
+        {
+          "slot": 2,
+          "allocatedViewports": 4,
+          "phase": 1,
+          "seconds": 4.0062,
+          "samples": 118,
+          "simulationFPS": 29.4543457640657,
+          "yawDPS": 149.247,
+          "pitchDPS": 0.0
+        },
+        {
+          "slot": 4,
+          "allocatedViewports": 4,
+          "phase": 1,
+          "seconds": 4.026,
+          "samples": 120,
+          "simulationFPS": 29.80625931445604,
+          "yawDPS": 149.246,
+          "pitchDPS": 0.0
+        },
+        {
+          "slot": 1,
+          "allocatedViewports": 4,
+          "phase": 1,
+          "seconds": 4.0271,
+          "samples": 117,
+          "simulationFPS": 29.053164808422935,
+          "yawDPS": 149.246,
+          "pitchDPS": 0.0
+        },
+        {
+          "slot": 3,
+          "allocatedViewports": 4,
+          "phase": 1,
+          "seconds": 4.0062,
+          "samples": 120,
+          "simulationFPS": 29.953571963456643,
+          "yawDPS": 149.239,
+          "pitchDPS": 0.0
+        },
+        {
+          "slot": 2,
+          "allocatedViewports": 4,
+          "phase": 2,
+          "seconds": 4.0205,
+          "samples": 120,
+          "simulationFPS": 29.84703395100112,
+          "yawDPS": 149.237,
+          "pitchDPS": 0.0
+        },
+        {
+          "slot": 4,
+          "allocatedViewports": 4,
+          "phase": 2,
+          "seconds": 4.0172,
+          "samples": 117,
+          "simulationFPS": 29.12476351687743,
+          "yawDPS": 149.243,
+          "pitchDPS": 0.0
+        },
+        {
+          "slot": 1,
+          "allocatedViewports": 4,
+          "phase": 2,
+          "seconds": 4.0073,
+          "samples": 113,
+          "simulationFPS": 28.198537668754525,
+          "yawDPS": 149.253,
+          "pitchDPS": 0.0
+        },
+        {
+          "slot": 3,
+          "allocatedViewports": 4,
+          "phase": 2,
+          "seconds": 4.0161,
+          "samples": 105,
+          "simulationFPS": 26.144767311570927,
+          "yawDPS": 149.261,
+          "pitchDPS": 0.0
+        },
+        {
+          "slot": 4,
+          "allocatedViewports": 4,
+          "phase": 3,
+          "seconds": 4.0183,
+          "samples": 99,
+          "simulationFPS": 24.637284423761294,
+          "yawDPS": 0.0,
+          "pitchDPS": 151.786
+        },
+        {
+          "slot": 2,
+          "allocatedViewports": 4,
+          "phase": 3,
+          "seconds": 4.0029,
+          "samples": 95,
+          "simulationFPS": 23.7327937245497,
+          "yawDPS": 0.0,
+          "pitchDPS": 151.788
+        },
+        {
+          "slot": 1,
+          "allocatedViewports": 4,
+          "phase": 3,
+          "seconds": 4.0139,
+          "samples": 101,
+          "simulationFPS": 25.162560103639855,
+          "yawDPS": 0.0,
+          "pitchDPS": 151.787
+        },
+        {
+          "slot": 4,
+          "allocatedViewports": 4,
+          "phase": 0,
+          "seconds": 4.0062,
+          "samples": 108,
+          "simulationFPS": 26.95821476711098,
+          "yawDPS": 298.566,
+          "pitchDPS": 0.0
+        },
+        {
+          "slot": 2,
+          "allocatedViewports": 4,
+          "phase": 0,
+          "seconds": 4.0117,
+          "samples": 114,
+          "simulationFPS": 28.41688062417429,
+          "yawDPS": 298.563,
+          "pitchDPS": 0.0
+        },
+        {
+          "slot": 3,
+          "allocatedViewports": 4,
+          "phase": 3,
+          "seconds": 4.0282,
+          "samples": 112,
+          "simulationFPS": 27.803981927411748,
+          "yawDPS": 0.0,
+          "pitchDPS": 151.78
+        },
+        {
+          "slot": 1,
+          "allocatedViewports": 4,
+          "phase": 0,
+          "seconds": 4.0095,
+          "samples": 118,
+          "simulationFPS": 29.430103504177577,
+          "yawDPS": 298.558,
+          "pitchDPS": 0.0
+        },
+        {
+          "slot": 4,
+          "allocatedViewports": 4,
+          "phase": 1,
+          "seconds": 4.0018,
+          "samples": 133,
+          "simulationFPS": 33.235044230096456,
+          "yawDPS": 149.234,
+          "pitchDPS": 0.0
+        },
+        {
+          "slot": 2,
+          "allocatedViewports": 4,
+          "phase": 1,
+          "seconds": 4.0425,
+          "samples": 131,
+          "simulationFPS": 32.40568954854669,
+          "yawDPS": 149.237,
+          "pitchDPS": 0.0
+        },
+        {
+          "slot": 3,
+          "allocatedViewports": 4,
+          "phase": 0,
+          "seconds": 4.026,
+          "samples": 126,
+          "simulationFPS": 31.29657228017884,
+          "yawDPS": 298.552,
+          "pitchDPS": 0.0
+        },
+        {
+          "slot": 4,
+          "allocatedViewports": 4,
+          "phase": 2,
+          "seconds": 4.0095,
+          "samples": 120,
+          "simulationFPS": 29.928918817807705,
+          "yawDPS": 149.231,
+          "pitchDPS": 0.0
+        },
+        {
+          "slot": 1,
+          "allocatedViewports": 4,
+          "phase": 1,
+          "seconds": 4.0161,
+          "samples": 131,
+          "simulationFPS": 32.61870969348373,
+          "yawDPS": 149.232,
+          "pitchDPS": 0.0
+        },
+        {
+          "slot": 2,
+          "allocatedViewports": 4,
+          "phase": 2,
+          "seconds": 4.0216,
+          "samples": 130,
+          "simulationFPS": 32.3254426099065,
+          "yawDPS": 149.223,
+          "pitchDPS": 0.0
+        },
+        {
+          "slot": 3,
+          "allocatedViewports": 4,
+          "phase": 1,
+          "seconds": 4.0018,
+          "samples": 133,
+          "simulationFPS": 33.235044230096456,
+          "yawDPS": 149.222,
+          "pitchDPS": 0.0
+        },
+        {
+          "slot": 4,
+          "allocatedViewports": 4,
+          "phase": 3,
+          "seconds": 4.026,
+          "samples": 145,
+          "simulationFPS": 36.01589667163438,
+          "yawDPS": 0.0,
+          "pitchDPS": 151.759
+        },
+        {
+          "slot": 1,
+          "allocatedViewports": 4,
+          "phase": 2,
+          "seconds": 4.0029,
+          "samples": 138,
+          "simulationFPS": 34.475005620924826,
+          "yawDPS": 149.221,
+          "pitchDPS": 0.0
+        },
+        {
+          "slot": 3,
+          "allocatedViewports": 4,
+          "phase": 2,
+          "seconds": 4.0007,
+          "samples": 142,
+          "simulationFPS": 35.493788586997276,
+          "yawDPS": 149.219,
+          "pitchDPS": 0.0
+        }
+      ],
+      "simulationFPSRange": [
+        23.683095255902074,
+        36.01589667163438
+      ],
+      "phaseMeans": [
+        298.5663125,
+        149.23556250000001,
+        149.236,
+        151.77346153846153
+      ],
+      "originalHarnessOK": true,
+      "qualification": "Passed",
+      "identity": {
+        "files": {
+          "xbe": {
+            "path": "C:\\Programming\\GitHub\\UnrealTournament_1.40\\UT99-Xbox\\build_cli\\sensitivity_stage\\default.xbe",
+            "sha256": "17cc369bdd870940e1ed980b5922499b717286f4020a9aa1fec56bbeaf0489bd"
+          },
+          "symbols": {
+            "path": "C:\\Programming\\GitHub\\UnrealTournament_1.40\\build\\UnrealTournament.map",
+            "sha256": "f5e2fae85ca4f33e6e0dbac367895175cf431e4300ba5afc5c55811270f77ac0"
+          },
+          "map": {
+            "path": "C:\\Programming\\GitHub\\UnrealTournament_1.40\\UT99-Xbox\\build_cli\\sensitivity_stage\\Maps\\DM-Oblivion.unr",
+            "sha256": "d28969118beec6c481a9c48e13bb8cff3156ca239b8dc808ed2f5a0a1a644544"
+          }
+        },
+        "players": 4,
+        "bots": 8,
+        "seconds": 60,
+        "profiling": true,
+        "rasterMode": "optimized",
+        "auditOverhead": false
+      }
+    }
+  ],
+  "note": "Rates are degrees per simulation second at FOV 90. Pitch resets to zero each proof tick to avoid the pitch limit. Game speed remains applicable. Not a hardware controller latency measurement."
+}

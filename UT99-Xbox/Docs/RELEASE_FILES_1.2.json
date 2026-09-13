@@ -1,0 +1,2654 @@
+{
+  "version": "1.2",
+  "date": "2026-09-12",
+  "scope": "Final validated release archive payload",
+  "archiveSha256": "72d7dbc6547414b79db84acb0c3457d733a22c6fa0254ca6d721bcb3c93d9b1b",
+  "files": [
+    {
+      "path": "CONTENT_CREDITS.txt",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/CONTENT_CREDITS.txt",
+      "bytes": 6983,
+      "sha256": "1b61ec29a225ba99536099bd682d8bbe1558cce72cdfcd74eabe050cb542474f"
+    },
+    {
+      "path": "default.xbe",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/default.xbe",
+      "bytes": 2088960,
+      "sha256": "a1c208d51f40db3dac5706ddb4b236bc6fb25e64b9dee467e5a837b75e699b68"
+    },
+    {
+      "path": "Docs/AgentX_099/axv099Readme.txt",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Docs/AgentX_099/axv099Readme.txt",
+      "bytes": 3071,
+      "sha256": "2d0b4f8fc48b414047aceaacba3b86b134ee82548de7a0c9d024bb332a1eacc6"
+    },
+    {
+      "path": "Docs/AkimboArena/AkimboArena.txt",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Docs/AkimboArena/AkimboArena.txt",
+      "bytes": 6792,
+      "sha256": "3be3ddf73ad8ed55538bdff2dacc1d29695c999413afc99ae56fcac3f2807e27"
+    },
+    {
+      "path": "Docs/AkimboArena/akimboarena.umod",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Docs/AkimboArena/akimboarena.umod",
+      "bytes": 280768,
+      "sha256": "0b28aaac5ff6bab19d9ee65e2c552f3e4da93959171014685fece13e68e5ae38"
+    },
+    {
+      "path": "Docs/Console_Map_Pack_README.txt",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Docs/Console_Map_Pack_README.txt",
+      "bytes": 4871,
+      "sha256": "f3e9f50aec57f349d4ecaa1b6f1b970f0352bcf9a7f08dff03935778665ed8af"
+    },
+    {
+      "path": "Docs/FILE_MANIFEST_SHA256.txt",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Docs/FILE_MANIFEST_SHA256.txt",
+      "bytes": 46141,
+      "sha256": "786f72f9cb1810a0a1375f1331033b7485a8cff6f0bddd7ea9d272474aa9f4ba"
+    },
+    {
+      "path": "Docs/INSTALLATION_1.2.txt",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Docs/INSTALLATION_1.2.txt",
+      "bytes": 1763,
+      "sha256": "64fc2ea21b592e32b4cdb9b37d3c8c38e4d39644468b9cc75e047a42cb8c93b4"
+    },
+    {
+      "path": "Docs/ISSUE_FIXES_2026-09-08.md",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Docs/ISSUE_FIXES_2026-09-08.md",
+      "bytes": 6170,
+      "sha256": "755fe57111b2230ae79ba8bdc60c26e0b1f1f04c61bd0a0effac88930291ae0c"
+    },
+    {
+      "path": "Docs/JailbreakIII/JailbreakIII/html/ingame.html",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Docs/JailbreakIII/JailbreakIII/html/ingame.html",
+      "bytes": 75653,
+      "sha256": "af01b289033b029a4ff329d422691f9c0e4c06028995c5d84fa0589eff538a1f"
+    },
+    {
+      "path": "Docs/JailbreakIII/JailbreakIII/html/mapguide.html",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Docs/JailbreakIII/JailbreakIII/html/mapguide.html",
+      "bytes": 16000,
+      "sha256": "5cef71219724c31be86915ad988b5362699b624f91d4258a1d381615f56fea65"
+    },
+    {
+      "path": "Docs/JailbreakIII/JailbreakIII/html/other.html",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Docs/JailbreakIII/JailbreakIII/html/other.html",
+      "bytes": 48360,
+      "sha256": "f3d2395d016804f6af9e5ef1ebabe08b5e99db31cebbfffcabdbfe5c84c1de57"
+    },
+    {
+      "path": "Docs/JailbreakIII/JailbreakIII/html/servers.html",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Docs/JailbreakIII/JailbreakIII/html/servers.html",
+      "bytes": 28434,
+      "sha256": "f8366e66ed1120df318588a679bc80003e6f96c64b3957f85a2aa795e7f5d339"
+    },
+    {
+      "path": "Docs/JailbreakIII/JailbreakIII/html/starting.html",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Docs/JailbreakIII/JailbreakIII/html/starting.html",
+      "bytes": 46390,
+      "sha256": "8723ee52689c9efb12da9bed9421f842ec6c4530f5564cb123c775a4554e9255"
+    },
+    {
+      "path": "Docs/JailbreakIII/JailbreakIII/images/arrow-back.gif",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Docs/JailbreakIII/JailbreakIII/images/arrow-back.gif",
+      "bytes": 181,
+      "sha256": "a4d4af4358e0ee74f99aa7e5998f030d618eef7d08b045c36067e366a21dc2a2"
+    },
+    {
+      "path": "Docs/JailbreakIII/JailbreakIII/images/arrow-next.gif",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Docs/JailbreakIII/JailbreakIII/images/arrow-next.gif",
+      "bytes": 180,
+      "sha256": "c106c586bc92e1a59c85e92addba8cf2ed751afa6e1ae6b3400f728e41f64f42"
+    },
+    {
+      "path": "Docs/JailbreakIII/JailbreakIII/images/back-rollover.gif",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Docs/JailbreakIII/JailbreakIII/images/back-rollover.gif",
+      "bytes": 878,
+      "sha256": "e54a74841ffdb3593a59519f825ffc5c051b74c872455afec3d0bfc2e2293568"
+    },
+    {
+      "path": "Docs/JailbreakIII/JailbreakIII/images/back.gif",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Docs/JailbreakIII/JailbreakIII/images/back.gif",
+      "bytes": 896,
+      "sha256": "71cbe290fc7fb387193a83bf873674c5c7723ed4bcb1701a164b1afc5e91570a"
+    },
+    {
+      "path": "Docs/JailbreakIII/JailbreakIII/images/bottom-text.gif",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Docs/JailbreakIII/JailbreakIII/images/bottom-text.gif",
+      "bytes": 1356,
+      "sha256": "ec0d97011c69d73b8a3a2d1f25155ebcd2185aef51eb9acc01a31eebfe905d48"
+    },
+    {
+      "path": "Docs/JailbreakIII/JailbreakIII/images/hud-blue.gif",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Docs/JailbreakIII/JailbreakIII/images/hud-blue.gif",
+      "bytes": 2413,
+      "sha256": "32c7f8fb27696b22fc4668c7bc001b882374992090c68706e7e3b011604cd435"
+    },
+    {
+      "path": "Docs/JailbreakIII/JailbreakIII/images/hud-compass.gif",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Docs/JailbreakIII/JailbreakIII/images/hud-compass.gif",
+      "bytes": 1762,
+      "sha256": "eafde98f0b7ff3711493c977295176b3195ea6c563b31c5850474e411ab1f6c8"
+    },
+    {
+      "path": "Docs/JailbreakIII/JailbreakIII/images/hud-red.gif",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Docs/JailbreakIII/JailbreakIII/images/hud-red.gif",
+      "bytes": 2373,
+      "sha256": "24107436b801e31584a5628915120bf41fe1d7f34afd61e49f7c57c5c9ada8d8"
+    },
+    {
+      "path": "Docs/JailbreakIII/JailbreakIII/images/hud-stance.gif",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Docs/JailbreakIII/JailbreakIII/images/hud-stance.gif",
+      "bytes": 1641,
+      "sha256": "d176ec744477dd6c81fb941298c072d715447f9c1fddf85c66205927351315c0"
+    },
+    {
+      "path": "Docs/JailbreakIII/JailbreakIII/images/jbmanual.gif",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Docs/JailbreakIII/JailbreakIII/images/jbmanual.gif",
+      "bytes": 13108,
+      "sha256": "02f5bfe433ea8e4f8666da43e0b8d789607bd0d73ef23ad91fe219f61c5ffd92"
+    },
+    {
+      "path": "Docs/JailbreakIII/JailbreakIII/images/left-dottedline.gif",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Docs/JailbreakIII/JailbreakIII/images/left-dottedline.gif",
+      "bytes": 45,
+      "sha256": "ff6ac0501c15c669122e5efd11f0a27537962791756bb3f1c2e8c287d69957fc"
+    },
+    {
+      "path": "Docs/JailbreakIII/JailbreakIII/images/line-left.gif",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Docs/JailbreakIII/JailbreakIII/images/line-left.gif",
+      "bytes": 269,
+      "sha256": "c66d50955c6a5bc4b7b998a6c35c0688bea188b88c935164f52d733ffb13348d"
+    },
+    {
+      "path": "Docs/JailbreakIII/JailbreakIII/images/line-right.gif",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Docs/JailbreakIII/JailbreakIII/images/line-right.gif",
+      "bytes": 266,
+      "sha256": "e68bcf13fe4cfbbd2e8099d6d1c47b3e00aadb88d2813c6614b33d9c07ff3ea4"
+    },
+    {
+      "path": "Docs/JailbreakIII/JailbreakIII/images/logo.gif",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Docs/JailbreakIII/JailbreakIII/images/logo.gif",
+      "bytes": 11632,
+      "sha256": "6f282db44144beaa287ef6c4d5a454568c31ec5f81e7718fcfb02ebb0449308a"
+    },
+    {
+      "path": "Docs/JailbreakIII/JailbreakIII/images/logo2.jpg",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Docs/JailbreakIII/JailbreakIII/images/logo2.jpg",
+      "bytes": 5560,
+      "sha256": "2955b5d3c08308fd4224d240adbfc12614edb6b2377f44a8bd81e4fc9bde03c0"
+    },
+    {
+      "path": "Docs/JailbreakIII/JailbreakIII/images/navigation.gif",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Docs/JailbreakIII/JailbreakIII/images/navigation.gif",
+      "bytes": 3822,
+      "sha256": "d26914c33f2c37df0875e1c6c4c7c259c29bc6e26b06cd7ee2ae0a1b681a89c2"
+    },
+    {
+      "path": "Docs/JailbreakIII/JailbreakIII/images/next-rollover.gif",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Docs/JailbreakIII/JailbreakIII/images/next-rollover.gif",
+      "bytes": 928,
+      "sha256": "4a2914758318626106a05e29904b2c5139bb6d07fdbac6fe4619575a6f0b714c"
+    },
+    {
+      "path": "Docs/JailbreakIII/JailbreakIII/images/next.gif",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Docs/JailbreakIII/JailbreakIII/images/next.gif",
+      "bytes": 954,
+      "sha256": "951e7f71394c9e25666ea42ab813cb268a94efbd60002c9031bb2d14349d304d"
+    },
+    {
+      "path": "Docs/JailbreakIII/JailbreakIII/images/shot-arenalarge.jpg",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Docs/JailbreakIII/JailbreakIII/images/shot-arenalarge.jpg",
+      "bytes": 101344,
+      "sha256": "c03ff10d5c382351fd202d7e9bd176882ccf89b477ed5a26a48bf28787db18df"
+    },
+    {
+      "path": "Docs/JailbreakIII/JailbreakIII/images/shot-arenasmall.jpg",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Docs/JailbreakIII/JailbreakIII/images/shot-arenasmall.jpg",
+      "bytes": 24800,
+      "sha256": "5604e4ffaf42cba2dedb74506cead477a47cbc6f724f92412c8696168790efe6"
+    },
+    {
+      "path": "Docs/JailbreakIII/JailbreakIII/images/shot-deathscenelarge.jpg",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Docs/JailbreakIII/JailbreakIII/images/shot-deathscenelarge.jpg",
+      "bytes": 155765,
+      "sha256": "af58450203e0eeec14e30f88fa341be4e76e2e0a748d028151f80b591b51a66f"
+    },
+    {
+      "path": "Docs/JailbreakIII/JailbreakIII/images/shot-deathscenesmall.jpg",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Docs/JailbreakIII/JailbreakIII/images/shot-deathscenesmall.jpg",
+      "bytes": 37045,
+      "sha256": "5a45ea7faf6c8e2caabb5731be111ef056025c1944a8d98ad8134c8c85e0809d"
+    },
+    {
+      "path": "Docs/JailbreakIII/JailbreakIII/images/shot-install1.gif",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Docs/JailbreakIII/JailbreakIII/images/shot-install1.gif",
+      "bytes": 15477,
+      "sha256": "1a8757cb7028c95c018fa5eea8961d370870ca4867f2db95fff391bcfa4fc49c"
+    },
+    {
+      "path": "Docs/JailbreakIII/JailbreakIII/images/shot-install2.gif",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Docs/JailbreakIII/JailbreakIII/images/shot-install2.gif",
+      "bytes": 16841,
+      "sha256": "1f912434d6b514ab004521058a4f39a8fb3e8667e4b774715eb09577a1accc67"
+    },
+    {
+      "path": "Docs/JailbreakIII/JailbreakIII/images/shot-mapintrolarge.jpg",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Docs/JailbreakIII/JailbreakIII/images/shot-mapintrolarge.jpg",
+      "bytes": 109410,
+      "sha256": "0830fad9a309556f5f544d50b1fa96b73f2dd54fa40a1483a0b6fa68993fad8b"
+    },
+    {
+      "path": "Docs/JailbreakIII/JailbreakIII/images/shot-mapintrosmall.jpg",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Docs/JailbreakIII/JailbreakIII/images/shot-mapintrosmall.jpg",
+      "bytes": 24939,
+      "sha256": "5a2b00e272a90d43f6951e04fe1a0fd4cfd3504ee57145c342f5d0033d27cb8c"
+    },
+    {
+      "path": "Docs/JailbreakIII/JailbreakIII/images/shot-menu1.gif",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Docs/JailbreakIII/JailbreakIII/images/shot-menu1.gif",
+      "bytes": 17840,
+      "sha256": "5eef740f99cf0eeea097fbc43559a142786c10a913c9ed464ec50a6f896f949f"
+    },
+    {
+      "path": "Docs/JailbreakIII/JailbreakIII/images/shot-menu2.gif",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Docs/JailbreakIII/JailbreakIII/images/shot-menu2.gif",
+      "bytes": 23050,
+      "sha256": "0290891461ae6fd8edafbdbb262d644d57223abd660923af21a3f9603a5836db"
+    },
+    {
+      "path": "Docs/JailbreakIII/JailbreakIII/images/shot-menu3.gif",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Docs/JailbreakIII/JailbreakIII/images/shot-menu3.gif",
+      "bytes": 19414,
+      "sha256": "bac472c57a49b7cbe4a639a2f54b8676212f5d77e3c8f995b358a4807189d327"
+    },
+    {
+      "path": "Docs/JailbreakIII/JailbreakIII/images/shot-menu4.gif",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Docs/JailbreakIII/JailbreakIII/images/shot-menu4.gif",
+      "bytes": 19072,
+      "sha256": "d8a87c516162a6e4c7f119a4dc500cc3cb1ebdd6d6c30a052c26bf568b43b4da"
+    },
+    {
+      "path": "Docs/JailbreakIII/JailbreakIII/images/shot-menu5.gif",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Docs/JailbreakIII/JailbreakIII/images/shot-menu5.gif",
+      "bytes": 19836,
+      "sha256": "8f7382a4ed620810f86e524afb6f2d386d8cceafd783dec88fac0f3ebe62a118"
+    },
+    {
+      "path": "Docs/JailbreakIII/JailbreakIII/images/shot-menu6.gif",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Docs/JailbreakIII/JailbreakIII/images/shot-menu6.gif",
+      "bytes": 11404,
+      "sha256": "5750c21f3121d21399c90e4f475de35d490a1546cbbd7779dbb430fa91a85839"
+    },
+    {
+      "path": "Docs/JailbreakIII/JailbreakIII/images/shot-prisonlarge.jpg",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Docs/JailbreakIII/JailbreakIII/images/shot-prisonlarge.jpg",
+      "bytes": 110273,
+      "sha256": "f1a88487c11c70b84d545767496af073527b8258877b220a75100ac5a3116be7"
+    },
+    {
+      "path": "Docs/JailbreakIII/JailbreakIII/images/shot-prisonsmall.jpg",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Docs/JailbreakIII/JailbreakIII/images/shot-prisonsmall.jpg",
+      "bytes": 26016,
+      "sha256": "ff3b3f257aeb9674706cdcd79934365e711def514d591ab012bf7087e08b73bf"
+    },
+    {
+      "path": "Docs/JailbreakIII/JailbreakIII/images/shot-publicstatslarge.gif",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Docs/JailbreakIII/JailbreakIII/images/shot-publicstatslarge.gif",
+      "bytes": 26871,
+      "sha256": "a7b172b23cbeb9eceee88ac2c77ef4a687e4d9cb1cdc446321c8470314d2474a"
+    },
+    {
+      "path": "Docs/JailbreakIII/JailbreakIII/images/shot-publicstatssmall.gif",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Docs/JailbreakIII/JailbreakIII/images/shot-publicstatssmall.gif",
+      "bytes": 18853,
+      "sha256": "c13fd27238ad17e6acda71267360f614004e637fd7df1dad97b754a5359b9282"
+    },
+    {
+      "path": "Docs/JailbreakIII/JailbreakIII/images/shot-scoreboardbottom.gif",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Docs/JailbreakIII/JailbreakIII/images/shot-scoreboardbottom.gif",
+      "bytes": 1514,
+      "sha256": "da4cb5d160ae6497438bffe9afcac8a08455e7ac75af382f382f592b55fea36b"
+    },
+    {
+      "path": "Docs/JailbreakIII/JailbreakIII/images/shot-scoreboardlarge.jpg",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Docs/JailbreakIII/JailbreakIII/images/shot-scoreboardlarge.jpg",
+      "bytes": 72364,
+      "sha256": "b32a5ebc32d4a3338d45e5161ceb525cb5f6c03f1bf001edd743ff028b37f9a6"
+    },
+    {
+      "path": "Docs/JailbreakIII/JailbreakIII/images/shot-scoreboardsmall.gif",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Docs/JailbreakIII/JailbreakIII/images/shot-scoreboardsmall.gif",
+      "bytes": 2926,
+      "sha256": "e5f266d596d45b7408f899919b33569fc3bcac48f4154b361cbdf09e8825ed0d"
+    },
+    {
+      "path": "Docs/JailbreakIII/JailbreakIII/images/shot-selectpractice.gif",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Docs/JailbreakIII/JailbreakIII/images/shot-selectpractice.gif",
+      "bytes": 71627,
+      "sha256": "3ad78f40a070d3724c4ee7275ea38718642410bcca8e099e19d7b9866e5c7faf"
+    },
+    {
+      "path": "Docs/JailbreakIII/JailbreakIII/images/shot-serveradminlarge.gif",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Docs/JailbreakIII/JailbreakIII/images/shot-serveradminlarge.gif",
+      "bytes": 38306,
+      "sha256": "bdbf8593f20c5d56dd125fa117faeb7783aa10968f944f3eeab1e2b96b7d5d5b"
+    },
+    {
+      "path": "Docs/JailbreakIII/JailbreakIII/images/shot-serveradminsmall.gif",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Docs/JailbreakIII/JailbreakIII/images/shot-serveradminsmall.gif",
+      "bytes": 32488,
+      "sha256": "cbb6e080bf1cbca084c4a553d03b29788d6e38f646fb022cf5713b395f7f7028"
+    },
+    {
+      "path": "Docs/JailbreakIII/JailbreakIII/images/shot-serverbrowser.gif",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Docs/JailbreakIII/JailbreakIII/images/shot-serverbrowser.gif",
+      "bytes": 4495,
+      "sha256": "744ce94209262898998853182160969465033637765f6a7b8910e2851b86ec07"
+    },
+    {
+      "path": "Docs/JailbreakIII/JailbreakIII/images/shot-start2.gif",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Docs/JailbreakIII/JailbreakIII/images/shot-start2.gif",
+      "bytes": 69522,
+      "sha256": "5a1fad7629b5b35142feea223887b47c5f7ba34d25ffa38a4e894b8ae2dde996"
+    },
+    {
+      "path": "Docs/JailbreakIII/JailbreakIII/images/shot-start3.gif",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Docs/JailbreakIII/JailbreakIII/images/shot-start3.gif",
+      "bytes": 69188,
+      "sha256": "f49d43a9a647959bb68d8870d5cccd0eb805310456ffb3c0f099c658bbd0e65b"
+    },
+    {
+      "path": "Docs/JailbreakIII/JailbreakIII/images/shot-statsclient.gif",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Docs/JailbreakIII/JailbreakIII/images/shot-statsclient.gif",
+      "bytes": 17628,
+      "sha256": "475138fd94d44ae52f8c0c905d7d1184788e10c45f64ddb91cf49b19d58704e8"
+    },
+    {
+      "path": "Docs/JailbreakIII/JailbreakIII/images/shot-translarge.gif",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Docs/JailbreakIII/JailbreakIII/images/shot-translarge.gif",
+      "bytes": 11650,
+      "sha256": "7466d214055bb5cf2385b46d0fdad5e33a69801db89c1385ef5dcb2df4cc7fae"
+    },
+    {
+      "path": "Docs/JailbreakIII/JailbreakIII/images/shot-transsmall.gif",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Docs/JailbreakIII/JailbreakIII/images/shot-transsmall.gif",
+      "bytes": 2388,
+      "sha256": "e18e0f507df9cb0405f5d3c5afbd48b586fc5419ef20ec1a40ae4207c0cd5d1d"
+    },
+    {
+      "path": "Docs/JailbreakIII/JailbreakIII/images/spacer.gif",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Docs/JailbreakIII/JailbreakIII/images/spacer.gif",
+      "bytes": 43,
+      "sha256": "548f2d6f4d0d820c6c5ffbeffcbd7f0e73193e2932eefe542accc84762deec87"
+    },
+    {
+      "path": "Docs/JailbreakIII/JailbreakIII/images/title-aboutjb.gif",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Docs/JailbreakIII/JailbreakIII/images/title-aboutjb.gif",
+      "bytes": 2443,
+      "sha256": "40912bc69159cb9c53d3909dee1ac7586d755252d1161a13ed693b7d2be3139e"
+    },
+    {
+      "path": "Docs/JailbreakIII/JailbreakIII/images/title-arena.gif",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Docs/JailbreakIII/JailbreakIII/images/title-arena.gif",
+      "bytes": 1973,
+      "sha256": "d179b6c63b9b943fe210080b1f7df2b4e9b2c05912415d7bd849fadc6adb4759"
+    },
+    {
+      "path": "Docs/JailbreakIII/JailbreakIII/images/title-bots.gif",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Docs/JailbreakIII/JailbreakIII/images/title-bots.gif",
+      "bytes": 1657,
+      "sha256": "0ddb90e7ebf52597d59da0a508a78b7cae27d3915e48d64d2dc450baa12fe64b"
+    },
+    {
+      "path": "Docs/JailbreakIII/JailbreakIII/images/title-compatibility.gif",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Docs/JailbreakIII/JailbreakIII/images/title-compatibility.gif",
+      "bytes": 2317,
+      "sha256": "45e1601176c4366b51e1da1aa64f14d43e47dbe191f8690264b5a8c87605bd3d"
+    },
+    {
+      "path": "Docs/JailbreakIII/JailbreakIII/images/title-console.gif",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Docs/JailbreakIII/JailbreakIII/images/title-console.gif",
+      "bytes": 2558,
+      "sha256": "6a6cc38d5a415797945725afe07a71370804169f58c5067105d0855c696fa110"
+    },
+    {
+      "path": "Docs/JailbreakIII/JailbreakIII/images/title-copyright.gif",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Docs/JailbreakIII/JailbreakIII/images/title-copyright.gif",
+      "bytes": 2857,
+      "sha256": "c686d69422dd839be25322bf43c74bd7cb9797ce46ba8fb3261298d488d571ee"
+    },
+    {
+      "path": "Docs/JailbreakIII/JailbreakIII/images/title-credits.gif",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Docs/JailbreakIII/JailbreakIII/images/title-credits.gif",
+      "bytes": 1839,
+      "sha256": "405760424db0e9a86d8fe22b8f038ba340ae7cc8778de661f1b553eded4a9981"
+    },
+    {
+      "path": "Docs/JailbreakIII/JailbreakIII/images/title-deathscenes.gif",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Docs/JailbreakIII/JailbreakIII/images/title-deathscenes.gif",
+      "bytes": 2356,
+      "sha256": "8c39e8d790446bb2e483d27776d36de6ec610e0b6b6d19be22408017e81819e5"
+    },
+    {
+      "path": "Docs/JailbreakIII/JailbreakIII/images/title-hud.gif",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Docs/JailbreakIII/JailbreakIII/images/title-hud.gif",
+      "bytes": 3042,
+      "sha256": "89e4ae6e1f452a54dc3f6a9dfee6147880053e0a930ccb488564983979602ad2"
+    },
+    {
+      "path": "Docs/JailbreakIII/JailbreakIII/images/title-humanlad.gif",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Docs/JailbreakIII/JailbreakIII/images/title-humanlad.gif",
+      "bytes": 2314,
+      "sha256": "bce0eae9757c810ebce8f83055616cf8340b271c9b96c9079aa1a4ab5f31f47d"
+    },
+    {
+      "path": "Docs/JailbreakIII/JailbreakIII/images/title-installation.gif",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Docs/JailbreakIII/JailbreakIII/images/title-installation.gif",
+      "bytes": 2110,
+      "sha256": "0fb2758a8d465b7dd9aefb99510824900b1bb48247ba27899e5a90c8de17e226"
+    },
+    {
+      "path": "Docs/JailbreakIII/JailbreakIII/images/title-issues.gif",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Docs/JailbreakIII/JailbreakIII/images/title-issues.gif",
+      "bytes": 2300,
+      "sha256": "c5b155e82096e4e704d96e3d751695356d83d0934ae04f44c461f8e73c2dff93"
+    },
+    {
+      "path": "Docs/JailbreakIII/JailbreakIII/images/title-jbpref.gif",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Docs/JailbreakIII/JailbreakIII/images/title-jbpref.gif",
+      "bytes": 3244,
+      "sha256": "1a377b783437f4ef6195c1390c3fd57d1a6aaf3935c6e3a1a874c5be9a83c2f3"
+    },
+    {
+      "path": "Docs/JailbreakIII/JailbreakIII/images/title-joinmulti.gif",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Docs/JailbreakIII/JailbreakIII/images/title-joinmulti.gif",
+      "bytes": 3077,
+      "sha256": "2e69150dfda29c458bc3b2857603a8e8b32e443b62c25a0d178efffc4d2c536a"
+    },
+    {
+      "path": "Docs/JailbreakIII/JailbreakIII/images/title-llamahunt.gif",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Docs/JailbreakIII/JailbreakIII/images/title-llamahunt.gif",
+      "bytes": 1990,
+      "sha256": "5fb7a9d26179dcdb1744e41aa1f214fedf11d03afc550f063a8f1493d6c610d1"
+    },
+    {
+      "path": "Docs/JailbreakIII/JailbreakIII/images/title-mapguide.gif",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Docs/JailbreakIII/JailbreakIII/images/title-mapguide.gif",
+      "bytes": 2432,
+      "sha256": "94570d65915865fb76139fd9c1ad6d9a05b24c3427ad0e4b4049ebf236c748a3"
+    },
+    {
+      "path": "Docs/JailbreakIII/JailbreakIII/images/title-objectives.gif",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Docs/JailbreakIII/JailbreakIII/images/title-objectives.gif",
+      "bytes": 2143,
+      "sha256": "0e18cd6acc63ef631c94de5ac2e421847794a2caeeca3a52af28cfac075e856a"
+    },
+    {
+      "path": "Docs/JailbreakIII/JailbreakIII/images/title-prisons.gif",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Docs/JailbreakIII/JailbreakIII/images/title-prisons.gif",
+      "bytes": 1843,
+      "sha256": "a37ec14d2984b6f6313db76251637258a78648ee4bd8949af84c2c58a2bb1577"
+    },
+    {
+      "path": "Docs/JailbreakIII/JailbreakIII/images/title-publicstats.gif",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Docs/JailbreakIII/JailbreakIII/images/title-publicstats.gif",
+      "bytes": 2653,
+      "sha256": "dc2dcd57546ec451e51bd68032678ad3f59df572c6ebc0d0dc435516b40d3420"
+    },
+    {
+      "path": "Docs/JailbreakIII/JailbreakIII/images/title-releaseprot.gif",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Docs/JailbreakIII/JailbreakIII/images/title-releaseprot.gif",
+      "bytes": 2669,
+      "sha256": "7f762f60b14fae44ebb23eba60022265b9e88ccb27b0a4b9ced3eed1bf9ac084"
+    },
+    {
+      "path": "Docs/JailbreakIII/JailbreakIII/images/title-scoreboard.gif",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Docs/JailbreakIII/JailbreakIII/images/title-scoreboard.gif",
+      "bytes": 2148,
+      "sha256": "f1db2057d61bc182e4ade95abd09145bd6446f71d8fa045404d6893f8167e3e1"
+    },
+    {
+      "path": "Docs/JailbreakIII/JailbreakIII/images/title-scoring.gif",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Docs/JailbreakIII/JailbreakIII/images/title-scoring.gif",
+      "bytes": 1918,
+      "sha256": "32170d844f2e4f78dd860e2043109002d199ffd0725ce8a91c3c94ddc64bcabe"
+    },
+    {
+      "path": "Docs/JailbreakIII/JailbreakIII/images/title-serverbrowse.gif",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Docs/JailbreakIII/JailbreakIII/images/title-serverbrowse.gif",
+      "bytes": 3029,
+      "sha256": "3ae967ff5df73f9854ae2b135184714195b2cff0f911b4ab9125c26e724e8818"
+    },
+    {
+      "path": "Docs/JailbreakIII/JailbreakIII/images/title-startgame.gif",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Docs/JailbreakIII/JailbreakIII/images/title-startgame.gif",
+      "bytes": 2483,
+      "sha256": "a5a903af2de0e5f9ebb60e34df54e2dd1e62a37490801bba247b886a5e813e1e"
+    },
+    {
+      "path": "Docs/JailbreakIII/JailbreakIII/images/title-startserv.gif",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Docs/JailbreakIII/JailbreakIII/images/title-startserv.gif",
+      "bytes": 2510,
+      "sha256": "2a1363df652c18c7ca523a2c00903e773f0ae73166e3b7251a4b1496776fe62a"
+    },
+    {
+      "path": "Docs/JailbreakIII/JailbreakIII/images/title-statstrack.gif",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Docs/JailbreakIII/JailbreakIII/images/title-statstrack.gif",
+      "bytes": 2744,
+      "sha256": "212da7c648b5f98a90d9f9867066f9867fba70ebf5aab827dddac07556349d17"
+    },
+    {
+      "path": "Docs/JailbreakIII/JailbreakIII/images/title-suddendeath.gif",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Docs/JailbreakIII/JailbreakIII/images/title-suddendeath.gif",
+      "bytes": 2958,
+      "sha256": "d3b1421d490ae02f35b2d0a79c8420c02874e11040c41f787414ce1290fba69b"
+    },
+    {
+      "path": "Docs/JailbreakIII/JailbreakIII/images/title-trans.gif",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Docs/JailbreakIII/JailbreakIII/images/title-trans.gif",
+      "bytes": 2253,
+      "sha256": "6aa3cf18cfb21374ca2dc1dcb8c7b2e998890c545df97dfad55b2046818689bf"
+    },
+    {
+      "path": "Docs/JailbreakIII/JailbreakIII/images/title-webadmin.gif",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Docs/JailbreakIII/JailbreakIII/images/title-webadmin.gif",
+      "bytes": 2709,
+      "sha256": "2ea573e07791d58d78ad7b3c7d0755126f5e267373ef8a2092b3ddb6c69b30a6"
+    },
+    {
+      "path": "Docs/JailbreakIII/JailbreakIII/images/title-whatsnew.gif",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Docs/JailbreakIII/JailbreakIII/images/title-whatsnew.gif",
+      "bytes": 2248,
+      "sha256": "95e5138a3b89ecfcd4e7361992db1e3a4bc2dc0e3fb75f5523b8f35af042255d"
+    },
+    {
+      "path": "Docs/JailbreakIII/JailbreakIII/images/top-right.gif",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Docs/JailbreakIII/JailbreakIII/images/top-right.gif",
+      "bytes": 933,
+      "sha256": "b3b447f33737f7a336d314c8591eb3a221bac86f47518d5323cd0c2537824175"
+    },
+    {
+      "path": "Docs/JailbreakIII/JailbreakIII/images/top.gif",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Docs/JailbreakIII/JailbreakIII/images/top.gif",
+      "bytes": 234,
+      "sha256": "c3c611f505b72722ab44c15165a7f7839cb08149fdba821133190e5e65de40d1"
+    },
+    {
+      "path": "Docs/JailbreakIII/JailbreakIII/manual.html",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Docs/JailbreakIII/JailbreakIII/manual.html",
+      "bytes": 17581,
+      "sha256": "cc2c2563a333ab827d2faf425fcca9413f783d49f2da0918ea5ff3d89b91f2e9"
+    },
+    {
+      "path": "Docs/JailbreakIII/JailbreakIII/Mutators/JailFight.txt",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Docs/JailbreakIII/JailbreakIII/Mutators/JailFight.txt",
+      "bytes": 2225,
+      "sha256": "746e2b5a001f8c9620cfc065ce8061b2d97546f940cd42a5f479877f8c6d5760"
+    },
+    {
+      "path": "Docs/JailbreakIII/JailbreakIII/Mutators/JBFatboy.txt",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Docs/JailbreakIII/JailbreakIII/Mutators/JBFatboy.txt",
+      "bytes": 1142,
+      "sha256": "a9aa4e7a1eccf5bef49c0077774e9df812435a3afa3855af9e951af4cbe5093f"
+    },
+    {
+      "path": "Docs/JailbreakIII/JailbreakIII/Mutators/JBMadmen.txt",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Docs/JailbreakIII/JailbreakIII/Mutators/JBMadmen.txt",
+      "bytes": 3357,
+      "sha256": "c9556d1112d5db269834008f96a43d6d05b5866965dc82cb332473fe7e8090fc"
+    },
+    {
+      "path": "Docs/JailbreakIII/JailbreakIII-Gold.bmp",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Docs/JailbreakIII/JailbreakIII-Gold.bmp",
+      "bytes": 28960,
+      "sha256": "990381db51a2575c558e121d462da6c8665478897068aa4a5b70d3e6911f5727"
+    },
+    {
+      "path": "Docs/JailbreakIII/JailbreakIII-Gold.txt",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Docs/JailbreakIII/JailbreakIII-Gold.txt",
+      "bytes": 2748,
+      "sha256": "f34e551f3ec1a0df46251c963ba839efd0a5def59a5dab854b362d8673807cef"
+    },
+    {
+      "path": "Docs/JailbreakIII/JailbreakIII-SP1.txt",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Docs/JailbreakIII/JailbreakIII-SP1.txt",
+      "bytes": 5941,
+      "sha256": "d74d0f8c5c8714fd696d47d7d83669f0c2543321da6ffc180255f7ea6be907fc"
+    },
+    {
+      "path": "Docs/JailbreakIII/JailbreakIII-SP2.txt",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Docs/JailbreakIII/JailbreakIII-SP2.txt",
+      "bytes": 5564,
+      "sha256": "0ca45d825e9b2a4e2e878d7f4349d67a901737bd5b667226833345bfa10dc5c6"
+    },
+    {
+      "path": "Docs/JailbreakIII/JailbreakIII-Tutorial.txt",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Docs/JailbreakIII/JailbreakIII-Tutorial.txt",
+      "bytes": 2869,
+      "sha256": "75ccaca2778e41e9655bc1f673b2218ce35f3786f05d5c12b45484d4751ec93a"
+    },
+    {
+      "path": "Docs/JailbreakIII/RandomRelic.txt",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Docs/JailbreakIII/RandomRelic.txt",
+      "bytes": 1113,
+      "sha256": "43481661c3a769e6a64149fed3d2a6fa4eedb4d172fb2003de5494e5cf939cb0"
+    },
+    {
+      "path": "Docs/JailbreakIII/Screen.txt",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Docs/JailbreakIII/Screen.txt",
+      "bytes": 5530,
+      "sha256": "9e3aad2b1f64f553833b7b7c4426f24f3b53c4a2b13267f5fd21da8803d25066"
+    },
+    {
+      "path": "Docs/RELEASE_NOTES_1.2.txt",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Docs/RELEASE_NOTES_1.2.txt",
+      "bytes": 1994,
+      "sha256": "d615d2f263b6dda9e9eef3143b67d617fbb95b970e1d9a3023a13e9cc0e79c3a"
+    },
+    {
+      "path": "Maps/CTF-Phalanx.unr",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Maps/CTF-Phalanx.unr",
+      "bytes": 599832,
+      "sha256": "3a1c82c1896d4b23205f02bc747d64395597d19ae9b67e473b07c4af29d71106"
+    },
+    {
+      "path": "Maps/CTF-Sepulchre.unr",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Maps/CTF-Sepulchre.unr",
+      "bytes": 404383,
+      "sha256": "df4630a4368de5fd0ec1fa8ec8ca19513c2a46cbf582d9875fb42be98b142164"
+    },
+    {
+      "path": "Maps/CTF-Spirito.unr",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Maps/CTF-Spirito.unr",
+      "bytes": 625154,
+      "sha256": "a5aaa948345ace7a47ab0eba8f1dadd35e95945dd81ab80eb3292410177eaf02"
+    },
+    {
+      "path": "Maps/CTF-Stormfront.unr",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Maps/CTF-Stormfront.unr",
+      "bytes": 675789,
+      "sha256": "b819814c7851475cd5560b4426088063346deb3611f3d037a4629f2ca7f2fb52"
+    },
+    {
+      "path": "Maps/CTF-Sundial.unr",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Maps/CTF-Sundial.unr",
+      "bytes": 815932,
+      "sha256": "186332a19808ac4b44734e7d889fa15717eb78bccb22074347e713af80bd1140"
+    },
+    {
+      "path": "Maps/CTF-Titania.unr",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Maps/CTF-Titania.unr",
+      "bytes": 3694458,
+      "sha256": "cceca76453538bce753c4e106afad293dd39c10ca9d7e72e00d8931be7fce686"
+    },
+    {
+      "path": "Maps/DM-Babylon.unr",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Maps/DM-Babylon.unr",
+      "bytes": 466565,
+      "sha256": "d49ea77feb442f910ce0e3b40f6e198df0bd2f5a1c0b203c50249630afaf9d85"
+    },
+    {
+      "path": "Maps/DM-Blockparty.unr",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Maps/DM-Blockparty.unr",
+      "bytes": 709468,
+      "sha256": "91e68fd44f94d4c7bebba9eda0aeac85c472b2670464489f0c58549f180eca46"
+    },
+    {
+      "path": "Maps/DM-Brickyard.unr",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Maps/DM-Brickyard.unr",
+      "bytes": 564948,
+      "sha256": "39ddf63609d1ad268887fe4467bbca65bb4cb3ac89117f78467044bc6b2916ae"
+    },
+    {
+      "path": "Maps/DM-CanyonFear.unr",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Maps/DM-CanyonFear.unr",
+      "bytes": 258872,
+      "sha256": "927997c3ceda4d9b9aae48c341613ecbd84b43a07a06f066ef1507ed09a4db8e"
+    },
+    {
+      "path": "Maps/DM-Coagulate.unr",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Maps/DM-Coagulate.unr",
+      "bytes": 399561,
+      "sha256": "2f65811ca394834416acfbcf5db6508d8b4af5a7c0352cd0242dca43aaffb3de"
+    },
+    {
+      "path": "Maps/DM-Coldsteelpressure.unr",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Maps/DM-Coldsteelpressure.unr",
+      "bytes": 403741,
+      "sha256": "2edad5a68f80229680141299cb07a31b866a247da355b28c9f34cd4affbb7b07"
+    },
+    {
+      "path": "Maps/DM-Core.unr",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Maps/DM-Core.unr",
+      "bytes": 383503,
+      "sha256": "cddd5fc7f81abbaef5ea0ef736f74b1cf1ff98ce73c81ed5bdd3dc463dbeed0d"
+    },
+    {
+      "path": "Maps/DM-Damnation.unr",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Maps/DM-Damnation.unr",
+      "bytes": 222354,
+      "sha256": "cb1b6d83c23ff3322d2dd33efa8bd78f492b500b1e0bf776935104f7b749fbfd"
+    },
+    {
+      "path": "Maps/DM-Depot.unr",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Maps/DM-Depot.unr",
+      "bytes": 314900,
+      "sha256": "1d7a357bce8e9c10811e1c1cbda7ed294bcc486a11afb7bff4bd818b003b9b9a"
+    },
+    {
+      "path": "Maps/DM-Dust.unr",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Maps/DM-Dust.unr",
+      "bytes": 377629,
+      "sha256": "3645b3e905244285e3ad13ca87fa20da21e2a12d7d8a183494a17c2d161f2e3b"
+    },
+    {
+      "path": "Maps/DM-Flux.unr",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Maps/DM-Flux.unr",
+      "bytes": 633115,
+      "sha256": "5ab259e16dc7f41ded007116713e091edf6cea28775e9b821061663f10b20186"
+    },
+    {
+      "path": "Maps/DM-Gearbox.unr",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Maps/DM-Gearbox.unr",
+      "bytes": 331969,
+      "sha256": "ae28b2fd723d52c67da49c4f20882d4bf457e10292bd9ea24693ca284b06c5ba"
+    },
+    {
+      "path": "Maps/DM-Girder.unr",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Maps/DM-Girder.unr",
+      "bytes": 314375,
+      "sha256": "157f0a71ff80ebe999a71bc8f00d09f836719af19387c1fb2548360055879048"
+    },
+    {
+      "path": "Maps/DM-Google.unr",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Maps/DM-Google.unr",
+      "bytes": 367346,
+      "sha256": "f6bcf2dcf5b6a2604dc087ab6e31aefca72a4904279494dfbd50f6835b2ffd35"
+    },
+    {
+      "path": "Maps/DM-Halberd.unr",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Maps/DM-Halberd.unr",
+      "bytes": 775572,
+      "sha256": "081528564690cca844105da36700b7042b6974d3d5b726bda42bd322feb2e996"
+    },
+    {
+      "path": "Maps/DM-Halo-Derelict.unr",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Maps/DM-Halo-Derelict.unr",
+      "bytes": 2084820,
+      "sha256": "0b34d16a115ac842dbba32d0f6fe52c1c555f7ed402fb1e6580032a8d232ee25"
+    },
+    {
+      "path": "Maps/DM-HangEmHigh.unr",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Maps/DM-HangEmHigh.unr",
+      "bytes": 9616886,
+      "sha256": "3828f535b655bb7bdbf280b3a138695b2d972a59f22f045867e34984e83a0680"
+    },
+    {
+      "path": "Maps/DM-Hood.unr",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Maps/DM-Hood.unr",
+      "bytes": 414394,
+      "sha256": "c0b5b9722aad4398d0852807df9ae60c23bd3244894445d81e5c6a0163071f8d"
+    },
+    {
+      "path": "Maps/DM-Industrial.unr",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Maps/DM-Industrial.unr",
+      "bytes": 764218,
+      "sha256": "1a581a916876d049ea19f1f7c457f40312c4d12e0a6e8c742846687e3666f30b"
+    },
+    {
+      "path": "Maps/DM-Infernal.unr",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Maps/DM-Infernal.unr",
+      "bytes": 284937,
+      "sha256": "45ee9ce6d5a34f1b3291571f5489e1f9c5d7c37f5836aa05a5f864698b11d303"
+    },
+    {
+      "path": "Maps/DM-Instinct.unr",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Maps/DM-Instinct.unr",
+      "bytes": 361567,
+      "sha256": "d55ef3ca6a817634f93f03945971fea86f65162ddef7a40f68135a48036a48c0"
+    },
+    {
+      "path": "Maps/DM-Loathing.unr",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Maps/DM-Loathing.unr",
+      "bytes": 300193,
+      "sha256": "d0212a0af2bf9ead6e1177ba0fbdb25b63cbb474bcee987cfcd3c192d5801dc4"
+    },
+    {
+      "path": "Maps/DM-Megaplex.unr",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Maps/DM-Megaplex.unr",
+      "bytes": 652988,
+      "sha256": "f09864731fc7efc30425bda5fbc935cd517906200c208f3ef82318d30f49d680"
+    },
+    {
+      "path": "Maps/DM-Nebula.unr",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Maps/DM-Nebula.unr",
+      "bytes": 758603,
+      "sha256": "3fef76739a18a8a7d57d997b1406fbd23d78952bbe43a721b828a7428270269f"
+    },
+    {
+      "path": "Maps/DM-Neotokyo.unr",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Maps/DM-Neotokyo.unr",
+      "bytes": 287983,
+      "sha256": "337d61633d686ac6a77a3962f4ba16aba34479e6b6ae23a8ce3cf7429984eb05"
+    },
+    {
+      "path": "Maps/DM-Outskirts.unr",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Maps/DM-Outskirts.unr",
+      "bytes": 1104617,
+      "sha256": "7f4415cab8247638278773a5198d3a769d53b0944af36fd4da8ded52b8a54b42"
+    },
+    {
+      "path": "Maps/DM-Paladin.unr",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Maps/DM-Paladin.unr",
+      "bytes": 307283,
+      "sha256": "a2005e00e038297afc63910733dc9fd637adc028aa09750e4881d900bb25ab63"
+    },
+    {
+      "path": "Maps/DM-Pantheon.unr",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Maps/DM-Pantheon.unr",
+      "bytes": 731372,
+      "sha256": "8832c1e25206d2ad0ec0748c05cd4febf33d34289868a1a88e34b538feda65b5"
+    },
+    {
+      "path": "Maps/DM-ScreenDemo.unr",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Maps/DM-ScreenDemo.unr",
+      "bytes": 388258,
+      "sha256": "fab563cc3a7c0e15fc1ab0efd0646d34046880d4a476cc1039c3518e65cb98ca"
+    },
+    {
+      "path": "Maps/DM-Sector9.unr",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Maps/DM-Sector9.unr",
+      "bytes": 402166,
+      "sha256": "70230306997f3da0d56b64e9e45238205bb0429c0fa5a0dff6e090f1f4a01a56"
+    },
+    {
+      "path": "Maps/DM-Singularity.unr",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Maps/DM-Singularity.unr",
+      "bytes": 819397,
+      "sha256": "4ea4312aae535848c797f11b372927a5c7941abb1a65b670e9f609cf67850deb"
+    },
+    {
+      "path": "Maps/DM-Sorayama.unr",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Maps/DM-Sorayama.unr",
+      "bytes": 484556,
+      "sha256": "1f2a27aee540d78cc41f303154be19978286361b8dd2baefdd4d61fd0fd0861b"
+    },
+    {
+      "path": "Maps/DM-Stationcontrol.unr",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Maps/DM-Stationcontrol.unr",
+      "bytes": 462166,
+      "sha256": "62dd32d482c70b9ce622c3250fa38b82e6e76eae0d5c43c0a6e06ea2f5590a37"
+    },
+    {
+      "path": "Maps/DM-Underlord.unr",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Maps/DM-Underlord.unr",
+      "bytes": 309697,
+      "sha256": "eea4397f268e946afeaeca8d5ed10c1a2725443a038a8999391fd44970c421d0"
+    },
+    {
+      "path": "Maps/DOM-Coagulate.unr",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Maps/DOM-Coagulate.unr",
+      "bytes": 385693,
+      "sha256": "8c0896e15acfaff20dc5f4eeb30783ea4e4d05255a009e487fd5a57e44c0f7ae"
+    },
+    {
+      "path": "Maps/DOM-Hood.unr",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Maps/DOM-Hood.unr",
+      "bytes": 388211,
+      "sha256": "a715e0428259772f9ebb0ebb47abf230cbbd1d092cdfa1280d85d58a80026dfb"
+    },
+    {
+      "path": "Maps/DOM-Osiris.unr",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Maps/DOM-Osiris.unr",
+      "bytes": 298824,
+      "sha256": "7077fd9f0fb7700ebccb5294e603dc4007d84244d71a2f11320fdd564054297e"
+    },
+    {
+      "path": "Maps/JB-Alcatraz.unr",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Maps/JB-Alcatraz.unr",
+      "bytes": 11944648,
+      "sha256": "373aed7032cca43714ce722af2e010008ab26b45822a71ea1f88cc6da3ef9a5c"
+    },
+    {
+      "path": "Maps/JB-Basmma.unr",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Maps/JB-Basmma.unr",
+      "bytes": 4015444,
+      "sha256": "39f81f20b753c1ab772e86eb0086225de5e1e902931e88f65e0930c2c40f595d"
+    },
+    {
+      "path": "Maps/JB-Complex.unr",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Maps/JB-Complex.unr",
+      "bytes": 9728801,
+      "sha256": "f108ad62967b53daec5167b3e59365fb1aafc2a89625718e30490b75d12cecba"
+    },
+    {
+      "path": "Maps/JB-Furia.unr",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Maps/JB-Furia.unr",
+      "bytes": 3391301,
+      "sha256": "b8294ca67bdf5e77eafa1714fd7a4cafa5053862900b90a156b96a747ea68397"
+    },
+    {
+      "path": "Maps/JB-Grudge.unr",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Maps/JB-Grudge.unr",
+      "bytes": 10232128,
+      "sha256": "f5ff28b09e95196da89b3d6543c4b3f032334f0f4b941586819dea7a440efd54"
+    },
+    {
+      "path": "Maps/JB-Nifam.unr",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Maps/JB-Nifam.unr",
+      "bytes": 4193087,
+      "sha256": "74ae5039f6bdbde982335adae42c34c9a0f3536933da823ab653945851c6232b"
+    },
+    {
+      "path": "Maps/JB-Pharynx.unr",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Maps/JB-Pharynx.unr",
+      "bytes": 3926671,
+      "sha256": "768ecc933aceb25ab59a7e21cba18971a4f68aa021489cf121285c4a6dc3b212"
+    },
+    {
+      "path": "Maps/JB-Raid-Gold.unr",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Maps/JB-Raid-Gold.unr",
+      "bytes": 6956662,
+      "sha256": "6dd65277a05a20c6fcf5c4cf0e64c83e20b2db3289671418e2514038366410fd"
+    },
+    {
+      "path": "Maps/JB-Talaeron-Gold.unr",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Maps/JB-Talaeron-Gold.unr",
+      "bytes": 13255952,
+      "sha256": "e66d4f0c5eed912b3c7b7de56c99293c4d1cd82f2eb919a5486169abffeb677f"
+    },
+    {
+      "path": "Maps/JBCredits.unr",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Maps/JBCredits.unr",
+      "bytes": 3628604,
+      "sha256": "5b88a8089547c4f37cbeb2e17ea48d5e48cbf24863b85671c65d2934786d8431"
+    },
+    {
+      "path": "Maps/JBTutorialMap.unr",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Maps/JBTutorialMap.unr",
+      "bytes": 1907544,
+      "sha256": "c929677ee49e2916310b67fffcea9aa26e3c30f053909a6b83b3bd68c5cae340"
+    },
+    {
+      "path": "MenuAssets/button_a.xui",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/button_a.xui",
+      "bytes": 16396,
+      "sha256": "5be632b6e7ba0319d4ba43c58372f50ad2d6284a9785610f6b824a7917df770a"
+    },
+    {
+      "path": "MenuAssets/button_b.xui",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/button_b.xui",
+      "bytes": 16396,
+      "sha256": "28bbf923c14abb9ec51bdabb9d1305a3618b1aabd8063c6e4cce13e529840ab8"
+    },
+    {
+      "path": "MenuAssets/button_back.xui",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/button_back.xui",
+      "bytes": 16396,
+      "sha256": "677b2694eff0a1c33495ee45fd4f47e8977f0954be9a63c0ea53670bf8d76981"
+    },
+    {
+      "path": "MenuAssets/button_black.xui",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/button_black.xui",
+      "bytes": 16396,
+      "sha256": "00b34ca37f460aea4d4fc9f3b86605af35eb18206a12bea11bb99cea0f5d394d"
+    },
+    {
+      "path": "MenuAssets/button_ddown.xui",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/button_ddown.xui",
+      "bytes": 16396,
+      "sha256": "b89b4501121432eadb1d6987d6396e8a21347118c7702bf92deaa5437f0f122c"
+    },
+    {
+      "path": "MenuAssets/button_dleft.xui",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/button_dleft.xui",
+      "bytes": 16396,
+      "sha256": "ba66b172c994c803d10b1a7cc536a5954f3af3e63d4bd38c89957adf52571ace"
+    },
+    {
+      "path": "MenuAssets/button_dpad.xui",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/button_dpad.xui",
+      "bytes": 16396,
+      "sha256": "e10cc2df6ff50a7669d068b89e0dcf8c374c8658be6d06ac64801650d2b2eee3"
+    },
+    {
+      "path": "MenuAssets/button_dright.xui",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/button_dright.xui",
+      "bytes": 16396,
+      "sha256": "32972381496f6c17abda9f68ea6199c980beb80b98f1ba2464e3a63fca257d89"
+    },
+    {
+      "path": "MenuAssets/button_dup.xui",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/button_dup.xui",
+      "bytes": 16396,
+      "sha256": "8be9ea1c91ed258abd1610248de5fcd9b64d2443db3cf5527a26ffbd80a1e22e"
+    },
+    {
+      "path": "MenuAssets/button_l.xui",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/button_l.xui",
+      "bytes": 16396,
+      "sha256": "6c7fd02d2e5fc35530b5e726c771e67ae2ba57566056178c625da3266c9e3e12"
+    },
+    {
+      "path": "MenuAssets/button_lmove.xui",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/button_lmove.xui",
+      "bytes": 16396,
+      "sha256": "abe5bd5555e0db7dc7df1ec5904d5daac8a8e1e19d2928f1a797ac1d461f003c"
+    },
+    {
+      "path": "MenuAssets/button_lstick.xui",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/button_lstick.xui",
+      "bytes": 16396,
+      "sha256": "6ea430af6ad056031cb8950cca805375e552a521dc5490bfef2cea493fd65526"
+    },
+    {
+      "path": "MenuAssets/button_lt.xui",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/button_lt.xui",
+      "bytes": 16396,
+      "sha256": "3992b4cfbc8f2831e01ae9f5db9fc2f0f2458790745cdcb19f44e5c38e7bf88e"
+    },
+    {
+      "path": "MenuAssets/button_r.xui",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/button_r.xui",
+      "bytes": 16396,
+      "sha256": "a7014dcc878e65e17ea0ab3c23db501315eb8fc31f7fe185fa41079aeef4b9d2"
+    },
+    {
+      "path": "MenuAssets/button_rmove.xui",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/button_rmove.xui",
+      "bytes": 16396,
+      "sha256": "8b08968c9bc7a0d2310f2077977f4eca998312f8a4b87b691b8f6503c564bc55"
+    },
+    {
+      "path": "MenuAssets/button_rstick.xui",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/button_rstick.xui",
+      "bytes": 16396,
+      "sha256": "0a5352e334aca81e66d3d382d6419495bde1f7ad32bf9c309cdcf89164431b48"
+    },
+    {
+      "path": "MenuAssets/button_rt.xui",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/button_rt.xui",
+      "bytes": 16396,
+      "sha256": "d91463f455862e798bd65ad45cd1a383daa3239534cee8a61fc53202891fafc6"
+    },
+    {
+      "path": "MenuAssets/button_start.xui",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/button_start.xui",
+      "bytes": 16396,
+      "sha256": "f1ef90fb5a60d22ed3f8f6c6c8b9da0d4c3b564dedcfcbd0d7a9629a3026c900"
+    },
+    {
+      "path": "MenuAssets/button_white.xui",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/button_white.xui",
+      "bytes": 16396,
+      "sha256": "350b13d3204da236a3591ceb6e493eda393c3021a9ebf9401efe34d64ea5f037"
+    },
+    {
+      "path": "MenuAssets/button_x.xui",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/button_x.xui",
+      "bytes": 16396,
+      "sha256": "41281104f7497b8d584f2df7d57d7290923fc612ddcc1d9c329977c21d3ba4b0"
+    },
+    {
+      "path": "MenuAssets/button_y.xui",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/button_y.xui",
+      "bytes": 16396,
+      "sha256": "68d326099ce817ab83fdd9e1ec3a6e4223337b131add28c9fc94d5580ec3b417"
+    },
+    {
+      "path": "MenuAssets/char_annaka.xui",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/char_annaka.xui",
+      "bytes": 524300,
+      "sha256": "04acb106995b532a48570cc4353eec29e23a90a1f0568dc0ce539b135ff395b5"
+    },
+    {
+      "path": "MenuAssets/char_arkon.xui",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/char_arkon.xui",
+      "bytes": 524300,
+      "sha256": "05b667f8e76b5708bd83e5f571110f9ad28306d04c1e94dbbf355707c0a9d9e3"
+    },
+    {
+      "path": "MenuAssets/char_aryss.xui",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/char_aryss.xui",
+      "bytes": 524300,
+      "sha256": "53f9f228b46e8568f4b1251281b532a431d5c4af90e7e5a4283d3808abe43295"
+    },
+    {
+      "path": "MenuAssets/char_atomiccow.xui",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/char_atomiccow.xui",
+      "bytes": 524300,
+      "sha256": "6a8927dc5e9d9ac32b7415793c40178cba54410ea78164b1f576d1455c4c1875"
+    },
+    {
+      "path": "MenuAssets/char_baetal.xui",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/char_baetal.xui",
+      "bytes": 524300,
+      "sha256": "742b27aa384f23c4abcf64f942d1ec8e1a7fd08c768e5a2c46f8ebb536b1b9c9"
+    },
+    {
+      "path": "MenuAssets/char_berserker.xui",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/char_berserker.xui",
+      "bytes": 524300,
+      "sha256": "275018ad3e360e0b3be05195c02c83d8f1698a94603bb02b00647825ae6426a7"
+    },
+    {
+      "path": "MenuAssets/char_blake.xui",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/char_blake.xui",
+      "bytes": 524300,
+      "sha256": "9553f3f143c72c0f9c600f467f14bda42ca35577de3177442f2c357b2c3629fc"
+    },
+    {
+      "path": "MenuAssets/char_boris.xui",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/char_boris.xui",
+      "bytes": 524300,
+      "sha256": "4352886b0acd48191684be6a69c24e738dbdbceb6623736584f8690ca1a79b72"
+    },
+    {
+      "path": "MenuAssets/char_cathode.xui",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/char_cathode.xui",
+      "bytes": 524300,
+      "sha256": "f9a48eae234571d5fcd015528d509f775190b5179129fbdf5bdf33d70815ab48"
+    },
+    {
+      "path": "MenuAssets/char_cilia.xui",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/char_cilia.xui",
+      "bytes": 524300,
+      "sha256": "cd82287592a4e2e3beee23840b0f8ae02b8e14432db7144f95417e3680b87c96"
+    },
+    {
+      "path": "MenuAssets/char_cryss.xui",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/char_cryss.xui",
+      "bytes": 524300,
+      "sha256": "f84bf76ecea33c7da3f00927ace2bac158a174867ac479eff7264bcdb0b01641"
+    },
+    {
+      "path": "MenuAssets/char_damien.xui",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/char_damien.xui",
+      "bytes": 524300,
+      "sha256": "b752420abc45eab3dbbc83d9d819488d9e03543f3b7f8b4e2def8c066a9b0599"
+    },
+    {
+      "path": "MenuAssets/char_disconnect.xui",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/char_disconnect.xui",
+      "bytes": 524300,
+      "sha256": "f45e403532278b70340814afdb7344e11ea4b47d57fb9028855576ea3b9132a0"
+    },
+    {
+      "path": "MenuAssets/char_dominator.xui",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/char_dominator.xui",
+      "bytes": 524300,
+      "sha256": "cdc2cc3690f41076c036b9e065f38425c375bf4d75fa360ae14086f61bfdc006"
+    },
+    {
+      "path": "MenuAssets/char_dominator_ps2.xui",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/char_dominator_ps2.xui",
+      "bytes": 524300,
+      "sha256": "9c873f8b2381996651881dcfe78422cbc3a52e68341269720b1afd1dcbe69d87"
+    },
+    {
+      "path": "MenuAssets/char_firewall.xui",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/char_firewall.xui",
+      "bytes": 524300,
+      "sha256": "166c0d13a22fd102204e6ad7287deee46531f2463eb084ad8de594533a7f2328"
+    },
+    {
+      "path": "MenuAssets/char_freylis.xui",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/char_freylis.xui",
+      "bytes": 524300,
+      "sha256": "ab7d9c76e06a0a55df002d13ab5e0976310d25ef85b9f9ac22d5cd6b0e104920"
+    },
+    {
+      "path": "MenuAssets/char_fury.xui",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/char_fury.xui",
+      "bytes": 524300,
+      "sha256": "4c1faec6638e16ce9e9e43d7a3406bf54123ccea19ae71360267ce1d5f24853f"
+    },
+    {
+      "path": "MenuAssets/char_gorn.xui",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/char_gorn.xui",
+      "bytes": 524300,
+      "sha256": "d0b61d523ddff567d3c3bd531b3e8e81a6b3cf70509aa41cae22581487a27701"
+    },
+    {
+      "path": "MenuAssets/char_grail.xui",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/char_grail.xui",
+      "bytes": 524300,
+      "sha256": "95e4442ca14d27a03ff47baae5c247d7a23d4ef84246154029d55796e9208479"
+    },
+    {
+      "path": "MenuAssets/char_graves.xui",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/char_graves.xui",
+      "bytes": 524300,
+      "sha256": "57d38d2634ca06e596e264dd303517d3b6a218001e618350ac80f52cefaf15ca"
+    },
+    {
+      "path": "MenuAssets/char_guardian.xui",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/char_guardian.xui",
+      "bytes": 524300,
+      "sha256": "f344ba6b091d1acc1c1768964ae2b89e916169309a18aa60673ef68a36797636"
+    },
+    {
+      "path": "MenuAssets/char_haloelite.xui",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/char_haloelite.xui",
+      "bytes": 524300,
+      "sha256": "b8acca11fd1137829804ded3a90cee4dee4605da7bdc21f7cdf34dd6ec94349d"
+    },
+    {
+      "path": "MenuAssets/char_isis.xui",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/char_isis.xui",
+      "bytes": 524300,
+      "sha256": "76ec45f7d7cbd88ec5addf8f0c54787746e9ae7cc415ebc58bc1955a5ac9cb08"
+    },
+    {
+      "path": "MenuAssets/char_jayce.xui",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/char_jayce.xui",
+      "bytes": 524300,
+      "sha256": "216640313d91169560267a907f4a106b40eb7ef3a8dfa112969dac4132d0f5f5"
+    },
+    {
+      "path": "MenuAssets/char_johnson.xui",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/char_johnson.xui",
+      "bytes": 524300,
+      "sha256": "bba50587131be468f49856a4ab9da38fa04fe0ebe69f49faffd488f50a67ae05"
+    },
+    {
+      "path": "MenuAssets/char_kragoth.xui",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/char_kragoth.xui",
+      "bytes": 524300,
+      "sha256": "dd43c506b7c01a11cde719fc9d6e218e201dfa68ef639cbbbb645c5f345aa31a"
+    },
+    {
+      "path": "MenuAssets/char_kregore.xui",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/char_kregore.xui",
+      "bytes": 524300,
+      "sha256": "52565018cd7d4e097ce08a52bbd67de53e721b02248923b265d365d54d390724"
+    },
+    {
+      "path": "MenuAssets/char_kyla.xui",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/char_kyla.xui",
+      "bytes": 524300,
+      "sha256": "08b7c6b91d75e2a32b22da0331004043996a8c9d7b82f57d38bbc7c6482b1f61"
+    },
+    {
+      "path": "MenuAssets/char_lauren.xui",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/char_lauren.xui",
+      "bytes": 524300,
+      "sha256": "0a1f8d29dae43fec2e5710220ff42e0be05cc7fe1b8d1968a1974d98423ae728"
+    },
+    {
+      "path": "MenuAssets/char_lilith.xui",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/char_lilith.xui",
+      "bytes": 524300,
+      "sha256": "3a44ed7ea7c0fe97b9f33c991ed92e006f40b5d1f42810c58d679307d9e0604d"
+    },
+    {
+      "path": "MenuAssets/char_luthor.xui",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/char_luthor.xui",
+      "bytes": 524300,
+      "sha256": "098ce18182d49d866f669982b625799f9964e4b60e023dce7e83a0d8915242ae"
+    },
+    {
+      "path": "MenuAssets/char_malcom.xui",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/char_malcom.xui",
+      "bytes": 524300,
+      "sha256": "f083d131267cafc90bea2e264cafdea3b54cb02a54741019b50954f97e2af29f"
+    },
+    {
+      "path": "MenuAssets/char_malise.xui",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/char_malise.xui",
+      "bytes": 524300,
+      "sha256": "4a93730863eb0e2c9a038f3ba5db207dc1d6edb041cf2763a7dd53f9416d5ac9"
+    },
+    {
+      "path": "MenuAssets/char_mariana.xui",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/char_mariana.xui",
+      "bytes": 524300,
+      "sha256": "72e3e058aab6ff8e2a9e961d32bb4a59edfc91b0260548239b9505c5fd097831"
+    },
+    {
+      "path": "MenuAssets/char_masterchief.xui",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/char_masterchief.xui",
+      "bytes": 524300,
+      "sha256": "52a6209343a65257aded84159ecaa20bdbc68969c2b2c26434d0b3884851ddda"
+    },
+    {
+      "path": "MenuAssets/char_matrix.xui",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/char_matrix.xui",
+      "bytes": 524300,
+      "sha256": "0cc76c52176c3738adcd5d53ad5f41561ae1bd5834a8e13c0b625e31f7a80a06"
+    },
+    {
+      "path": "MenuAssets/char_missing.xui",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/char_missing.xui",
+      "bytes": 524300,
+      "sha256": "0e951aa65c92a3742d6938e3e693a2f7e5d8891d53426cd2e69e277012c56be4"
+    },
+    {
+      "path": "MenuAssets/char_othello.xui",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/char_othello.xui",
+      "bytes": 524300,
+      "sha256": "374a63b4321b31cef946bf5ce5104e84b4d5b35dbfb59ed89670bedf95fa829c"
+    },
+    {
+      "path": "MenuAssets/char_ouboudah.xui",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/char_ouboudah.xui",
+      "bytes": 524300,
+      "sha256": "291c86bd2d93bbf084dcdcd5b4bf22e6e0123d57954417265fd08d9a004f1fea"
+    },
+    {
+      "path": "MenuAssets/char_pharoh.xui",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/char_pharoh.xui",
+      "bytes": 524300,
+      "sha256": "7a8952d45bc62cd1fdbbb399c4b5ff3924e0f49ced41ecf27292774b04ee3939"
+    },
+    {
+      "path": "MenuAssets/char_priest.xui",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/char_priest.xui",
+      "bytes": 524300,
+      "sha256": "a3804b3201111c928c00d1b53094dc2bf47dc41218e42c3d7de5b16169b6ad85"
+    },
+    {
+      "path": "MenuAssets/char_ramirez.xui",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/char_ramirez.xui",
+      "bytes": 524300,
+      "sha256": "38dc443f06e57317c10ff8952b5c7a417e1e3c7157dd179c94047af0c31e1621"
+    },
+    {
+      "path": "MenuAssets/char_rampage.xui",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/char_rampage.xui",
+      "bytes": 524300,
+      "sha256": "e749b42b4d884a65ae876b950523083a927e629b675ed90dc30f1e94e65c8407"
+    },
+    {
+      "path": "MenuAssets/char_rankin.xui",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/char_rankin.xui",
+      "bytes": 524300,
+      "sha256": "80909ddefa25f348e48c350652731849206ade8c5e275a4122debb544220d578"
+    },
+    {
+      "path": "MenuAssets/char_riker.xui",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/char_riker.xui",
+      "bytes": 524300,
+      "sha256": "f583b6728b0d913a168fc86e8ff4be093f6f3498a1d50c17e742b95b9ac7dd7f"
+    },
+    {
+      "path": "MenuAssets/char_sara.xui",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/char_sara.xui",
+      "bytes": 524300,
+      "sha256": "57a357e196946e58c3c647e530debde53dcfb810c4f475896961117f31a2b2f8"
+    },
+    {
+      "path": "MenuAssets/char_sarena.xui",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/char_sarena.xui",
+      "bytes": 524300,
+      "sha256": "636cdf161781efe2b49d3f25a0a09ecdea392759e082cb044f25a106937296e1"
+    },
+    {
+      "path": "MenuAssets/char_skaarj_boss.xui",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/char_skaarj_boss.xui",
+      "bytes": 524300,
+      "sha256": "152068908962e6b36ed07ac094701437e8e8f9f8d7eeb21f2e93240c1e4e7054"
+    },
+    {
+      "path": "MenuAssets/char_skrilax.xui",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/char_skrilax.xui",
+      "bytes": 524300,
+      "sha256": "5923e2c8d5172805497744c498d7b8d428d684facc53936e95e0cee33675013e"
+    },
+    {
+      "path": "MenuAssets/char_tanya.xui",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/char_tanya.xui",
+      "bytes": 524300,
+      "sha256": "9ce0b2ced5245cb78605d3fac65f2cedffeedce5a221adae71fdc87cd99a76ae"
+    },
+    {
+      "path": "MenuAssets/char_tensor.xui",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/char_tensor.xui",
+      "bytes": 524300,
+      "sha256": "48c63942edfc722971d2185ab27d0359972a0f483a6f482af96fa1232ddccd4e"
+    },
+    {
+      "path": "MenuAssets/char_vector.xui",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/char_vector.xui",
+      "bytes": 524300,
+      "sha256": "9659ac155be540e8fb8f3a6b474737c736c26a14734de9ebb8c10d561e4d2c55"
+    },
+    {
+      "path": "MenuAssets/char_visse.xui",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/char_visse.xui",
+      "bytes": 524300,
+      "sha256": "fbda5298210a6cf999687e5ef33614256fd8bba492eb468367991d0ee9b50fb8"
+    },
+    {
+      "path": "MenuAssets/char_vixen.xui",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/char_vixen.xui",
+      "bytes": 524300,
+      "sha256": "3eb442ef24638472c723cb9b20b33f43722d1a1d558fb2a11f003c3340e3e774"
+    },
+    {
+      "path": "MenuAssets/char_warcow.xui",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/char_warcow.xui",
+      "bytes": 524300,
+      "sha256": "0c59aa51877fea6c2b9f3ed811e146164d38d837fbb0f9682dbe92e7b82e094d"
+    },
+    {
+      "path": "MenuAssets/char_xan.xui",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/char_xan.xui",
+      "bytes": 524300,
+      "sha256": "6a469969a86c4816cdbc3728cf04535ce080ba14aaf8d2638438297318dbd1ef"
+    },
+    {
+      "path": "MenuAssets/char_xan_ps2.xui",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/char_xan_ps2.xui",
+      "bytes": 524300,
+      "sha256": "cc7eabfcd3294c43a7a28b61a011ed0b482abd6c7075dacb7c587723c45a493c"
+    },
+    {
+      "path": "MenuAssets/controller_s.xui",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/controller_s.xui",
+      "bytes": 1048588,
+      "sha256": "88ebfe11047d608ddaa499435ec6878f8921c5c3e9378232f0257a98e8d8e30b"
+    },
+    {
+      "path": "MenuAssets/ut_logo.png",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/ut_logo.png",
+      "bytes": 114493,
+      "sha256": "14db14f4eb57de7ac0e1f5b796675704e98c4abdd2dbba254f13de82f1773300"
+    },
+    {
+      "path": "MenuAssets/ut_logo.xui",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/ut_logo.xui",
+      "bytes": 524300,
+      "sha256": "87211ed5f4008eda607191725cdabe744aabeeccab861a698105de260dab1747"
+    },
+    {
+      "path": "MenuAssets/ut_logo_256.xui",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/ut_logo_256.xui",
+      "bytes": 131084,
+      "sha256": "64234f1dc3fdd34c62ce113b8dc365944872a0bcc0c47bed7ffc0c1c80c3b40c"
+    },
+    {
+      "path": "MenuAssets/weapon_bio.png",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/weapon_bio.png",
+      "bytes": 6056,
+      "sha256": "ff651e56e776fa51f4d68066a333a31cef3869304128c05b28c8e6611db3bd19"
+    },
+    {
+      "path": "MenuAssets/weapon_bio.xui",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/weapon_bio.xui",
+      "bytes": 65548,
+      "sha256": "8f9da23d7f767ea5cbcc8a73517c91551f4d5906ae1ec0b14d043dfb15257040"
+    },
+    {
+      "path": "MenuAssets/weapon_chainsaw.png",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/weapon_chainsaw.png",
+      "bytes": 4113,
+      "sha256": "a818c174836af814a2a874188153fd30d43f8bc651abd603c48ec5061e8f9794"
+    },
+    {
+      "path": "MenuAssets/weapon_chainsaw.xui",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/weapon_chainsaw.xui",
+      "bytes": 65548,
+      "sha256": "23d8bc9af7b3965b7095b19ef3c036b87ba42a072b4738b226effe46190f19d2"
+    },
+    {
+      "path": "MenuAssets/weapon_enforcer.png",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/weapon_enforcer.png",
+      "bytes": 5086,
+      "sha256": "f9e97e1eec6754929d6fb1a0e1e0d2004192888b0f7e011680696fb55c861634"
+    },
+    {
+      "path": "MenuAssets/weapon_enforcer.xui",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/weapon_enforcer.xui",
+      "bytes": 65548,
+      "sha256": "7b0f0e4197780e480e630b90119ff561c1673095736f4b78416c8b4170ac1b28"
+    },
+    {
+      "path": "MenuAssets/weapon_flak.png",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/weapon_flak.png",
+      "bytes": 4714,
+      "sha256": "5895b639c3553b8ec61f600e8a9b53a19da34bf3f07f6a93f5eb398343972b30"
+    },
+    {
+      "path": "MenuAssets/weapon_flak.xui",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/weapon_flak.xui",
+      "bytes": 65548,
+      "sha256": "dfa2317f03b55eed24e498b336669bc0bfaf982bd4dcf7d48004c1222c6d2cb9"
+    },
+    {
+      "path": "MenuAssets/weapon_impact.png",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/weapon_impact.png",
+      "bytes": 6206,
+      "sha256": "cf6b3f2234a3b5256f6c52b69f5b975d9c4031ad4ef666c066a4371e20ecf2da"
+    },
+    {
+      "path": "MenuAssets/weapon_impact.xui",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/weapon_impact.xui",
+      "bytes": 65548,
+      "sha256": "cc8b055f573817e36f5628ef0aa15069f41aeeb4ee2474eeaab6ec86634ee255"
+    },
+    {
+      "path": "MenuAssets/weapon_mesh_contact.png",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/weapon_mesh_contact.png",
+      "bytes": 58320,
+      "sha256": "bca4a6beef0d60418022fdebbc9cef5e285ee1c8b918affdff6e57f3022f6b43"
+    },
+    {
+      "path": "MenuAssets/weapon_mini.png",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/weapon_mini.png",
+      "bytes": 1589,
+      "sha256": "6136d3b44756c02b82c88cbd5f7978d47195900da459813c4959c1c822f304d7"
+    },
+    {
+      "path": "MenuAssets/weapon_mini.xui",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/weapon_mini.xui",
+      "bytes": 65548,
+      "sha256": "af72a372bad4c566cb4ec8cf5bf84515c8fa55fb66e42b44f6d1a0047f96411b"
+    },
+    {
+      "path": "MenuAssets/weapon_pulse.png",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/weapon_pulse.png",
+      "bytes": 5300,
+      "sha256": "952dd61bd31851d3790709f3a169e2092342357f59113dcf20f805ce24054995"
+    },
+    {
+      "path": "MenuAssets/weapon_pulse.xui",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/weapon_pulse.xui",
+      "bytes": 65548,
+      "sha256": "58c93538b1002899f5c1cf7c03afdd0e2b036729ea504a82ba1cfcaf36018c45"
+    },
+    {
+      "path": "MenuAssets/weapon_redeemer.png",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/weapon_redeemer.png",
+      "bytes": 6638,
+      "sha256": "06b173b6e7748e453b72b3922acb67cf6f463d08648157bdec6ad3c9064145f1"
+    },
+    {
+      "path": "MenuAssets/weapon_redeemer.xui",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/weapon_redeemer.xui",
+      "bytes": 65548,
+      "sha256": "f9db9c9cfb805f090f9c4f0520c887fb006c8888299f0f93046db5a956fba0e7"
+    },
+    {
+      "path": "MenuAssets/weapon_ripper.png",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/weapon_ripper.png",
+      "bytes": 2255,
+      "sha256": "94f00efab28b20f63f6fef120f17166fdbad1265c7fe622ee8baba7073ef46fd"
+    },
+    {
+      "path": "MenuAssets/weapon_ripper.xui",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/weapon_ripper.xui",
+      "bytes": 65548,
+      "sha256": "92798861fbff54e26d85ebb7d3429958061d1d890b8862d0acffa81cda2d6788"
+    },
+    {
+      "path": "MenuAssets/weapon_rocket.png",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/weapon_rocket.png",
+      "bytes": 2371,
+      "sha256": "a9f88123a73d8e7fba5525ac18abd27e09eec9c8369b8dd313c173a571140921"
+    },
+    {
+      "path": "MenuAssets/weapon_rocket.xui",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/weapon_rocket.xui",
+      "bytes": 65548,
+      "sha256": "26c5dd7945d2c86a170670d0ae90981845be85d62b7a2531e6b4475be3e1690b"
+    },
+    {
+      "path": "MenuAssets/weapon_shock.png",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/weapon_shock.png",
+      "bytes": 1769,
+      "sha256": "c5b25d04b697eec26b2efd74a007e5aff4cfbcd35616cd018320e2a38e8667b4"
+    },
+    {
+      "path": "MenuAssets/weapon_shock.xui",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/weapon_shock.xui",
+      "bytes": 65548,
+      "sha256": "1a91448224c4a372f7fac501fe2388a94de371bdcaac18f70072e717d943a552"
+    },
+    {
+      "path": "MenuAssets/weapon_sniper.png",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/weapon_sniper.png",
+      "bytes": 1358,
+      "sha256": "6be4b6e883a7a0849b6565c10ecec427985cb32972b5948f419eed905aaf6c6e"
+    },
+    {
+      "path": "MenuAssets/weapon_sniper.xui",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/weapon_sniper.xui",
+      "bytes": 65548,
+      "sha256": "3a6dacb459be00276452aa2dfe4bb6a5fc4e5ae9557d099f53729c0f28b6427a"
+    },
+    {
+      "path": "MenuAssets/weapon_trans.png",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/weapon_trans.png",
+      "bytes": 3640,
+      "sha256": "cb0fa1d64fd775d664e84d460792110f9fb0a8a25f01e31dfb579e4815c0b9f7"
+    },
+    {
+      "path": "MenuAssets/weapon_trans.xui",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MenuAssets/weapon_trans.xui",
+      "bytes": 65548,
+      "sha256": "b90270fc8a4900c5ebf87322ec6b564873389127d5cf59129e8258805efe5472"
+    },
+    {
+      "path": "Music/5-2SA1.umx",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Music/5-2SA1.umx",
+      "bytes": 2479685,
+      "sha256": "0a2a520fad92578ec51c4f9d861f985113554c499dc8aa692a09e29e9d7ae347"
+    },
+    {
+      "path": "Music/halochant.umx",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Music/halochant.umx",
+      "bytes": 3651210,
+      "sha256": "3c9f11bb7e6b0b68d66501ebcdc091b0eff47b34e066d53ea13e54017d772dca"
+    },
+    {
+      "path": "MusicXbox/Botmca9.wav",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MusicXbox/Botmca9.wav",
+      "bytes": 14363328,
+      "sha256": "d91086b8ecfe5f271abc6b5345216bd4a121928f7b4c531330ae4b90b80032a7"
+    },
+    {
+      "path": "MusicXbox/Botpck10.wav",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MusicXbox/Botpck10.wav",
+      "bytes": 12924120,
+      "sha256": "8ab70feee0c79df673a080383795cab6f81527536a4909686b15c84b1054ac41"
+    },
+    {
+      "path": "MusicXbox/Cannon.wav",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MusicXbox/Cannon.wav",
+      "bytes": 5720376,
+      "sha256": "fc2712d9dc0f35bb079848cfd120beca3e6c6eaeeaf2fbdda4f70e51601baf17"
+    },
+    {
+      "path": "MusicXbox/Colossus.wav",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MusicXbox/Colossus.wav",
+      "bytes": 12785232,
+      "sha256": "7738815da5cb4bdfc46707ef4110cc3349c39ca1bbd6001c84b6be6dda6d9148"
+    },
+    {
+      "path": "MusicXbox/Course.wav",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MusicXbox/Course.wav",
+      "bytes": 13325016,
+      "sha256": "2799101482e547976f51af062b5ea8bf743c6b65855f8d1f34b3f1c3c8396ce1"
+    },
+    {
+      "path": "MusicXbox/Credits.wav",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MusicXbox/Credits.wav",
+      "bytes": 6691584,
+      "sha256": "c953daed861b9c614a8a0c42c76ebb124e797518855139b0d710b33281a4c2c4"
+    },
+    {
+      "path": "MusicXbox/Ending.wav",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MusicXbox/Ending.wav",
+      "bytes": 5356344,
+      "sha256": "ff9a84d84f7ec9b8ecfe8d513e19b48639a9a35b695f7cf4f8d5b0c0ac5c6979"
+    },
+    {
+      "path": "MusicXbox/Enigma.wav",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MusicXbox/Enigma.wav",
+      "bytes": 10165656,
+      "sha256": "d99c031c579a54ea3ddceac582eb2ad75b106cf1eb6fbff596dfe71dc003a935"
+    },
+    {
+      "path": "MusicXbox/firebr.wav",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MusicXbox/firebr.wav",
+      "bytes": 9697368,
+      "sha256": "5871302036a3e0ebf3bbbbb90af16313654dca158e0afa9dc76bd6374f9db8f9"
+    },
+    {
+      "path": "MusicXbox/Foregone.wav",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MusicXbox/Foregone.wav",
+      "bytes": 12477000,
+      "sha256": "2b0e291ae825981238f9eec91744406e4258e047d305eccd4d245cb3de528d00"
+    },
+    {
+      "path": "MusicXbox/Godown.wav",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MusicXbox/Godown.wav",
+      "bytes": 8974488,
+      "sha256": "c054deb36e7f89c9b5954a939a6fd5379ec269c3918c0a1637643635d1f09975"
+    },
+    {
+      "path": "MusicXbox/Lock.wav",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MusicXbox/Lock.wav",
+      "bytes": 8144112,
+      "sha256": "657437ceb802a5c22ee134fb2efcab8ff7febeaa94ba4d5478c4c37b4dfc0469"
+    },
+    {
+      "path": "MusicXbox/Mech8.wav",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MusicXbox/Mech8.wav",
+      "bytes": 19229448,
+      "sha256": "2bf70ed2f32918eb197475cea76d2a132ea47a0a4475821b5de2119ae6d01a49"
+    },
+    {
+      "path": "MusicXbox/Mission.wav",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MusicXbox/Mission.wav",
+      "bytes": 12548712,
+      "sha256": "8ec9987669b5f63f285f655093806e054fafed50784194d22a174df0f5a289e9"
+    },
+    {
+      "path": "MusicXbox/Nether.wav",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MusicXbox/Nether.wav",
+      "bytes": 14921904,
+      "sha256": "ca63cfb4cbec18ea3d16f05fb13a5ef6673ca3ad5a7b779bbfd3fdf98be2bd5c"
+    },
+    {
+      "path": "MusicXbox/Organic.wav",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MusicXbox/Organic.wav",
+      "bytes": 9094080,
+      "sha256": "34a6c1f1fd8d829147c8c9dab5732d914f26a1c260ae011bbeb482698c7015c4"
+    },
+    {
+      "path": "MusicXbox/Phantom.wav",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MusicXbox/Phantom.wav",
+      "bytes": 17931288,
+      "sha256": "f75b494f716591b7188422d8b02478a27ac6cb9ad0607855bebc51c4cdf6284a"
+    },
+    {
+      "path": "MusicXbox/Razor-ub.wav",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MusicXbox/Razor-ub.wav",
+      "bytes": 14055312,
+      "sha256": "0b1edf0761aa83c37d0b6f3cfba5b47822900518235c03809e1e47aeba01064d"
+    },
+    {
+      "path": "MusicXbox/Run.wav",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MusicXbox/Run.wav",
+      "bytes": 13561680,
+      "sha256": "05ba28fee9a5bc5d1d4d6a94c84c21898b7e6c5c806e40cd89385e66c5c6f6ad"
+    },
+    {
+      "path": "MusicXbox/SaveMe.wav",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MusicXbox/SaveMe.wav",
+      "bytes": 5544552,
+      "sha256": "0efada1778a00c3e35fdaf7de4653421e92eb79bb61a1e333cc4f15765cd58a7"
+    },
+    {
+      "path": "MusicXbox/Savemeg.wav",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MusicXbox/Savemeg.wav",
+      "bytes": 5544552,
+      "sha256": "2e896ff066d37a3348b530db5d6871f57bd1cfef42a1fad2224d0004d72598ac"
+    },
+    {
+      "path": "MusicXbox/Seeker.wav",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MusicXbox/Seeker.wav",
+      "bytes": 11435736,
+      "sha256": "c9a6047130550d728ad3bae969c28178e80d2b8b6feb689ce74cce2455cf7a86"
+    },
+    {
+      "path": "MusicXbox/Seeker2.wav",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MusicXbox/Seeker2.wav",
+      "bytes": 10216200,
+      "sha256": "d467733a2bce5795979a3b8050171562512de4a28d304fdba01416eb1a5ed491"
+    },
+    {
+      "path": "MusicXbox/Skyward.wav",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MusicXbox/Skyward.wav",
+      "bytes": 14707776,
+      "sha256": "098666d1a3516a918b551b4017e1009403ba9132b570504ae4ee2b183fd07597"
+    },
+    {
+      "path": "MusicXbox/Strider.wav",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MusicXbox/Strider.wav",
+      "bytes": 8101776,
+      "sha256": "6ffd96f9313f26b641af72e90a50874e2d26a2af8d57a13d4be742d36803138c"
+    },
+    {
+      "path": "MusicXbox/Suprfist.wav",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MusicXbox/Suprfist.wav",
+      "bytes": 5839464,
+      "sha256": "ef558d301bec7a29a2c068f44b84f01e8167780fe629bbdcd86c4a3cde3e480f"
+    },
+    {
+      "path": "MusicXbox/UnWorld2.wav",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MusicXbox/UnWorld2.wav",
+      "bytes": 9381792,
+      "sha256": "2d2bd5194552f94a8a5e7d039181a4c4e1d69238dde0bdbaa6e0847110bb63ae"
+    },
+    {
+      "path": "MusicXbox/utmenu23.wav",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MusicXbox/utmenu23.wav",
+      "bytes": 5958552,
+      "sha256": "24fab6b62eec01c751e59b7b53acfa791b4c9a911e516802f6831befc6277ee3"
+    },
+    {
+      "path": "MusicXbox/Uttitle.wav",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MusicXbox/Uttitle.wav",
+      "bytes": 4313424,
+      "sha256": "838d89f7159b1b3af636e50619a4c7d97a9b601fc2e3c7126995485ee5b32cf6"
+    },
+    {
+      "path": "MusicXbox/Wheels.wav",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/MusicXbox/Wheels.wav",
+      "bytes": 7184208,
+      "sha256": "d196ae564290759c5a64ebc3fa8b8d431e4f60de10bbeac61e97fa9d216d1c06"
+    },
+    {
+      "path": "SaveImage.xbx",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/SaveImage.xbx",
+      "bytes": 4096,
+      "sha256": "75d5123004af9a11556cb8b4184d6d550b438bab1be7ad1e27d107a65c724d5f"
+    },
+    {
+      "path": "Sounds/JBAudio.uax",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Sounds/JBAudio.uax",
+      "bytes": 2552294,
+      "sha256": "38121116a3698828081f23801141c30553ffaa94c6358aa0c9710067fc00441f"
+    },
+    {
+      "path": "Sounds/JBAudioTutorial.uax",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Sounds/JBAudioTutorial.uax",
+      "bytes": 11170714,
+      "sha256": "439b3ccf5d167e13200a3fc2694d1fca1db49d8845acbfa00b588e1701f89b06"
+    },
+    {
+      "path": "System/AdvancedModelSupport.int",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/AdvancedModelSupport.int",
+      "bytes": 402,
+      "sha256": "963de61d826cb31e203e3f00d9562122a820f0ba38fd12fe1ad6f18fdf4651f0"
+    },
+    {
+      "path": "System/AdvancedModelSupport.u",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/AdvancedModelSupport.u",
+      "bytes": 1507796,
+      "sha256": "96f7f0f86a88b5c99449892af9e6cd32239c6dda317d5a37ccd553b3533dfa91"
+    },
+    {
+      "path": "System/AgentX.int",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/AgentX.int",
+      "bytes": 255,
+      "sha256": "c782cf02a4fc58b25932759aa1590159c4057124f4be25cede98c30b03c823f9"
+    },
+    {
+      "path": "System/AgentX.u",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/AgentX.u",
+      "bytes": 5064564,
+      "sha256": "9538eae7b4579aa618ead13bcd5e7fd08dd628ca7ba2040d99f6528d2fc91d88"
+    },
+    {
+      "path": "System/AkimboArena.int",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/AkimboArena.int",
+      "bytes": 203,
+      "sha256": "42a595185d12b233425e87c2c26f904d3302109ae5e444edb2ff644f78f3b783"
+    },
+    {
+      "path": "System/AkimboArena.u",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/AkimboArena.u",
+      "bytes": 272626,
+      "sha256": "99967a4d39f6e22096e85698cf985bf56bc513f665752cc81a0df17735b9a76a"
+    },
+    {
+      "path": "System/BossSkins.int",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/BossSkins.int",
+      "bytes": 1085,
+      "sha256": "584d7ff290e6b1d612ed91f669425843ea260c5030c12d0e0a1204d4d485a357"
+    },
+    {
+      "path": "System/Botpack.int",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/Botpack.int",
+      "bytes": 6721,
+      "sha256": "1d3ba5c53b90c2299b265f53a8ac70b48244d5108c77bab33d9034b38472278b"
+    },
+    {
+      "path": "System/Botpack.u",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/Botpack.u",
+      "bytes": 39016791,
+      "sha256": "9e21d633254b9bb6fb263cf6d620b81e680e63dc2da0922cab61432d00a6c5ae"
+    },
+    {
+      "path": "System/ChaosUT.int",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/ChaosUT.int",
+      "bytes": 298,
+      "sha256": "fd50622fd4c7913b28b231ffe454375dba94792bd5d16ec3d55ddb056941bd73"
+    },
+    {
+      "path": "System/ChaosUT.u",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/ChaosUT.u",
+      "bytes": 855918,
+      "sha256": "2580ef10fb09911b4f7b6b68f9de6ab3b9311a81a7e8937c399373b487a92d32"
+    },
+    {
+      "path": "System/ChaosUTMedia1.u",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/ChaosUTMedia1.u",
+      "bytes": 13267018,
+      "sha256": "b0870f279e01e5842f5877b2fb2ef12a71ea8f764fca04e2f44c34dda66c4fdc"
+    },
+    {
+      "path": "System/ChaosUTMedia2.u",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/ChaosUTMedia2.u",
+      "bytes": 3157597,
+      "sha256": "d49bbc2ae9a0fe54aed4a82abc0a779b95cccbc8ba70e49bd1bb3bf2acc2f189"
+    },
+    {
+      "path": "System/ChaosUTMiscMuts.int",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/ChaosUTMiscMuts.int",
+      "bytes": 511,
+      "sha256": "0b037f96f853f69188457871d16ce1217bf90470663f76f9834a2425ba41fc31"
+    },
+    {
+      "path": "System/ChaosUTMiscMuts.u",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/ChaosUTMiscMuts.u",
+      "bytes": 4172,
+      "sha256": "5224e1d3989e343afc0e0d14b230f2cd07733a7a9bae967ebdd9e7e5dc040ea7"
+    },
+    {
+      "path": "System/ChaosUTRHUD.u",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/ChaosUTRHUD.u",
+      "bytes": 12481,
+      "sha256": "d927a76126726af04ef488737af2e8cd3e54be6b786570d17cda9117847d894d"
+    },
+    {
+      "path": "System/CommandoSkins.int",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/CommandoSkins.int",
+      "bytes": 3465,
+      "sha256": "a28600459aa6b37b385846476ecfe04a8f253b33f0030097586c1bca22585148"
+    },
+    {
+      "path": "System/Core.int",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/Core.int",
+      "bytes": 3282,
+      "sha256": "3d5b6135e012dcc8a72e97ed45b9aa84defaed0fc0364a318400c61382d60de9"
+    },
+    {
+      "path": "System/Core.u",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/Core.u",
+      "bytes": 59233,
+      "sha256": "1357ee2d42f27e505358e824086144431bd6337ea61a4572ab67df712509fd4b"
+    },
+    {
+      "path": "System/DamienPS2.int",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/DamienPS2.int",
+      "bytes": 90,
+      "sha256": "42c853319654bfd05ce0006151595d2aedcb74e91c5216fb0043e11208e8e060"
+    },
+    {
+      "path": "System/de.int",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/de.int",
+      "bytes": 393,
+      "sha256": "1e6f2034379c673d6e30637066b41d065fba3147ee1f5d6b5e7cde9014e2db47"
+    },
+    {
+      "path": "System/de.u",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/de.u",
+      "bytes": 72169,
+      "sha256": "335e2298c977e4a513d2d1bc76007e0c1a17bdeff5b1a54bee13cd814168d616"
+    },
+    {
+      "path": "System/Default.ini",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/Default.ini",
+      "bytes": 12087,
+      "sha256": "6f3de322cd95f5cd1065460b323b2fa8214f8eaf556f3ba9c2be2ded343d4005"
+    },
+    {
+      "path": "System/DefUser.ini",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/DefUser.ini",
+      "bytes": 10010,
+      "sha256": "2166334f65af85ebdb523de847831cce8d0857ced349b973f598a76865091b8e"
+    },
+    {
+      "path": "System/Editor.int",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/Editor.int",
+      "bytes": 4618,
+      "sha256": "c44a951fcdf2b93b9653b5e1bb540d85e1b9500de7af6bc8286f7a0dc430f8c4"
+    },
+    {
+      "path": "System/Editor.u",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/Editor.u",
+      "bytes": 126142,
+      "sha256": "f00dbb378b0a346b9969cf09d8ab2c1fa8cd8bc6e1faed0eb3122332b6422671"
+    },
+    {
+      "path": "System/Engine.int",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/Engine.int",
+      "bytes": 5455,
+      "sha256": "057b2fd34d184b1e68ad515d80b30e46042468e6615760c001a894bf34cff48d"
+    },
+    {
+      "path": "System/Engine.u",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/Engine.u",
+      "bytes": 1149858,
+      "sha256": "d587eef81ee76dc6dec492c3e8908e6a8d927927259fd49fc63d278027964c11"
+    },
+    {
+      "path": "System/EpicCustomModels.u",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/EpicCustomModels.u",
+      "bytes": 2408852,
+      "sha256": "debb0ece16ef8ad33d48a59cda7a3a1ab9b173b2cdf261e4a158683c484842a9"
+    },
+    {
+      "path": "System/FCommandoSkins.int",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/FCommandoSkins.int",
+      "bytes": 4199,
+      "sha256": "797a3ec99b5ef92dc042fe9faeaf4f698ac28af597baa9efe0776cda4b2776da"
+    },
+    {
+      "path": "System/Fire.u",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/Fire.u",
+      "bytes": 15248,
+      "sha256": "9f5ed0bf586a08190adfe00b9aa7a9d3c396f8b3bd905e059dacf887309068f6"
+    },
+    {
+      "path": "System/HaloMasterChief.int",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/HaloMasterChief.int",
+      "bytes": 335,
+      "sha256": "80c8bba33e898da36097114d623b9d33cc726010b31ea57b646ea925fbe126b2"
+    },
+    {
+      "path": "System/HaloMasterChief.u",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/HaloMasterChief.u",
+      "bytes": 555090,
+      "sha256": "868c5a3a694886424d51e9bc4080168db046db093d9734b463efe1bc1f6dac4c"
+    },
+    {
+      "path": "System/HaloMasterChiefSkins.int",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/HaloMasterChiefSkins.int",
+      "bytes": 403,
+      "sha256": "bdd2fec8fd51ea4b48872be67a1fcc7476c8d4815d9d97774be7a838c15d5bc7"
+    },
+    {
+      "path": "System/HaloMasterChiefSkins.utx",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/HaloMasterChiefSkins.utx",
+      "bytes": 1930690,
+      "sha256": "dc2c724676e7cc9546e28c99c7049d4bd32108739c4d13bbe3a65ae81631af7c"
+    },
+    {
+      "path": "System/HaloMasterChiefSkinsExtraA.int",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/HaloMasterChiefSkinsExtraA.int",
+      "bytes": 444,
+      "sha256": "1a33d2ff339a3cb2376fed053167f26f23485a6f667561d762230d796920ed24"
+    },
+    {
+      "path": "System/HaloMasterChiefSkinsExtraA.utx",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/HaloMasterChiefSkinsExtraA.utx",
+      "bytes": 1930739,
+      "sha256": "48c01e71e44f58e9a1dc4525124cf20728dddf1b581301fd044e788e83c81573"
+    },
+    {
+      "path": "System/HaloMasterChiefSkinsExtraB.int",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/HaloMasterChiefSkinsExtraB.int",
+      "bytes": 441,
+      "sha256": "9b4622238b32d263581cda44558bd879c59d102624143b606b2011b4eaeaf3cc"
+    },
+    {
+      "path": "System/HaloMasterChiefSkinsExtraB.utx",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/HaloMasterChiefSkinsExtraB.utx",
+      "bytes": 1930741,
+      "sha256": "3c9537ed61a4df883e88c62bd97d20c8436a49048fdcae299be06796ce77a01d"
+    },
+    {
+      "path": "System/HaloMasterChiefSkinsExtraC.int",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/HaloMasterChiefSkinsExtraC.int",
+      "bytes": 444,
+      "sha256": "86b25f0ccb0c35d36f6ae727f0c78f95d28d2373392fdcea33e636519a1e06a6"
+    },
+    {
+      "path": "System/HaloMasterChiefSkinsExtraC.utx",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/HaloMasterChiefSkinsExtraC.utx",
+      "bytes": 2280390,
+      "sha256": "a1fdecccd71e8ca17a2eeb3caea2d66dc88dd2f0b1c74747fc0f250360e710ff"
+    },
+    {
+      "path": "System/HaloMasterChiefSkinsExtraD.int",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/HaloMasterChiefSkinsExtraD.int",
+      "bytes": 443,
+      "sha256": "3aa260f42f27fce1ddd46846bca615310f60d35fb1b1f0f0b7d4323a5fb632d0"
+    },
+    {
+      "path": "System/HaloMasterChiefSkinsExtraD.utx",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/HaloMasterChiefSkinsExtraD.utx",
+      "bytes": 1930740,
+      "sha256": "f7f9b5b02b46e304bf39eef6aeb6ec2b895af99361083468a5cd9621a14b095f"
+    },
+    {
+      "path": "System/HaloTex.utx",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/HaloTex.utx",
+      "bytes": 2334380,
+      "sha256": "3e6f9ff055e896107cb2f0cdf0d7f1adfef2801bc5a4aeea531f01770137740a"
+    },
+    {
+      "path": "System/HaloUTXbox.int",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/HaloUTXbox.int",
+      "bytes": 308,
+      "sha256": "5caab887a9f0d4c09ac9528d6c096b99a4333b424521dd2be0faedfdfc1b9aba"
+    },
+    {
+      "path": "System/HaloUTXbox.u",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/HaloUTXbox.u",
+      "bytes": 3454375,
+      "sha256": "df0158d418a517890065da1f91106825c5f7b2f4797dbb6a35de532d9122a883"
+    },
+    {
+      "path": "System/IpDrv.int",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/IpDrv.int",
+      "bytes": 1792,
+      "sha256": "fb3387b5a1eba8f0af61f23b3aee40549b5169e4a933f766c87e1bdc64d601b0"
+    },
+    {
+      "path": "System/IpDrv.u",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/IpDrv.u",
+      "bytes": 20286,
+      "sha256": "07619a396ccd48a396fa35d5ebd5aebc383da21cb1a1f00a707b771332150150"
+    },
+    {
+      "path": "System/IpServer.int",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/IpServer.int",
+      "bytes": 301,
+      "sha256": "ee3ae6a5e272926ce3837e994278db064f6c9c9cad34f8e8aaeffe026d38e6fb"
+    },
+    {
+      "path": "System/IpServer.u",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/IpServer.u",
+      "bytes": 32162,
+      "sha256": "2975045218d7e2a916d3c08db3943ee335c45fe94eff5ea477c9b36a0cd78d06"
+    },
+    {
+      "path": "System/JailBreak.int",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/JailBreak.int",
+      "bytes": 814,
+      "sha256": "9cdf0e4533ffa86f9f11bdadde46af9c5374608d19e0384fad3f6f5385a08bdd"
+    },
+    {
+      "path": "System/JailBreak.u",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/JailBreak.u",
+      "bytes": 1483009,
+      "sha256": "e54cf6fbb6c06a9b4afd2a969418cc1c7869c604167f0d69b69eeb25b6268617"
+    },
+    {
+      "path": "System/JailFight.int",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/JailFight.int",
+      "bytes": 229,
+      "sha256": "c13a9f16a509d0ccf318bb20309f661d0ef0c07d251f68be885a41982683174f"
+    },
+    {
+      "path": "System/JailFight.u",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/JailFight.u",
+      "bytes": 58478,
+      "sha256": "4ed262ba799818a74b821654d1dcf5ecbee80b861fbc60aa3e5387e0691f0687"
+    },
+    {
+      "path": "System/JBArena.u",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/JBArena.u",
+      "bytes": 93157,
+      "sha256": "2a5ce6652d5ad4202b4170cc8d996da4b74e9b584eb5664d7cf3e5e9e66b2bc1"
+    },
+    {
+      "path": "System/JBFatboy.int",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/JBFatboy.int",
+      "bytes": 148,
+      "sha256": "8c03369eef94f13e3cfbef6552f57e927a529c1e2705540362fa2f4220ead3e0"
+    },
+    {
+      "path": "System/JBFatboy.u",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/JBFatboy.u",
+      "bytes": 7363,
+      "sha256": "0545af9d2381e53823507f5eb02929bcfce59f674e134a235940d3c8f6743cf8"
+    },
+    {
+      "path": "System/JBMadmen.ini",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/JBMadmen.ini",
+      "bytes": 1737,
+      "sha256": "e8733a638875019fbbf329b061850479bef5fd4c8ab586c8aa00865738840b8d"
+    },
+    {
+      "path": "System/JBMadmen.int",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/JBMadmen.int",
+      "bytes": 330,
+      "sha256": "6b0b312fcfc9a4ca48fa85198ceccc547e399de368257ff45581524bbe9a617c"
+    },
+    {
+      "path": "System/JBMadmen.u",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/JBMadmen.u",
+      "bytes": 59958,
+      "sha256": "7834f6806abd0fd685c26c281b5455cc0250a1327331513dad746e88b45e5b3a"
+    },
+    {
+      "path": "System/JBRelics.u",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/JBRelics.u",
+      "bytes": 7655,
+      "sha256": "01dc2f5bb4a8f3a287fc7f24b85c4e5504768fd31ddc1df7f10c0152c3855d6a"
+    },
+    {
+      "path": "System/JBServerAdmin-plaintext.int",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/JBServerAdmin-plaintext.int",
+      "bytes": 949,
+      "sha256": "72582a738750d3d97db1c6b8cfaf8981e8bd0d52fa714222ffd58de598a0a590"
+    },
+    {
+      "path": "System/JBSkinCheese.int",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/JBSkinCheese.int",
+      "bytes": 174,
+      "sha256": "539b34ed1e0b664e93b03a68f3e928110b4c4187c87015e8cf9b91e04ba17765"
+    },
+    {
+      "path": "System/JBSkinClassic.int",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/JBSkinClassic.int",
+      "bytes": 788,
+      "sha256": "102a9ee2255ceede6c06f3859dbbc7c5b917ae60f30123979e980bb9c9c5104c"
+    },
+    {
+      "path": "System/JBSkinDefault.int",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/JBSkinDefault.int",
+      "bytes": 244,
+      "sha256": "1a8ab4936c349d90110f7a7ff8a5a7ca2af5c22121ddf70ef4a458faaea59d3f"
+    },
+    {
+      "path": "System/JBSkinKryty.int",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/JBSkinKryty.int",
+      "bytes": 208,
+      "sha256": "899abbe25c166486396a5814165c287f1a096ade818457f6a0649a82cb4e1611"
+    },
+    {
+      "path": "System/JBSkinOpression.int",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/JBSkinOpression.int",
+      "bytes": 580,
+      "sha256": "47b7f2a7d76bcd3307589f089ada1f19d69682caad89405020b0193c32657554"
+    },
+    {
+      "path": "System/JBSkinTankazz.int",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/JBSkinTankazz.int",
+      "bytes": 576,
+      "sha256": "09f7800f9fac988eba32c115311e62e8198a377485df1c6d908f7b3d88286b33"
+    },
+    {
+      "path": "System/JBSpecials.u",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/JBSpecials.u",
+      "bytes": 324160,
+      "sha256": "89c255a2443961259a04a2ecd5956dabc0330c708ed46659b6d0fa08a66b5438"
+    },
+    {
+      "path": "System/JBTutorial.u",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/JBTutorial.u",
+      "bytes": 91705,
+      "sha256": "1b530c169ca08879fc75cfb2878a87390dc3768976554f5b0b62534b8e151080"
+    },
+    {
+      "path": "System/multimesh.int",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/multimesh.int",
+      "bytes": 1220,
+      "sha256": "bef6b28582eb7364979bd38d8771c9871d8c1138e7df40dd90e9d43e0e072b98"
+    },
+    {
+      "path": "System/multimesh.u",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/multimesh.u",
+      "bytes": 76545,
+      "sha256": "c8f62af24c1e40e99b2b784d368645245522969951fb4157349ca946643421e0"
+    },
+    {
+      "path": "System/OldSkool.ini",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/OldSkool.ini",
+      "bytes": 32,
+      "sha256": "0acbfabd1ed6472daf5684be7693b44ea87c5377cd9b1a93448cebd3649be2d9"
+    },
+    {
+      "path": "System/OLweapons.int",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/OLweapons.int",
+      "bytes": 110,
+      "sha256": "be4e0f29e8d5d3c2c97f596e0a8a27d489351b1385a378958964c40c37be8549"
+    },
+    {
+      "path": "System/OLweapons.u",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/OLweapons.u",
+      "bytes": 1294937,
+      "sha256": "f4b21a9b80165ce781e4ccef5ac629f69ffb051db630bb96426765b0c3d82331"
+    },
+    {
+      "path": "System/PS2WarMachineM.int",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/PS2WarMachineM.int",
+      "bytes": 90,
+      "sha256": "42c853319654bfd05ce0006151595d2aedcb74e91c5216fb0043e11208e8e060"
+    },
+    {
+      "path": "System/QUAKE3c.utx",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/QUAKE3c.utx",
+      "bytes": 1756884,
+      "sha256": "1140e102628968fc982fe268ade0cda249741bc48d37e6deb24a59d0647f9236"
+    },
+    {
+      "path": "System/RandomRelic.ini",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/RandomRelic.ini",
+      "bytes": 40,
+      "sha256": "4b3de27262774221800ff817d9640772da2b68cff5547f6196005d26283adb2a"
+    },
+    {
+      "path": "System/RandomRelic.int",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/RandomRelic.int",
+      "bytes": 150,
+      "sha256": "9b52cf5708289231cdd9ae1068734649ab161901a664c5e3d7c46576f5deda13"
+    },
+    {
+      "path": "System/RandomRelic.u",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/RandomRelic.u",
+      "bytes": 9917,
+      "sha256": "276d3c07c344c9b39eee05ac4c606175b7cd7f7673b9f393916cd8f7707f68d2"
+    },
+    {
+      "path": "System/relics.int",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/relics.int",
+      "bytes": 1000,
+      "sha256": "2f013f8fd243824954b93f1293f48df33dd7b2f4b3ba0738b397530db3ec8419"
+    },
+    {
+      "path": "System/relics.u",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/relics.u",
+      "bytes": 455370,
+      "sha256": "1a39a4785ff69cb4fccf024d9a10cd572e98b49027a7f4bb85520dcae6c7426d"
+    },
+    {
+      "path": "System/relicsbindings.int",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/relicsbindings.int",
+      "bytes": 108,
+      "sha256": "5643d577008c5e42e12b2c8976f1bb10405b21af8fefa66677bd3b0fa5954d95"
+    },
+    {
+      "path": "System/relicsbindings.u",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/relicsbindings.u",
+      "bytes": 582,
+      "sha256": "2b7f9cb5232956b433f072a5a76ddf47a46ac991c69cd01b3a2260248b684ef0"
+    },
+    {
+      "path": "System/RocketArena.int",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/RocketArena.int",
+      "bytes": 1121,
+      "sha256": "f731998b31121127ec1b71b47f9d1ffbcfbe2069760ba9742ebdf10af7c719bc"
+    },
+    {
+      "path": "System/RocketArena.u",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/RocketArena.u",
+      "bytes": 657699,
+      "sha256": "4cd6cefc2a3e30b3a5a977d0dff05268f837acb301dd80af5581783ce1806965"
+    },
+    {
+      "path": "System/RocketArenaMedia.u",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/RocketArenaMedia.u",
+      "bytes": 1621586,
+      "sha256": "296c6efe6d97f77034dd05e04c4abef60a8e7ed185dbdbaa645d9b918b1ca3f7"
+    },
+    {
+      "path": "System/RocketArenaMultiMesh.u",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/RocketArenaMultiMesh.u",
+      "bytes": 61182,
+      "sha256": "2fd6a1df1771c02576ccac8910c0a5852212c6de65a0f3d713174dafdc538ffa"
+    },
+    {
+      "path": "System/Screen.int",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/Screen.int",
+      "bytes": 156,
+      "sha256": "d7ae4889bdb13936ef0f26c5d3c857419e0ef218b02235824d10a76108e0244c"
+    },
+    {
+      "path": "System/Screen.u",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/Screen.u",
+      "bytes": 309292,
+      "sha256": "a8f0242bc6dc531ded93da7851d59717149a1a0c4b5911cc77fc125ba8268c1f"
+    },
+    {
+      "path": "System/SGirlSkins.int",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/SGirlSkins.int",
+      "bytes": 5565,
+      "sha256": "a9d124def284043f71e4a1eeaab59cff3893146cd195dc98a97a1ff49acb6c8c"
+    },
+    {
+      "path": "System/SkeletalChars.u",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/SkeletalChars.u",
+      "bytes": 1591818,
+      "sha256": "bd3a2c0c2758e32b2d7e1447ecddb700d9cd7b51bbd72e992ea6580a2d754dcb"
+    },
+    {
+      "path": "System/sky.utx",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/sky.utx",
+      "bytes": 4228486,
+      "sha256": "39172f21d9d72e533fec792106c48a94557186b1931880097a26220cf6c13eb2"
+    },
+    {
+      "path": "System/SoldierSkins.int",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/SoldierSkins.int",
+      "bytes": 5578,
+      "sha256": "eb3e79cdc98b7345c690a0f75b4fd6295459cc59bc90c7464b0c8142066b4463"
+    },
+    {
+      "path": "System/Startup.int",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/Startup.int",
+      "bytes": 4331,
+      "sha256": "8d9f15825a83a993fdd37f93ad81471a341e5b98999c1ac0499a9c13d9db5aac"
+    },
+    {
+      "path": "System/tcowmeshskins.int",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/tcowmeshskins.int",
+      "bytes": 362,
+      "sha256": "50d92536a31a0dbb95b9bcc5f243a419403ad766012e1463d5213fc2cdbe5ce1"
+    },
+    {
+      "path": "System/tnalimeshskins.int",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/tnalimeshskins.int",
+      "bytes": 370,
+      "sha256": "480122d04dab5fbd8b154881470ec6f34bddc7dc7a3b073c57c7383df0ee63ff"
+    },
+    {
+      "path": "System/tskmskins.int",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/tskmskins.int",
+      "bytes": 2823,
+      "sha256": "fbbdfb210b69b414cdcb9c47125add66c2eec0db9bf57fa6f6cb4bded3f3006a"
+    },
+    {
+      "path": "System/UBrowser.int",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/UBrowser.int",
+      "bytes": 331,
+      "sha256": "14ccd80897dcd8337369c3679eb0bc58f0409497a85c752c112d4b3fe8fe689e"
+    },
+    {
+      "path": "System/UBrowser.u",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/UBrowser.u",
+      "bytes": 329791,
+      "sha256": "006d5f25eb6b8dc87cc5d0276397fa8bd1b867e1eb7493a862b7fdf4a2117cba"
+    },
+    {
+      "path": "System/UMenu.int",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/UMenu.int",
+      "bytes": 335,
+      "sha256": "fdb8cd466a4bd78724c801f3b8d02b5a2e166ca8e0a5d3f32f2ee847fe96f26c"
+    },
+    {
+      "path": "System/UMenu.u",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/UMenu.u",
+      "bytes": 1904411,
+      "sha256": "790373cabc92ff997bd66338c85e46460747f3a6b59d30291549801a05a6de0a"
+    },
+    {
+      "path": "System/UnrealI.int",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/UnrealI.int",
+      "bytes": 28726,
+      "sha256": "af5c9cdf23816de5af6d2004580e70065b7c1bca7b7b796cf476c9e73f1d7398"
+    },
+    {
+      "path": "System/UnrealI.u",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/UnrealI.u",
+      "bytes": 18549361,
+      "sha256": "6aa7d8af348f83981caf5a2a0a7a2073edbae9776aad0625b70d67424546580c"
+    },
+    {
+      "path": "System/UnrealShare.int",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/UnrealShare.int",
+      "bytes": 24410,
+      "sha256": "78da504474ba2686b1d2746f47b69e10180c15e5f91b5297e20b9f47fa880982"
+    },
+    {
+      "path": "System/UnrealShare.u",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/UnrealShare.u",
+      "bytes": 22124694,
+      "sha256": "d75a7a5a4dbdcbcbfc363eadae810f99dfc4030c203032ed2dc88d255811155d"
+    },
+    {
+      "path": "System/UnrealTournament.ini",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/UnrealTournament.ini",
+      "bytes": 12087,
+      "sha256": "6f3de322cd95f5cd1065460b323b2fa8214f8eaf556f3ba9c2be2ded343d4005"
+    },
+    {
+      "path": "System/UnrealTournament.int",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/UnrealTournament.int",
+      "bytes": 139,
+      "sha256": "5428c2b66ac1c7256ec825db5b298f5ffbeec756e9a373ae0f678464af1e1845"
+    },
+    {
+      "path": "System/User.ini",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/User.ini",
+      "bytes": 10010,
+      "sha256": "2166334f65af85ebdb523de847831cce8d0857ced349b973f598a76865091b8e"
+    },
+    {
+      "path": "System/UTBrowser.u",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/UTBrowser.u",
+      "bytes": 13869,
+      "sha256": "fb34614abddd5a26e70389049e7ace9d1fee0c05e4358e9783edbd9871636e84"
+    },
+    {
+      "path": "System/UTChaosMap.u",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/UTChaosMap.u",
+      "bytes": 1574716,
+      "sha256": "bfea98987f9ec59201c37d850feb42e19498756e9792bc23c626c297264b70eb"
+    },
+    {
+      "path": "System/UTDMT.u",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/UTDMT.u",
+      "bytes": 67130,
+      "sha256": "620c60c7286d35d4eeb8a733cfe1b9c7a101dfbd642bd757a28780f5b58dad3d"
+    },
+    {
+      "path": "System/UTDMT.utx",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/UTDMT.utx",
+      "bytes": 64814,
+      "sha256": "5eab48dd38f3e0c0f1653e2751d01bca3f7b7cce62af60218d7aa4db6aea757b"
+    },
+    {
+      "path": "System/UTMenu.int",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/UTMenu.int",
+      "bytes": 178,
+      "sha256": "6205e869b601b717580c3e75b4b38da396b5d8939e1a07aa7f1a4d14bbb352cc"
+    },
+    {
+      "path": "System/UTMenu.u",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/UTMenu.u",
+      "bytes": 4723957,
+      "sha256": "2a25c8cc42968f19ab20771321f45800ed91c4f30c7efe2606b664ae609b2aa9"
+    },
+    {
+      "path": "System/UTPS2Characters.int",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/UTPS2Characters.int",
+      "bytes": 4382,
+      "sha256": "2f25dad5e4a46e2b2e1024b6e017dcb7ec5d83fbc8fad4cca87faed4a01adb15"
+    },
+    {
+      "path": "System/UTPS2Characters.u",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/UTPS2Characters.u",
+      "bytes": 10621512,
+      "sha256": "4c4f09ae25d1d5083c9c69aa3d383598e0c822c23c1776abffdb69db73b209d2"
+    },
+    {
+      "path": "System/UTPS2CharactersSkins.int",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/UTPS2CharactersSkins.int",
+      "bytes": 21304,
+      "sha256": "ee9cb4f91290c16cf1c62e7faf38e00e48f6d8ab8ef05fad2b4243394892159a"
+    },
+    {
+      "path": "System/UTPS2CharactersSkins.utx",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/UTPS2CharactersSkins.utx",
+      "bytes": 6006667,
+      "sha256": "59a46fbb3d5e519b910deed72179df104aec4e49d15942c055ac095c399dd18f"
+    },
+    {
+      "path": "System/UTServerAdmin.int",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/UTServerAdmin.int",
+      "bytes": 188,
+      "sha256": "5c6833d053b6f3ee1b1c524732e98a593828e7e767d9d01ece977394a5c58984"
+    },
+    {
+      "path": "System/UTServerAdmin.u",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/UTServerAdmin.u",
+      "bytes": 105371,
+      "sha256": "f1d7712ebd97f9fd888f2e6dc7039f895adda3045e7958c74bfcda48f9a57287"
+    },
+    {
+      "path": "System/UWeb.int",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/UWeb.int",
+      "bytes": 131,
+      "sha256": "7bac44475f6e958be83d66872e415038ee329a4d2299cc882ca6ee568d366b1d"
+    },
+    {
+      "path": "System/UWeb.u",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/UWeb.u",
+      "bytes": 28410,
+      "sha256": "2894fed3aa57d27f8c6d4150a8e5afae2cd1d310446f81d6f411ce4762a51362"
+    },
+    {
+      "path": "System/UWindow.u",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/System/UWindow.u",
+      "bytes": 650618,
+      "sha256": "dc80f17fa6ac8d3515ef1b597ab12eef6e05ec671248325b293e633be3a17883"
+    },
+    {
+      "path": "Textures/JB-AF-Pack-1.utx",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Textures/JB-AF-Pack-1.utx",
+      "bytes": 578701,
+      "sha256": "63159f67df4e6fba7f6ae16490906eaf5e01f41c0ba314cee61a5b3efc4913ba"
+    },
+    {
+      "path": "Textures/JBSkinCheese.utx",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Textures/JBSkinCheese.utx",
+      "bytes": 44759,
+      "sha256": "2e0c225a8892a36ce1596522f8ff24d5b37282aaba44db9f3d6efe6e7ddce287"
+    },
+    {
+      "path": "Textures/JBSkinClassic.utx",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Textures/JBSkinClassic.utx",
+      "bytes": 114958,
+      "sha256": "fd696482ce856a90a05d3fa733500422a3ec16503ddc7bd48ef7afae65578865"
+    },
+    {
+      "path": "Textures/JBSkinKryty.utx",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Textures/JBSkinKryty.utx",
+      "bytes": 703798,
+      "sha256": "222ab2752c1f6123aff97790aa5e20708916487031b77156a0ce1da1650e36b7"
+    },
+    {
+      "path": "Textures/JBSkinOpression.utx",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Textures/JBSkinOpression.utx",
+      "bytes": 311535,
+      "sha256": "b6167d464e4891c99356ae009e8c94a60c1726ff2e31e6d7b29080a2da066b43"
+    },
+    {
+      "path": "Textures/JBSkinTankazz.utx",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Textures/JBSkinTankazz.utx",
+      "bytes": 311510,
+      "sha256": "8b7ae0c1e04b8c0dde26cf9f222dbfa9c47dc6fdac2e7400f790d37acb634cc1"
+    },
+    {
+      "path": "Textures/richrig.utx",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Textures/richrig.utx",
+      "bytes": 2234223,
+      "sha256": "fd291896a4ac13215b20eab3f30a971b9da4a7c0104b7cba5fbc652026be4971"
+    },
+    {
+      "path": "Textures/ScreenFonts.utx",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Textures/ScreenFonts.utx",
+      "bytes": 1032240,
+      "sha256": "814fad2de4d8d3fd2b3388aa2ca2078c0a35fce2d8208ed98515c8341689b3bd"
+    },
+    {
+      "path": "Textures/ScriptedScreen.utx",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Textures/ScriptedScreen.utx",
+      "bytes": 244270,
+      "sha256": "39a4daaeeff001e1806d238c82823c1c5fea8f8a488296daea07ce5406d9589e"
+    },
+    {
+      "path": "TitleImage.xbx",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/TitleImage.xbx",
+      "bytes": 10240,
+      "sha256": "a33057be03c9edc500d195c00dceca50b9e133b88051ec8a4bb385379168a281"
+    },
+    {
+      "path": "TitleMeta.xbx",
+      "source": "release_work/release_1.2_final/UT99-Xbox-1.2/TitleMeta.xbx",
+      "bytes": 82,
+      "sha256": "814649f9fad1eb732ec649e049971ec9ad0caee5afb719eb9b16518ff128ff13"
+    }
+  ]
+}

@@ -24,6 +24,12 @@ Version **1.2 is the final release**, published September 12, 2026. No further r
 
 System Link is still experimental. Co-op Tournament and skeletal LOD improvements are not included. Video output stays at 480i/480p.
 
+## Source code
+
+The complete source code and its development history are now public in this repository, alongside the releases. The former UnrealTournament_X repository has been consolidated here.
+
+See [source and build documentation](SOURCE_README.md) and the [final release status](UT99-Xbox/Docs/FINAL_RELEASE_1.2.md). Version 1.2 is the final release; no further releases are planned.
+
 ## Feature Highlights
 
 - Full Unreal Tournament GOTY gameplay on original Xbox

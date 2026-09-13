@@ -1,0 +1,45 @@
+[Public]
+
+//Players
+Object=(Name=UTPS2Characters.RawSteelPS2,Class=Class,MetaClass=Botpack.TournamentPlayer,Description="(PS2) Raw Steel")
+Object=(Name=UTPS2Characters.NecrisPS2,Class=Class,MetaClass=Botpack.TournamentPlayer,Description="(PS2) Male Necris")
+Object=(Name=UTPS2Characters.MSoldierPS2,Class=Class,MetaClass=Botpack.TournamentPlayer,Description="(PS2) Male Soldier")
+Object=(Name=UTPS2Characters.FemSoldierPS2,Class=Class,MetaClass=Botpack.TournamentPlayer,Description="(PS2) Female Soldier")
+Object=(Name=UTPS2Characters.FemSoldierSPS2,Class=Class,MetaClass=Botpack.TournamentPlayer,Description="(PS2) Female Soldier 2")
+Object=(Name=UTPS2Characters.FemCommandoPS2,Class=Class,MetaClass=Botpack.TournamentPlayer,Description="(PS2) Female Commando")
+Object=(Name=UTPS2Characters.FemMercenaryPS2,Class=Class,MetaClass=Botpack.TournamentPlayer,Description="(PS2) Female Mercenary")
+Object=(Name=UTPS2Characters.MCommandoPS2,Class=Class,MetaClass=Botpack.TournamentPlayer,Description="(PS2) Male Commando")
+Object=(Name=UTPS2Characters.MMercenaryPS2,Class=Class,MetaClass=Botpack.TournamentPlayer,Description="(PS2) Male Mercenary")
+Object=(Name=UTPS2Characters.SkaarjHybridPS2,Class=Class,MetaClass=Botpack.TournamentPlayer,Description="(PS2) Skaarj Hybrid")
+Object=(Name=UTPS2Characters.SkaarjHybridMPS2,Class=Class,MetaClass=Botpack.TournamentPlayer,Description="(PS2) Skaarj Hybrid 2")
+Object=(Name=UTPS2Characters.XanPS2,Class=Class,MetaClass=Botpack.TournamentPlayer,Description="(PS2) Xan")
+Object=(Name=UTPS2Characters.WarbossPS2,Class=Class,MetaClass=Botpack.TournamentPlayer,Description="(PS2) Rampage")
+Object=(Name=UTPS2Characters.SkaarjBossPS2,Class=Class,MetaClass=Botpack.TournamentPlayer,Description="(PS2) Dominator")
+Object=(Name=UTPS2Characters.DamienPS2,Class=Class,MetaClass=Botpack.TournamentPlayer,Description="(PS2) Damien")
+Object=(Name=UTPS2Characters.WarMachinePS2,Class=Class,MetaClass=Botpack.TournamentPlayer,Description="(PS2) War Machine")
+
+//Bots
+Object=(Name=UTPS2Characters.RawSteelPS2Bot,Class=Class,MetaClass=BotPack.Bot,Description="(PS2) Raw Steel")
+Object=(Name=UTPS2Characters.NecrisPS2Bot,Class=Class,MetaClass=BotPack.Bot,Description="(PS2) Male Necris")
+Object=(Name=UTPS2Characters.MSoldierPS2Bot,Class=Class,MetaClass=BotPack.Bot,Description="(PS2) Male Soldier")
+Object=(Name=UTPS2Characters.FemSoldierPS2Bot,Class=Class,MetaClass=BotPack.Bot,Description="(PS2) Female Soldier")
+Object=(Name=UTPS2Characters.FemSoldierSPS2Bot,Class=Class,MetaClass=BotPack.Bot,Description="(PS2) Female Soldier 2")
+Object=(Name=UTPS2Characters.MCommandoPS2Bot,Class=Class,MetaClass=BotPack.Bot,Description="(PS2) Male Commando")
+Object=(Name=UTPS2Characters.MMercenaryPS2Bot,Class=Class,MetaClass=BotPack.Bot,Description="(PS2) Male Mercenary")
+Object=(Name=UTPS2Characters.XanPS2Bot,Class=Class,MetaClass=Botpack.Bot,Description="(PS2) Xan")
+Object=(Name=UTPS2Characters.WarbossPS2Bot,Class=Class,MetaClass=Botpack.Bot,Description="(PS2) Rampage")
+Object=(Name=UTPS2Characters.FemCommandoPS2Bot,Class=Class,MetaClass=BotPack.Bot,Description="(PS2) Female Commando")
+Object=(Name=UTPS2Characters.FemMercenaryPS2Bot,Class=Class,MetaClass=BotPack.Bot,Description="(PS2) Female Mercenary")
+Object=(Name=UTPS2Characters.SkaarjHybridPS2Bot,Class=Class,MetaClass=BotPack.Bot,Description="(PS2) Skaarj Hybrid")
+Object=(Name=UTPS2Characters.SkaarjHybridMPS2Bot,Class=Class,MetaClass=BotPack.Bot,Description="(PS2) Skaarj Hybrid 2")
+Object=(Name=UTPS2Characters.SkaarjBossPS2Bot,Class=Class,MetaClass=BotPack.Bot,Description="(PS2) Dominator")
+Object=(Name=UTPS2Characters.DamienPS2Bot,Class=Class,MetaClass=BotPack.Bot,Description="(PS2) Damien")
+Object=(Name=UTPS2Characters.WarMachinePS2Bot,Class=Class,MetaClass=BotPack.Bot,Description="(PS2) War Machine")
+
+//Voice Packs
+Object=(Name=UTPS2Characters.DominatorVoice,Class=Class,MetaClass=BotPack.VoiceMale,Description="Dominator (PS2)")
+Object=(Name=UTPS2Characters.SkaarjHybridPS2Voice,Class=Class,MetaClass=BotPack.VoiceMale,Description="Skaarj Hybrid (PS2)")
+Object=(Name=UTPS2Characters.VoiceBossPS2,Class=Class,MetaClass=BotPack.VoiceMale,Description="Robot (PS2)")
+
+//Mutators
+Object=(Name=UTPS2Characters.PS2CorpsesMut,Class=Class,MetaClass=Engine.Mutator,Description="Playstation 2 Corpse Fade,Corpses fade away like in the PS2 version of UT.")

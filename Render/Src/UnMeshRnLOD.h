@@ -1,0 +1,1107 @@
+/*=============================================================================
+	UnMeshRnLOD.cpp: Unreal mesh LOD rendering.
+	Copyright 1997-1999 Epic Games, Inc. All Rights Reserved.
+
+	Revision history:
+		* Created by Erik de Neve
+
+	Note:
+		* Included by UnMeshRn.cpp.
+=============================================================================*/
+
+//
+// Structure used by DrawLodMesh for sorting triangles.
+//
+struct FMeshFaceSort
+{
+	FMeshFace* Face;
+	INT Key;
+};
+QSORT_RETURN CDECL CompareFaceKey( const FMeshFaceSort* A, const FMeshFaceSort* B )
+{
+	return B->Key - A->Key;
+}
+
+#if TARGET_XBOX
+enum { SKELETAL_RENDER_AUDIT_SLOTS = 64 };
+
+struct FSkeletalRenderAuditState
+{
+	AActor* Owner;
+	ULodMesh* Mesh;
+	INT LastFrame;
+	INT GeometrySamples;
+	INT PreviousLod;
+	INT LastLod;
+	INT PreviousVisibleFaces;
+	INT LastVisibleFaces;
+	INT WindowMinVisibleFaces;
+	INT WindowMaxVisibleFaces;
+	INT WindowMinLod;
+	INT WindowMaxLod;
+	INT LastFullyRejected;
+	DWORD PreviousTextureHash;
+	DWORD LastTextureHash;
+	INT LastMissingTextures;
+	INT TextureSlotsLogged;
+};
+
+static FSkeletalRenderAuditState GSkeletalRenderAudit[SKELETAL_RENDER_AUDIT_SLOTS];
+
+static FSkeletalRenderAuditState* GetSkeletalRenderAuditState( AActor* Owner, ULodMesh* Mesh )
+{
+	INT EmptyIndex = INDEX_NONE;
+	for( INT Index=0; Index<SKELETAL_RENDER_AUDIT_SLOTS; Index++ )
+	{
+		if( GSkeletalRenderAudit[Index].Owner == Owner && GSkeletalRenderAudit[Index].Mesh == Mesh )
+			return &GSkeletalRenderAudit[Index];
+		if( EmptyIndex == INDEX_NONE && GSkeletalRenderAudit[Index].Owner == NULL )
+			EmptyIndex = Index;
+	}
+	const INT SlotIndex = EmptyIndex != INDEX_NONE
+		? EmptyIndex
+		: (((DWORD)Owner >> 4) % SKELETAL_RENDER_AUDIT_SLOTS);
+	appMemzero( &GSkeletalRenderAudit[SlotIndex], sizeof(GSkeletalRenderAudit[SlotIndex]) );
+	GSkeletalRenderAudit[SlotIndex].Owner = Owner;
+	GSkeletalRenderAudit[SlotIndex].Mesh = Mesh;
+	GSkeletalRenderAudit[SlotIndex].LastFrame = -1;
+	GSkeletalRenderAudit[SlotIndex].LastFullyRejected = -1;
+	return &GSkeletalRenderAudit[SlotIndex];
+}
+
+static void AuditSkeletalRenderGeometry
+(
+	FSceneNode* Frame,
+	AActor* Owner,
+	ULodMesh* Mesh,
+	INT VertexSubset,
+	INT VisibleFaces,
+	DWORD MeshOutcode,
+	const FTransTexture* Samples,
+	const FCoords& Coords
+)
+{
+	if( !XboxSkeletalRenderAuditEnabled() )
+		return;
+	if( !Mesh->IsA(USkeletalMesh::StaticClass()) )
+		return;
+	// Portal, mirror, and sky-zone child frames legitimately reject actors
+	// outside their sub-view. Track only the master view for flicker evidence.
+	if( Frame->Parent != NULL )
+		return;
+	FSkeletalRenderAuditState* State = GetSkeletalRenderAuditState( Owner, Mesh );
+	const INT FrameNumber = Frame->Viewport->FrameCount;
+	if( FrameNumber <= State->LastFrame )
+		return;
+
+	const INT FullyRejected = VisibleFaces == 0;
+	if( State->LastFullyRejected != FullyRejected && VertexSubset > 0 )
+	{
+		FVector SampleMin = Samples[0].Point;
+		FVector SampleMax = Samples[0].Point;
+		for( INT VertexIndex=1; VertexIndex<VertexSubset; VertexIndex++ )
+		{
+			SampleMin.X = Min( SampleMin.X, Samples[VertexIndex].Point.X );
+			SampleMin.Y = Min( SampleMin.Y, Samples[VertexIndex].Point.Y );
+			SampleMin.Z = Min( SampleMin.Z, Samples[VertexIndex].Point.Z );
+			SampleMax.X = Max( SampleMax.X, Samples[VertexIndex].Point.X );
+			SampleMax.Y = Max( SampleMax.Y, Samples[VertexIndex].Point.Y );
+			SampleMax.Z = Max( SampleMax.Z, Samples[VertexIndex].Point.Z );
+		}
+		const FVector OwnerView = Owner
+			? Owner->Location.TransformPointBy( Coords )
+			: FVector(0,0,0);
+		debugf
+		(
+			FullyRejected ? NAME_Warning : NAME_Log,
+			TEXT("XSKELVIS state=%s owner=%s mesh=%s frame=%i faces=%i outcode=0x%08x ownerloc=(%.2f,%.2f,%.2f) ownerview=(%.2f,%.2f,%.2f) samplebounds=(%.2f,%.2f,%.2f)-(%.2f,%.2f,%.2f) rot=(%i,%i,%i) seq=%s animframe=%.4f"),
+			FullyRejected ? TEXT("rejected") : TEXT("visible"),
+			Owner ? Owner->GetFullName() : TEXT("None"),
+			Mesh->GetFullName(),
+			FrameNumber,
+			VisibleFaces,
+			MeshOutcode,
+			Owner ? Owner->Location.X : 0.0f,
+			Owner ? Owner->Location.Y : 0.0f,
+			Owner ? Owner->Location.Z : 0.0f,
+			OwnerView.X,
+			OwnerView.Y,
+			OwnerView.Z,
+			SampleMin.X,
+			SampleMin.Y,
+			SampleMin.Z,
+			SampleMax.X,
+			SampleMax.Y,
+			SampleMax.Z,
+			Owner ? Owner->Rotation.Pitch : 0,
+			Owner ? Owner->Rotation.Yaw : 0,
+			Owner ? Owner->Rotation.Roll : 0,
+			Owner ? *Owner->AnimSequence : TEXT("None"),
+			Owner ? Owner->AnimFrame : 0.0f
+		);
+		State->LastFullyRejected = FullyRejected;
+	}
+
+	const UBOOL LodOscillation
+		= State->GeometrySamples > 1
+		&& VertexSubset == State->PreviousLod
+		&& VertexSubset != State->LastLod;
+	if( State->GeometrySamples%120 == 0 )
+	{
+		State->WindowMinVisibleFaces = VisibleFaces;
+		State->WindowMaxVisibleFaces = VisibleFaces;
+		State->WindowMinLod = VertexSubset;
+		State->WindowMaxLod = VertexSubset;
+	}
+	else
+	{
+		State->WindowMinVisibleFaces = Min( State->WindowMinVisibleFaces, VisibleFaces );
+		State->WindowMaxVisibleFaces = Max( State->WindowMaxVisibleFaces, VisibleFaces );
+		State->WindowMinLod = Min( State->WindowMinLod, VertexSubset );
+		State->WindowMaxLod = Max( State->WindowMaxLod, VertexSubset );
+	}
+	if( LodOscillation )
+	{
+		debugf
+		(
+			NAME_Warning,
+			TEXT("XSKELFLICKER kind=render owner=%s mesh=%s frame=%i lod=%i,%i,%i faces=%i,%i,%i windowfaces=%i..%i windowlod=%i..%i outcode=0x%08x collapse=%i faceosc=%i lodosc=%i rangecollapse=%i"),
+			Owner ? Owner->GetFullName() : TEXT("None"),
+			Mesh->GetFullName(),
+			FrameNumber,
+			State->PreviousLod,
+			State->LastLod,
+			VertexSubset,
+			State->PreviousVisibleFaces,
+			State->LastVisibleFaces,
+			VisibleFaces,
+			State->WindowMinVisibleFaces,
+			State->WindowMaxVisibleFaces,
+			State->WindowMinLod,
+			State->WindowMaxLod,
+			MeshOutcode,
+			0,
+			0,
+			LodOscillation,
+			0
+		);
+	}
+	else if( State->GeometrySamples && State->GeometrySamples%120 == 0 )
+	{
+		debugf
+		(
+			NAME_Log,
+			TEXT("XSKELRENDER owner=%s mesh=%s frame=%i lod=%i faces=%i windowfaces=%i..%i windowlod=%i..%i outcode=0x%08x samples=%i"),
+			Owner ? Owner->GetFullName() : TEXT("None"),
+			Mesh->GetFullName(),
+			FrameNumber,
+			VertexSubset,
+			VisibleFaces,
+			State->WindowMinVisibleFaces,
+			State->WindowMaxVisibleFaces,
+			State->WindowMinLod,
+			State->WindowMaxLod,
+			MeshOutcode,
+			State->GeometrySamples
+		);
+	}
+
+	State->PreviousLod = State->LastLod;
+	State->LastLod = VertexSubset;
+	State->PreviousVisibleFaces = State->LastVisibleFaces;
+	State->LastVisibleFaces = VisibleFaces;
+	State->LastFrame = FrameNumber;
+	State->GeometrySamples++;
+}
+
+static void AuditSkeletalRenderTextures( AActor* Owner, ULodMesh* Mesh, UTexture** ResolvedTextures )
+{
+	if( !XboxSkeletalRenderAuditEnabled() )
+		return;
+	if( !Mesh->IsA(USkeletalMesh::StaticClass()) )
+		return;
+	FSkeletalRenderAuditState* State = GetSkeletalRenderAuditState( Owner, Mesh );
+	if
+	(
+		!State->TextureSlotsLogged
+	&&	appStrstr( Mesh->GetName(), TEXT("SkaarjHybrid") )
+	&&	State->GeometrySamples >= 120
+	)
+	{
+		State->TextureSlotsLogged = 1;
+		debugf
+		(
+			NAME_Log,
+			TEXT("XSKELSKIN owner=%s mesh=%s skin=%s texture=%s texcount=%i materials=%i faces=%i"),
+			Owner ? Owner->GetFullName() : TEXT("None"),
+			Mesh->GetFullName(),
+			Owner && Owner->Skin ? Owner->Skin->GetFullName() : TEXT("None"),
+			Owner && Owner->Texture ? Owner->Texture->GetFullName() : TEXT("None"),
+			Mesh->Textures.Num(),
+			Mesh->Materials.Num(),
+			Mesh->Faces.Num()
+		);
+		for( INT TextureIndex=0; TextureIndex<Mesh->Textures.Num(); TextureIndex++ )
+		{
+			UTexture* ActorTexture = Owner ? Owner->GetSkin(TextureIndex) : NULL;
+			debugf
+			(
+				NAME_Log,
+				TEXT("XSKELSKIN slot=%i actor=%s mesh=%s resolved=%s"),
+				TextureIndex,
+				ActorTexture ? ActorTexture->GetFullName() : TEXT("None"),
+				Mesh->Textures(TextureIndex) ? Mesh->Textures(TextureIndex)->GetFullName() : TEXT("None"),
+				ResolvedTextures[TextureIndex] ? ResolvedTextures[TextureIndex]->GetFullName() : TEXT("None")
+			);
+		}
+		for( INT MaterialIndex=0; MaterialIndex<Mesh->Materials.Num(); MaterialIndex++ )
+		{
+			INT FaceCount = 0;
+			INT MinU = 255;
+			INT MinV = 255;
+			INT MaxU = 0;
+			INT MaxV = 0;
+			for( INT FaceIndex=0; FaceIndex<Mesh->Faces.Num(); FaceIndex++ )
+			{
+				const FMeshFace& Face = Mesh->Faces(FaceIndex);
+				if( Face.MaterialIndex != MaterialIndex )
+					continue;
+				FaceCount++;
+				for( INT Corner=0; Corner<3; Corner++ )
+				{
+					if( Face.iWedge[Corner] >= Mesh->Wedges.Num() )
+						continue;
+					const FMeshUV& UV = Mesh->Wedges(Face.iWedge[Corner]).TexUV;
+					MinU = Min( MinU, (INT)UV.U );
+					MinV = Min( MinV, (INT)UV.V );
+					MaxU = Max( MaxU, (INT)UV.U );
+					MaxV = Max( MaxV, (INT)UV.V );
+				}
+			}
+			debugf
+			(
+				NAME_Log,
+				TEXT("XSKELSKIN material=%i texslot=%i flags=0x%08x faces=%i uv=(%i,%i)-(%i,%i)"),
+				MaterialIndex,
+				Mesh->Materials(MaterialIndex).TextureIndex,
+				Mesh->Materials(MaterialIndex).PolyFlags,
+				FaceCount,
+				MinU,
+				MinV,
+				MaxU,
+				MaxV
+			);
+		}
+	}
+	DWORD TextureHash = 2166136261u;
+	INT MissingTextures = 0;
+	INT UsedTextures = 0;
+	BYTE* UsedTextureSlots = (BYTE*)appAlloca( Max(1,Mesh->Textures.Num()) );
+	appMemzero( UsedTextureSlots, Max(1,Mesh->Textures.Num()) );
+	for( INT MaterialIndex=0; MaterialIndex<Mesh->Materials.Num(); MaterialIndex++ )
+	{
+		const INT TextureIndex = Mesh->Materials(MaterialIndex).TextureIndex;
+		if
+		(
+			TextureIndex >= 0
+		&&	TextureIndex < Mesh->Textures.Num()
+		&&	!UsedTextureSlots[TextureIndex]
+		)
+		{
+			UsedTextureSlots[TextureIndex] = 1;
+			UsedTextures++;
+		}
+	}
+	for( INT Index=0; Index<Mesh->Textures.Num(); Index++ )
+	{
+		if( !UsedTextureSlots[Index] )
+			continue;
+		const DWORD TextureId = ResolvedTextures[Index]
+			? (DWORD)(ResolvedTextures[Index]->GetIndex()+1)
+			: 0;
+		TextureHash = (TextureHash ^ (DWORD)(Index+1)) * 16777619u;
+		TextureHash = (TextureHash ^ TextureId) * 16777619u;
+		if( !ResolvedTextures[Index] )
+			MissingTextures++;
+	}
+	const UBOOL TextureOscillation
+		= State->PreviousTextureHash
+		&& TextureHash == State->PreviousTextureHash
+		&& TextureHash != State->LastTextureHash;
+	if( MissingTextures || TextureOscillation )
+	{
+		debugf
+		(
+			NAME_Warning,
+			TEXT("XSKELFLICKER kind=texture owner=%s mesh=%s texhash=0x%08x,0x%08x,0x%08x missing=%i previousmissing=%i used=%i texcount=%i oscillation=%i"),
+			Owner ? Owner->GetFullName() : TEXT("None"),
+			Mesh->GetFullName(),
+			State->PreviousTextureHash,
+			State->LastTextureHash,
+			TextureHash,
+			MissingTextures,
+			State->LastMissingTextures,
+			UsedTextures,
+			Mesh->Textures.Num(),
+			TextureOscillation
+		);
+	}
+	State->PreviousTextureHash = State->LastTextureHash;
+	State->LastTextureHash = TextureHash;
+	State->LastMissingTextures = MissingTextures;
+}
+#endif
+
+//
+// Draw a mesh map with level-of-detail support.
+//
+void URender::DrawLodMesh
+(
+	FSceneNode*		Frame,
+	AActor*			Owner,
+	AActor*			LightSink,
+	FSpanBuffer*	SpanBuffer,
+	AZoneInfo*		Zone,
+	const FCoords&	Coords,
+	FVolActorLink*	LeafLights,
+	FActorLink*		Volumetrics,
+	DWORD			ExtraFlags
+)
+{
+	guard(URender::DrawLodMesh);
+
+	STAT(clock(GStat.MeshTime));
+	FMemMark Mark(GMem);
+
+	ExtraFlags |= PF_Flat; /* LOD doesn't support curved surfaces (yet) */
+
+	ULodMesh*  Mesh = (ULodMesh*)Owner->Mesh;
+	FVector Hack = FVector(0,-8,0);
+	UBOOL SoftwareRendering =  Frame->Viewport->RenDev->SpanBased;
+	UBOOL NotWeaponHeuristic= (Owner->Owner!=Frame->Viewport->Actor);
+
+	//
+	// ShapeLODMode: LOD drawing mode.
+	//
+	// 0    Draw everything at full (or at ShapeLODFix) detail.
+	// 1    Normal level-of-detail mode
+	// 2    Disable smooth morphing.
+	// 3    Ignore the field-of-view (great for debugging)
+	// 4    Disable smooth morphing, ignore field-of-view.
+	// 
+
+	// Skip LOD strength calculation if at all possible.
+	FLOAT TargetSubset = Mesh->ModelVerts;
+	INT   VertexSubset = Mesh->ModelVerts;
+	INT   NonMorphSubset = 0;  //avoid debug compiler warning
+
+	UBOOL DoMorph = false;
+	UBOOL DoLOD =( ( *(DWORD*)&Mesh->LODStrength != 0 ) && (Mesh->CollapsePointThus.Num() != 0) );
+	if( Mesh->IsA(USkeletalMesh::StaticClass()) )
+	{
+		// Skeletal skinning needs a stable vertex set. Distance-driven subset
+		// changes can alternate every frame and expose incompatible collapse data.
+		DoLOD = false;
+		TargetSubset = Mesh->ModelVerts;
+		VertexSubset = Mesh->ModelVerts;
+	}
+
+	if( DoLOD )
+	{
+		DoMorph = ( (ShapeLODMode & 1) && (Mesh->LODMorph > 0.0f) );
+		FLOAT FovBias  = appTan( Frame->Viewport->Actor->FovAngle*(PI/360.f) );
+		// Some debugging modes disable FOV bias:
+		if ( ShapeLODMode >= 3 ) 
+		{
+			FovBias = 1.0f; 
+		}
+
+		// Complexity bias: effectively, stronger LOD for more complex meshes.
+		FLOAT CpxBias =  0.25f + 0.75f*Mesh->ModelVerts/250.0f; // about even for 250-vertex meshes.
+		FLOAT ResolutionBias = 0.3 + 0.7*Frame->FX/640.f; // Moderated resolution influence.
+		// Z coordinate :in units. 60 units is about the player's height. 
+		FLOAT Z = Owner->Location.TransformPointBy(Coords).Z - Mesh->LODZDisplace;
+		FLOAT DetailDiv = Mesh->LODStrength * GlobalShapeLOD * GlobalShapeLODAdjust * FovBias * Max(1.0f,Z) * CpxBias;  	
+		FLOAT MeshVertLOD  = 430.f * ResolutionBias * Owner->DrawScale * Owner->LODBias * Mesh->MeshScaleMax / DetailDiv;  
+		// Overscaling > 1.0 allowed; actually needed for the LOD morphing. 
+		//  150.0 was the initial setting.   340.f seems useful.
+		//  430.0 is Steve's 224 conservative setting.
+
+		// Command line debugging variables.
+		if ( ShapeLODMode == 0 )
+		{
+			MeshVertLOD = 1.0f;
+			if( ShapeLODFix != 0.f)
+			{
+				MeshVertLOD = ShapeLODFix;
+			}
+		}
+		TargetSubset    = Max( (FLOAT)Mesh->LODMinVerts, (FLOAT)Mesh->ModelVerts * MeshVertLOD  );
+		VertexSubset    = Min( appRound(TargetSubset), Mesh->ModelVerts );
+	}
+
+
+	// Get transformed verts.
+	UBOOL bWire = Frame->Viewport->IsOrtho() || Frame->Viewport->Actor->RendMap==REN_Wire;
+
+	// Allocate the necessary amount of our vertex lighting/transforming/texturing structures.
+	FTransTexture* AllSamples;	
+	AllSamples = New<FTransTexture>(GMem, VertexSubset + Mesh->SpecialVerts); 
+	// The real samples start after the special-coordinate ones.
+	FTransTexture* Samples = &AllSamples[Mesh->SpecialVerts]; 
+
+	guardSlow(Transform);
+	STAT(clock(GStat.MeshGetFrameTime));
+	// On top of a possibly changed VertexSubSet, we always get Mesh->SpecialVerts extra vertices returned.
+	Mesh->GetFrame( &AllSamples->Point, sizeof(AllSamples[0]), bWire ? GMath.UnitCoords : Coords, Owner, VertexSubset );
+	STAT(unclock(GStat.MeshGetFrameTime));
+	unguardSlow;
+	
+
+	// Smooth morphing.
+	if ( DoMorph ) 
+	{
+		guardSlow(MorphPrepare);
+		NonMorphSubset = appRound( TargetSubset * (1.0f - Mesh->LODMorph) ); 
+
+		if( NonMorphSubset >= VertexSubset )
+		{
+			DoMorph = false;			
+		}
+		else
+		{
+			FLOAT InvLODMorph = 1.0f/( Mesh->LODMorph * TargetSubset );
+			// prepare an upper subset for morphing.
+			for ( INT i=VertexSubset-1; i>NonMorphSubset; i-- ) 
+			{
+				// Vertices morph according to their closeness to collapse.
+				FLOAT Alpha = Min( 1.0f, (FLOAT)(i-NonMorphSubset) * InvLODMorph );
+				// Only go down once. 
+				INT Morph2 = Mesh->CollapsePointThus(i);
+				if ( Morph2 > 0 )
+				{
+					// because we count DOWN, morphed samples don't hinder each other.
+					Samples[i].Point += ( Samples[Morph2].Point - Samples[i].Point ) * Alpha;			
+				}
+				else
+				{
+					Alpha = 0.0f;
+				}			
+				// Stored in U before we need it later as texture coordinate.
+				Samples[i].U = Alpha;
+			}
+		}
+		unguardSlow;
+	}
+
+	// LOD codepath not necessary in several cases:
+	if( !DoMorph && ( VertexSubset >= Mesh->ModelVerts ) ) 
+	{
+		DoLOD = false; 
+	}
+
+	// Compute outcodes.
+	// If resulting Outcode & FVF_OutReject == 0  then entire mesh is out of view.
+	DWORD MeshOutcode = FVF_OutReject;
+	DWORD WeaponOutcode = FVF_OutReject;
+	guardSlow(Outcode);
+	for( INT i=0; i<Mesh->SpecialVerts; i++ )
+	{
+		AllSamples[i].Normal = FPlane(0,0,0,0);
+		AllSamples[i].ComputeOutcode( Frame );
+		WeaponOutcode &= AllSamples[i].Flags;
+	}
+	for( i=0; i<VertexSubset; i++ )
+	{
+		Samples[i].Light.X = 0;  // Indicate unprocessed vertex.
+		Samples[i].Normal = FPlane(0,0,0,0);
+		Samples[i].ComputeOutcode( Frame );
+		MeshOutcode &= Samples[i].Flags;
+	}
+	unguardSlow;
+
+	// Special coordinates setup.
+	HasSpecialCoords = 0;
+	USkeletalMesh* SkeletalMesh = Mesh->IsA(USkeletalMesh::StaticClass())
+		? (USkeletalMesh*)Mesh
+		: NULL;
+	if
+	(
+		SkeletalMesh
+	&&	SkeletalMesh->WeaponBoneIndex >= 0
+	&&	SkeletalMesh->WeaponBoneIndex < SkeletalMesh->RefSkeleton.Num()
+	)
+	{
+		SpecialCoords = SkeletalMesh->ClassicWeaponCoords;
+		HasSpecialCoords = 1;
+	}
+	else if ( WeaponOutcode == 0 ) // ( Mesh->SpecialFaces.Num() )
+	{
+		// Only the first SpecialFace is used - for now.
+		FMeshFace& Face = Mesh->SpecialFaces(0);  
+		FTransform& V0  = AllSamples[Face.iWedge[0]];
+		FTransform& V1  = AllSamples[Face.iWedge[1]];
+		FTransform& V2  = AllSamples[Face.iWedge[2]];
+
+		// See if potentially visible. Warning: potential flickering - the weapon itself 
+		// might be visible depending on its size, even while these 3 vertices aren't ?
+		if ( !(V0.Flags & V1.Flags & V2.Flags) ) 
+		{
+			FCoords C;
+			C.Origin      = FVector(0,0,0);
+			C.XAxis	      = (V1.Point - V0.Point).SafeNormal();
+			C.YAxis	      = (C.XAxis ^ (V0.Point - V2.Point)).SafeNormal();
+			C.ZAxis	      = C.YAxis ^ C.XAxis;
+			FVector Mid   = 0.5*(V0.Point + V2.Point);
+			SpecialCoords = GMath.UnitCoords * Mid * C;
+			HasSpecialCoords = 1;
+		}
+	}
+
+	// Render a wireframe view.
+	if ( bWire )
+	{
+		guardSlow(Wireframe);
+		// Render each wireframe triangle.
+		FPlane Color = Owner->bSelected ? FPlane(.2,.8,.1,0) : FPlane(.6,.4,.1,0);
+
+		for( INT i=0; i<Mesh->Faces.Num(); i++ )
+		{			
+			// Draw only if face's FaceLevel indicates it falls within our vertex budget.
+			if( Mesh->FaceLevel(i) <= VertexSubset ) 
+			{			
+				FMeshFace& Face = Mesh->Faces(i);  
+				INT LVert[3]; 
+				for( INT v=0; v<3; v++ )
+				{
+					INT WedgeIndex = Face.iWedge[v];
+					INT LODVertIndex =  Mesh->Wedges(WedgeIndex).iVertex;
+
+					// Go down LOD wedge collapse list until below the current LOD vertex count.				
+					while( LODVertIndex >= VertexSubset ) // + Mesh->SpecialVerts ??
+					{
+						WedgeIndex = Mesh->CollapseWedgeThus(WedgeIndex);
+						LODVertIndex = Mesh->Wedges(WedgeIndex).iVertex;
+					}					
+					LVert[v] = LODVertIndex;
+				}
+
+				//Render.
+				FVector*  P1 = &Samples[ LVert[2] ].Point;
+				for( int j=0; j<3; j++ )
+				{
+					FVector* P2 = &Samples[ LVert[j] ].Point;					
+					Frame->Viewport->RenDev->Draw3DLine( Frame, Color, LINE_DepthCued, *P1, *P2 );					
+					P1 = P2;
+				}
+			}
+		}
+		// Render any special/weapon triangles: for debugging purposes only.
+		for( i=0; i<Mesh->SpecialFaces.Num(); i++ )
+		{			
+			// Draw only if FaceLevel indicates this face falls within our vertex budget.
+			FMeshFace& Face = Mesh->SpecialFaces(i);  
+			INT LVert[3]; 
+			LVert[0] = Face.iWedge[0];
+			LVert[1] = Face.iWedge[1];
+			LVert[2] = Face.iWedge[2];
+			// Render - weapon triangle for debugging..
+			FVector*  P1 = &AllSamples[ LVert[2] ].Point;
+			for( int j=0; j<3; j++ )
+			{
+				FVector* P2 = &AllSamples[ LVert[j] ].Point;					
+				Frame->Viewport->RenDev->Draw3DLine( Frame, Color, LINE_DepthCued, *P1, *P2 );					
+				P1 = P2;
+			}
+		}
+		STAT(unclock(GStat.MeshTime));
+		Mark.Pop();
+		unguardSlow;
+		return;
+	}
+
+	// Coloring.
+	FLOAT Unlit = Clamp( Owner->ScaleGlow*0.5f + Owner->AmbientGlow/256.f, 0.f, 1.f );
+	GUnlitColor = FVector( Unlit, Unlit, Unlit );
+	if( GIsEditor && (ExtraFlags & PF_Selected) )
+	GUnlitColor = GUnlitColor*0.4 + FVector(0.0,0.6,0.0);
+
+	// Mesh based particle effects with LOD.
+	if( Owner->bParticles )
+	{
+		guardSlow(Particles);
+		check(Owner->Texture);
+		UTexture* Tex = Owner->Texture->Get( Frame->Viewport->CurrentTime );
+		FTransform** SortedPts = New<FTransform*>(GMem,VertexSubset);
+		INT Count=0;
+		FPlane Color = GUnlitColor;
+		if( Owner->ScaleGlow!=1.0 )
+		{
+			Color *= Owner->ScaleGlow;
+			if( Color.X>1.0 ) Color.X=1.0;
+			if( Color.Y>1.0 ) Color.Y=1.0;
+			if( Color.Z>1.0 ) Color.Z=1.0;
+		}
+		for( INT i=0; i<VertexSubset; i++ )
+		{
+			if( !Samples[i].Flags && Samples[i].Point.Z>1.0 )
+			{
+				Samples[i].Project( Frame );
+				SortedPts[Count++] = &Samples[i];
+			}
+		}
+		if( SoftwareRendering )
+		{
+			Sort( SortedPts, Count );
+		}
+		for( i=0; i<Count; i++ )
+		{
+			if( !SortedPts[i]->Flags )
+			{
+				UTexture* SavedNext = NULL;
+				UTexture* SavedCur = NULL;
+				if ( Owner->bRandomFrame )
+				{	
+					// pick texture from multiskins and animate
+					Tex = Owner->MultiSkins[appCeil((SortedPts[i]-Samples)/3.f)%8];
+					if ( Tex )
+					{
+						INT Count=1;
+						for( UTexture* Test=Tex->AnimNext; Test && Test!=Tex; Test=Test->AnimNext )
+							Count++;
+						INT Num = Clamp( appFloor(Owner->LifeFraction()*Count), 0, Count-1 );
+						while( Num-- > 0 )
+							Tex = Tex->AnimNext;
+						SavedNext         = Tex->AnimNext;//sort of a hack!!
+						SavedCur          = Tex->AnimCur;
+						Tex->AnimNext = NULL;
+						Tex->AnimCur  = NULL;
+					}
+				}
+				if ( Tex )
+				{
+					FLOAT XSize = SortedPts[i]->RZ * (Frame->Proj.X / Frame->Proj.Z) * Tex->USize * Owner->DrawScale;
+					FLOAT YSize = SortedPts[i]->RZ * Tex->VSize * Owner->DrawScale;
+
+					Frame->Viewport->Canvas->DrawIcon
+					(
+						Tex,
+						SortedPts[i]->ScreenX - XSize/2,
+						SortedPts[i]->ScreenY - XSize/2,
+						XSize,
+						YSize,
+						SpanBuffer,
+						Samples[i].Point.Z,
+						Color,
+						FPlane(0,0,0,0),
+						ExtraFlags | PF_TwoSided | Tex->PolyFlags()
+					);
+					Tex->AnimNext = SavedNext;
+					Tex->AnimCur  = SavedCur;
+				}
+			}
+		}
+		Mark.Pop();
+		STAT(unclock(GStat.MeshTime));
+		unguardSlow;
+		return;
+	}
+
+
+	// Dynamic Face array setup. All faces with valid LOD level get their 3 wedges LOD-processed/morphed,
+	// and these get flagged as processed using the (full sized) WedgePool table.	
+	// These buffers live only until Mark.Pop(). Using the render scratch stack
+	// avoids heap growth/reallocation for every actor in every local viewport.
+	FMeshFaceSort* FacePool = New<FMeshFaceSort>(GMem, Mesh->Faces.Num());
+	INT FaceCount = 0;
+	FMeshWedge* WedgePool = DoLOD
+		? NewZeroed<FMeshWedge>(GMem, Mesh->Wedges.Num())
+		: (Mesh->Wedges.Num() ? &Mesh->Wedges(0) : NULL);
+	// Minor kludge: *if* UV==0 and ivertex==0 it will assume an uninitialized one.
+
+	INT MatIndex = -1;
+	DWORD MatFlags = 0;
+
+	if (MeshOutcode == 0)
+	{
+		guardSlow(LODFacesProcessing);
+
+		if( DoLOD )
+		{
+			for( INT i=0; i<Mesh->Faces.Num(); i++) 
+			{
+				// This face does not even exist if its FaceLevel 
+				// indicates it does not fall within our vertex budget.
+				// Optimization: checks & collapses can be skipped for full-detail rendering.
+				if( Mesh->FaceLevel(i) <= VertexSubset ) 
+				{	
+					FMeshFace& Face = Mesh->Faces(i);
+					// Faces sorted by materials so don't often change.
+					if( MatIndex != Face.MaterialIndex )
+					{
+						MatIndex = Face.MaterialIndex;
+						MatFlags = ExtraFlags | Mesh->Materials(Face.MaterialIndex).PolyFlags;
+					}
+
+					FTransTexture* V[3];
+
+					// When morphing: Samples[i].U = alpha.
+					
+					for( INT w=0; w<3; w++)
+					{
+						INT iStartWedge = Face.iWedge[w];
+						// Only one DWORD.
+						FMeshWedge Wedge = Mesh->Wedges(iStartWedge); 
+
+						// Uninitialized wedge ?
+						if( *(DWORD*)&WedgePool[iStartWedge] == 0)
+						{
+							INT iWedge = iStartWedge;
+
+							while( Wedge.iVertex >= VertexSubset )
+							{							
+								iWedge = Mesh->CollapseWedgeThus( iWedge );
+								Wedge  = Mesh->Wedges(iWedge);						
+							};
+							
+							// Morphing: a fractional collapse.
+							if ( DoMorph  && ( Wedge.iVertex > NonMorphSubset ))
+							{
+								FLOAT Alpha = Samples[Wedge.iVertex].U;
+								if( *(DWORD*)&Alpha != 0 ) 
+								{
+									INT iNext = Mesh->CollapseWedgeThus( iWedge );
+									// Actually a different wedge ?
+									if (iWedge != iNext)
+									{
+										FMeshWedge Wedge2 = Mesh->Wedges(iNext);
+										// Actually a different UV ?
+										if( Wedge.TexUV.U!=Wedge2.TexUV.U
+										||	Wedge.TexUV.V!=Wedge2.TexUV.V )
+										{
+											Wedge.TexUV.U = appRound( (FLOAT)Wedge.TexUV.U + (FLOAT)((FLOAT)Wedge2.TexUV.U - (FLOAT)Wedge.TexUV.U) *  Alpha );
+											Wedge.TexUV.V = appRound( (FLOAT)Wedge.TexUV.V + (FLOAT)((FLOAT)Wedge2.TexUV.V - (FLOAT)Wedge.TexUV.V) *  Alpha );
+										}
+									}
+								}
+							}
+							WedgePool[iStartWedge] = Wedge; // Cache it, including the possibly morphed UV.
+						}
+						else
+						{
+							Wedge = WedgePool[iStartWedge];
+						}
+						V[w] = &Samples[Wedge.iVertex];
+
+					}				
+					
+					
+					// Compute triangle normal whether visible or not.
+					FVector FaceNormal = (V[0]->Point-V[1]->Point) ^ (V[2]->Point-V[0]->Point);
+					FaceNormal *= DivSqrtApprox(FaceNormal.SizeSquared()+0.001f);
+
+					// Accumulate into normals of all vertices that make up this face.
+					V[0]->Normal += FaceNormal;
+					V[1]->Normal += FaceNormal;
+					V[2]->Normal += FaceNormal;
+
+					// See if potentially visible.
+					if( !(V[0]->Flags & V[1]->Flags & V[2]->Flags) )
+					{
+						if(	(MatFlags & PF_TwoSided) || Frame->Mirror * (V[0]->Point| FaceNormal ) < 0.0 )
+						{					
+							// Indicate these vertices need to be lit later.
+							V[0]->Light.X = -1;
+							V[1]->Light.X = -1;
+							V[2]->Light.X = -1;
+
+							// This face is visible. Add to the list.
+							INT FaceTop = FaceCount;
+							FaceCount++;
+							FacePool[FaceTop].Face = &Face;
+
+							//Set the sort key ONLY if we're in software.
+							if (SoftwareRendering)
+							{
+								FacePool[FaceTop].Key
+								=	NotWeaponHeuristic
+								?	appRound( V[0]->Point.Z + V[1]->Point.Z + V[2]->Point.Z )
+								:	appRound( FDistSquared(V[0]->Point,Hack)*FDistSquared(V[1]->Point,Hack)*FDistSquared(V[2]->Point,Hack) );
+							}
+						}
+					}
+				}
+			}
+		}
+		else // No-LOD variant: no collapses needed.
+		{
+			for( INT i=0; i<Mesh->Faces.Num(); i++) 
+			{
+				FMeshFace& Face = Mesh->Faces(i);
+				// Faces sorted by materials so don't often change.
+				if( MatIndex != Face.MaterialIndex )
+				{
+					MatIndex = Face.MaterialIndex;
+					MatFlags = ExtraFlags | Mesh->Materials(Face.MaterialIndex).PolyFlags;
+				}
+
+				FTransTexture* V[3];
+				INT iStartWedge0 = Face.iWedge[0];
+				INT iStartWedge1 = Face.iWedge[1];
+				INT iStartWedge2 = Face.iWedge[2];
+				FMeshWedge Wedge0 = Mesh->Wedges(iStartWedge0); 
+				FMeshWedge Wedge1 = Mesh->Wedges(iStartWedge1); 
+				FMeshWedge Wedge2 = Mesh->Wedges(iStartWedge2); 
+				V[0] = &Samples[Wedge0.iVertex]; 
+				V[1] = &Samples[Wedge1.iVertex]; 
+				V[2] = &Samples[Wedge2.iVertex];  
+				
+				// Compute triangle normal whether visible or not.
+				FVector FaceNormal = (V[0]->Point-V[1]->Point) ^ (V[2]->Point-V[0]->Point);
+				FaceNormal *= DivSqrtApprox(FaceNormal.SizeSquared()+0.001f);
+
+				// Accumulate into normals of all vertices that make up this face.
+				V[0]->Normal += FaceNormal;
+				V[1]->Normal += FaceNormal;
+				V[2]->Normal += FaceNormal;
+				
+				// See if potentially visible.
+				if( !(V[0]->Flags & V[1]->Flags & V[2]->Flags) )
+				{
+					if(	(MatFlags & PF_TwoSided) || Frame->Mirror * (V[0]->Point| FaceNormal ) < 0.0f )
+					{				
+						// Indicate these vertices need to be lit later.
+						V[0]->Light.X = -1;
+						V[1]->Light.X = -1;
+						V[2]->Light.X = -1; 
+
+						// This face is visible. Add to the list.
+						INT FaceTop = FaceCount;
+						FaceCount++;
+						FacePool[FaceTop].Face = &Face;
+
+						//Set the sort key ONLY if we're in software.
+						if (SoftwareRendering)
+						{
+							FacePool[FaceTop].Key
+							=	NotWeaponHeuristic
+							?	appRound( V[0]->Point.Z + V[1]->Point.Z + V[2]->Point.Z )
+							:	appRound( FDistSquared(V[0]->Point,Hack)*FDistSquared(V[1]->Point,Hack)*FDistSquared(V[2]->Point,Hack) );
+						}
+					}
+				}
+			}
+		}
+		unguardSlow;
+	}
+
+#if TARGET_XBOX
+	AuditSkeletalRenderGeometry
+	(
+		Frame,
+		Owner,
+		Mesh,
+		VertexSubset,
+		FaceCount,
+		MeshOutcode,
+		Samples,
+		Coords
+	);
+	APawn* XboxWeaponPawn = Owner->Owner && Owner->Owner->IsA(APawn::StaticClass())
+		? (APawn*)Owner->Owner
+		: NULL;
+	if
+	(
+		XboxSkeletalRenderAuditEnabled()
+	&&	XboxWeaponPawn
+	&&	XboxWeaponPawn->bViewTarget
+	&&	VertexSubset > 0
+	&&	Frame->Viewport->FrameCount%120 == 0
+	)
+	{
+		FVector XboxWeaponMin = Samples[0].Point;
+		FVector XboxWeaponMax = Samples[0].Point;
+		for( INT XboxWeaponVertex=1; XboxWeaponVertex<VertexSubset; XboxWeaponVertex++ )
+		{
+			XboxWeaponMin.X = Min( XboxWeaponMin.X, Samples[XboxWeaponVertex].Point.X );
+			XboxWeaponMin.Y = Min( XboxWeaponMin.Y, Samples[XboxWeaponVertex].Point.Y );
+			XboxWeaponMin.Z = Min( XboxWeaponMin.Z, Samples[XboxWeaponVertex].Point.Z );
+			XboxWeaponMax.X = Max( XboxWeaponMax.X, Samples[XboxWeaponVertex].Point.X );
+			XboxWeaponMax.Y = Max( XboxWeaponMax.Y, Samples[XboxWeaponVertex].Point.Y );
+			XboxWeaponMax.Z = Max( XboxWeaponMax.Z, Samples[XboxWeaponVertex].Point.Z );
+		}
+		debugf
+		(
+			NAME_Log,
+			TEXT("XSKELWEAPONMESH actor=%s mesh=%s verts=%i faces=%i outcode=0x%08x mirror=%.1f drawscale=%.3f meshscale=(%.3f,%.3f,%.3f) coords=(%.2f,%.2f,%.2f) bounds=(%.2f,%.2f,%.2f)-(%.2f,%.2f,%.2f)"),
+			Owner->GetFullName(),
+			Mesh->GetFullName(),
+			VertexSubset,
+			FaceCount,
+			MeshOutcode,
+			Frame->Mirror,
+			Owner->DrawScale,
+			Mesh->Scale.X, Mesh->Scale.Y, Mesh->Scale.Z,
+			Coords.Origin.X, Coords.Origin.Y, Coords.Origin.Z,
+			XboxWeaponMin.X, XboxWeaponMin.Y, XboxWeaponMin.Z,
+			XboxWeaponMax.X, XboxWeaponMax.Y, XboxWeaponMax.Z
+		);
+	}
+#endif
+
+	//
+	// Render triangles.
+	//
+
+	if( FaceCount )
+	{
+		guardSlow(Render);
+		// Fatness.
+		UBOOL Fatten   = Owner->Fatness!=128;
+		FLOAT Fatness  = (Owner->Fatness/16.0)-8.0;
+		//FLOAT Detail   = GlobalMeshLOD * Owner->DrawScale / (0.5f * Frame->RProj.Z * Max(1.0f,Owner->Location.TransformPointBy(Coords).Z));
+
+		// Sort by depth.
+		if( SoftwareRendering ) 
+		{
+			appQsort( &FacePool[0], FaceCount, sizeof(FacePool[0]), (QSORT_COMPARE)CompareFaceKey );
+		}
+
+		// Lock the textures.
+		UTexture* EnvironmentMap = NULL;
+		check(Mesh->Textures.Num()<=ARRAY_COUNT(TextureInfo));
+		for( INT i=0; i<Mesh->Textures.Num(); i++ )
+		{
+			Textures[i] = Mesh->GetTexture( i, Owner );
+			if( Textures[i] )
+			{
+				Textures[i] = Textures[i]->Get( Frame->Viewport->CurrentTime );
+				INT ThisLOD = -1;//Mesh->TextureLOD.Num() ? Clamp<INT>( appCeilLogTwo(1+appFloor(256.f/(Detail*Mesh->TextureLOD(i)*Textures[i]->USize))), 0, 3 ) : 0;
+				Textures[i]->Lock( TextureInfo[i], Frame->Viewport->CurrentTime, ThisLOD, Frame->Viewport->RenDev );
+				EnvironmentMap = Textures[i];								
+			}
+		}
+#if TARGET_XBOX
+		AuditSkeletalRenderTextures( Owner, Mesh, Textures );
+#endif
+		if( Owner->Texture )
+			EnvironmentMap = Owner->Texture;
+		else if( Owner->Region.Zone && Owner->Region.Zone->EnvironmentMap )
+			EnvironmentMap = Owner->Region.Zone->EnvironmentMap;
+		else if( Owner->Level->EnvironmentMap )
+			EnvironmentMap = Owner->Level->EnvironmentMap;
+		if( EnvironmentMap==NULL )
+		{
+			for( INT TextureIndex=0; TextureIndex<Mesh->Textures.Num(); TextureIndex++ )
+				if( Textures[TextureIndex] ) Textures[TextureIndex]->Unlock(TextureInfo[TextureIndex]);
+			STAT(unclock(GStat.MeshTime));
+			Mark.Pop();
+			return;
+		}
+		check(EnvironmentMap);
+		EnvironmentMap->Lock( EnvironmentInfo, Frame->Viewport->CurrentTime, -1, Frame->Viewport->RenDev );
+
+		// Build list of all incident lights on the mesh.
+		STAT(clock(GStat.MeshLightSetupTime));
+		ExtraFlags |= GLightManager->SetupForActor( Frame, LightSink, LeafLights, Volumetrics );
+		STAT(unclock(GStat.MeshLightSetupTime));
+
+		STAT(clock(GStat.MeshLightTime)); 
+		// Perform all vertex lighting.
+
+		for( i=0; i<VertexSubset; i++ )
+		{
+			FTransSample& Vert = Samples[i];
+			if( Vert.Light.X == -1 ) // Only light/project if part of a visible triangle.
+			{
+				// Efficiency warning: FPlane ctor has an implicit dot prodoct.
+				Vert.Normal = FPlane( Vert.Point, Vert.Normal * DivSqrtApprox(Vert.Normal.SizeSquared()+0.001f) );					
+					
+				// Fatten it if desired.
+				
+				if( Fatten )
+				{
+					Vert.Point += Vert.Normal * Fatness;
+					Vert.ComputeOutcode( Frame );
+				}
+				
+
+				// Compute effect of each lightsource on this vertex.
+				Vert.Light = GLightManager->Light( Vert, ExtraFlags );
+				Vert.Fog   = GLightManager->Fog  ( Vert, ExtraFlags );
+
+				// Project it: 
+				if( !Vert.Flags ) // Project if visible only.
+				{
+					Vert.Project( Frame );
+				}
+			}
+		}
+		STAT(unclock(GStat.MeshLightTime));
+
+		// Draw the triangles.
+		STAT(GStat.MeshPolyCount+=FaceCount);
+
+		// Reset cached material indicator.
+		MatIndex = -1;
+		FTextureInfo* Info = NULL; 
+
+		for( i=0; i<FaceCount; i++ )
+		{
+			// Set up the triangle.
+			FMeshFace &Face = *FacePool[i].Face;
+
+			// Update material if changed since last face.
+			if ( MatIndex != Face.MaterialIndex )
+			{
+				MatIndex = Face.MaterialIndex;
+				MatFlags = ExtraFlags | Mesh->Materials( MatIndex ).PolyFlags;
+				INT TexIndex =          Mesh->Materials( MatIndex ).TextureIndex;
+				Info = ( Textures[TexIndex] && !(MatFlags & PF_Environment)) ? &TextureInfo[TexIndex] : &EnvironmentInfo;
+				UScale = Info->UScale * Info->USize/256.0f;
+				VScale = Info->VScale * Info->VSize/256.0f;
+			}
+			
+			// Set up texture coords.
+			FTransTexture* Pts[6];
+			// Vertex 0,1,2 unrolled assignment.
+			FMeshWedge Wedge0 = WedgePool[ Face.iWedge[0] ];
+			FMeshWedge Wedge1 = WedgePool[ Face.iWedge[1] ];
+			FMeshWedge Wedge2 = WedgePool[ Face.iWedge[2] ];
+			Pts[0]    = &Samples[ Wedge0.iVertex ];
+			Pts[1]    = &Samples[ Wedge1.iVertex ];
+			Pts[2]    = &Samples[ Wedge2.iVertex ];
+			Pts[0]->U = Wedge0.TexUV.U * UScale;
+			Pts[1]->U = Wedge1.TexUV.U * UScale;
+			Pts[2]->U = Wedge2.TexUV.U * UScale;
+			Pts[0]->V = Wedge0.TexUV.V * VScale;
+			Pts[1]->V = Wedge1.TexUV.V * VScale;
+			Pts[2]->V = Wedge2.TexUV.V * VScale;
+
+			if( Frame->Mirror == -1 ) 
+					Exchange( Pts[2], Pts[0] );
+			RenderSubsurface( Frame, *Info, SpanBuffer, Pts, MatFlags, 0 );
+		}
+
+		GLightManager->FinishActor();
+
+		for( i=0; i<Mesh->Textures.Num(); i++ )
+		{
+			if( Textures[i] ) Textures[i]->Unlock( TextureInfo[i] );
+		}
+		EnvironmentMap->Unlock( EnvironmentInfo );		
+
+		unguardSlow;
+	}
+
+
+	STAT(GStat.MeshCount++);
+	STAT(unclock(GStat.MeshTime));
+	Mark.Pop();
+
+	unguardf(( TEXT("(%s)"), Owner->Mesh->GetFullName() ));
+}
+
+/*------------------------------------------------------------------------------
+	The End.
+------------------------------------------------------------------------------*/

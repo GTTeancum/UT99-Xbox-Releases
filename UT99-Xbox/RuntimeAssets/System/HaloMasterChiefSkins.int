@@ -1,0 +1,7 @@
+[public]
+Object=(Name=HaloMasterChiefSkins.chef1,Class=Texture,Description="Default")
+Object=(Name=HaloMasterChiefSkins.chef1t_0,Class=Texture)
+Object=(Name=HaloMasterChiefSkins.chef1t_1,Class=Texture)
+Object=(Name=HaloMasterChiefSkins.chef1t_2,Class=Texture)
+Object=(Name=HaloMasterChiefSkins.chef1t_3,Class=Texture)
+Object=(Name=HaloMasterChiefSkins.chef2Face,Class=Texture,Description="None")

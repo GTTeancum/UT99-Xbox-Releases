@@ -1,0 +1,2093 @@
+{
+  "xbeSha256": "45e47894b0fa75dbc956ff75510d476cd017765585267c83e9170a92dc1613da",
+  "cases": [
+    {
+      "players": 1,
+      "wide": false,
+      "source": "C:\\Programming\\GitHub\\UnrealTournament_1.40\\UT99-Xbox\\build_cli\\safe_picture_1p_standard\\01_DM-Oblivion\\xemu_ram_log_accumulated.txt",
+      "checks": [
+        {
+          "phase": 0,
+          "slot": 1,
+          "size": 100,
+          "offset": [
+            0,
+            0
+          ],
+          "world": [
+            0,
+            0,
+            640,
+            480
+          ],
+          "ui": [
+            0,
+            0,
+            640,
+            480
+          ],
+          "aimCorrection": [
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "phase": 1,
+          "slot": 1,
+          "size": 85,
+          "offset": [
+            0,
+            0
+          ],
+          "world": [
+            48,
+            36,
+            544,
+            408
+          ],
+          "ui": [
+            48,
+            36,
+            544,
+            408
+          ],
+          "aimCorrection": [
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "phase": 2,
+          "slot": 1,
+          "size": 92,
+          "offset": [
+            18,
+            -12
+          ],
+          "world": [
+            44,
+            7,
+            588,
+            442
+          ],
+          "ui": [
+            44,
+            7,
+            588,
+            442
+          ],
+          "aimCorrection": [
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "phase": 3,
+          "slot": 1,
+          "size": 100,
+          "offset": [
+            0,
+            0
+          ],
+          "world": [
+            0,
+            0,
+            640,
+            480
+          ],
+          "ui": [
+            0,
+            0,
+            640,
+            480
+          ],
+          "aimCorrection": [
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "phase": 4,
+          "slot": 1,
+          "size": 85,
+          "offset": [
+            0,
+            0
+          ],
+          "world": [
+            48,
+            36,
+            544,
+            408
+          ],
+          "ui": [
+            48,
+            36,
+            544,
+            408
+          ],
+          "aimCorrection": [
+            0.0,
+            0.0
+          ]
+        }
+      ],
+      "nativeBorderChecks": [
+        {
+          "phase": 0,
+          "screenshot": "C:\\Programming\\GitHub\\UnrealTournament_1.40\\UT99-Xbox\\build_cli\\safe_picture_1p_standard\\01_DM-Oblivion\\screenshots\\safe_zone_1.png",
+          "blackBorder": true
+        },
+        {
+          "phase": 1,
+          "screenshot": "C:\\Programming\\GitHub\\UnrealTournament_1.40\\UT99-Xbox\\build_cli\\safe_picture_1p_standard\\01_DM-Oblivion\\screenshots\\safe_zone_2.png",
+          "blackBorder": true
+        },
+        {
+          "phase": 2,
+          "screenshot": "C:\\Programming\\GitHub\\UnrealTournament_1.40\\UT99-Xbox\\build_cli\\safe_picture_1p_standard\\01_DM-Oblivion\\screenshots\\safe_zone_3.png",
+          "blackBorder": true
+        },
+        {
+          "phase": 3,
+          "screenshot": "C:\\Programming\\GitHub\\UnrealTournament_1.40\\UT99-Xbox\\build_cli\\safe_picture_1p_standard\\01_DM-Oblivion\\screenshots\\safe_zone_4.png",
+          "blackBorder": true
+        },
+        {
+          "phase": 4,
+          "screenshot": "C:\\Programming\\GitHub\\UnrealTournament_1.40\\UT99-Xbox\\build_cli\\safe_picture_1p_standard\\01_DM-Oblivion\\screenshots\\safe_zone_5.png",
+          "blackBorder": true
+        }
+      ],
+      "originalHarnessOk": true
+    },
+    {
+      "players": 2,
+      "wide": false,
+      "source": "C:\\Programming\\GitHub\\UnrealTournament_1.40\\UT99-Xbox\\build_cli\\safe_picture_2p_standard\\01_DM-Oblivion\\xemu_ram_log_accumulated.txt",
+      "checks": [
+        {
+          "phase": 0,
+          "slot": 1,
+          "size": 100,
+          "offset": [
+            0,
+            0
+          ],
+          "world": [
+            0,
+            0,
+            640,
+            240
+          ],
+          "ui": [
+            0,
+            0,
+            640,
+            240
+          ],
+          "aimCorrection": [
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "phase": 0,
+          "slot": 2,
+          "size": 100,
+          "offset": [
+            0,
+            0
+          ],
+          "world": [
+            0,
+            240,
+            640,
+            240
+          ],
+          "ui": [
+            0,
+            240,
+            640,
+            240
+          ],
+          "aimCorrection": [
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "phase": 1,
+          "slot": 1,
+          "size": 85,
+          "offset": [
+            0,
+            0
+          ],
+          "world": [
+            48,
+            36,
+            544,
+            204
+          ],
+          "ui": [
+            48,
+            36,
+            544,
+            204
+          ],
+          "aimCorrection": [
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "phase": 1,
+          "slot": 2,
+          "size": 85,
+          "offset": [
+            0,
+            0
+          ],
+          "world": [
+            48,
+            240,
+            544,
+            204
+          ],
+          "ui": [
+            48,
+            240,
+            544,
+            204
+          ],
+          "aimCorrection": [
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "phase": 2,
+          "slot": 1,
+          "size": 92,
+          "offset": [
+            18,
+            -12
+          ],
+          "world": [
+            44,
+            7,
+            588,
+            221
+          ],
+          "ui": [
+            44,
+            7,
+            588,
+            221
+          ],
+          "aimCorrection": [
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "phase": 2,
+          "slot": 2,
+          "size": 92,
+          "offset": [
+            18,
+            -12
+          ],
+          "world": [
+            44,
+            228,
+            588,
+            221
+          ],
+          "ui": [
+            44,
+            228,
+            588,
+            221
+          ],
+          "aimCorrection": [
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "phase": 3,
+          "slot": 1,
+          "size": 100,
+          "offset": [
+            0,
+            0
+          ],
+          "world": [
+            0,
+            0,
+            640,
+            240
+          ],
+          "ui": [
+            0,
+            0,
+            640,
+            240
+          ],
+          "aimCorrection": [
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "phase": 3,
+          "slot": 2,
+          "size": 100,
+          "offset": [
+            0,
+            0
+          ],
+          "world": [
+            0,
+            240,
+            640,
+            240
+          ],
+          "ui": [
+            0,
+            240,
+            640,
+            240
+          ],
+          "aimCorrection": [
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "phase": 4,
+          "slot": 1,
+          "size": 85,
+          "offset": [
+            0,
+            0
+          ],
+          "world": [
+            48,
+            36,
+            544,
+            204
+          ],
+          "ui": [
+            48,
+            36,
+            544,
+            204
+          ],
+          "aimCorrection": [
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "phase": 4,
+          "slot": 2,
+          "size": 85,
+          "offset": [
+            0,
+            0
+          ],
+          "world": [
+            48,
+            240,
+            544,
+            204
+          ],
+          "ui": [
+            48,
+            240,
+            544,
+            204
+          ],
+          "aimCorrection": [
+            0.0,
+            0.0
+          ]
+        }
+      ],
+      "nativeBorderChecks": [
+        {
+          "phase": 0,
+          "screenshot": "C:\\Programming\\GitHub\\UnrealTournament_1.40\\UT99-Xbox\\build_cli\\safe_picture_2p_standard\\01_DM-Oblivion\\screenshots\\safe_zone_1.png",
+          "blackBorder": true
+        },
+        {
+          "phase": 1,
+          "screenshot": "C:\\Programming\\GitHub\\UnrealTournament_1.40\\UT99-Xbox\\build_cli\\safe_picture_2p_standard\\01_DM-Oblivion\\screenshots\\safe_zone_2.png",
+          "blackBorder": true
+        },
+        {
+          "phase": 2,
+          "screenshot": "C:\\Programming\\GitHub\\UnrealTournament_1.40\\UT99-Xbox\\build_cli\\safe_picture_2p_standard\\01_DM-Oblivion\\screenshots\\safe_zone_3.png",
+          "blackBorder": true
+        },
+        {
+          "phase": 3,
+          "screenshot": "C:\\Programming\\GitHub\\UnrealTournament_1.40\\UT99-Xbox\\build_cli\\safe_picture_2p_standard\\01_DM-Oblivion\\screenshots\\safe_zone_4.png",
+          "blackBorder": true
+        },
+        {
+          "phase": 4,
+          "screenshot": "C:\\Programming\\GitHub\\UnrealTournament_1.40\\UT99-Xbox\\build_cli\\safe_picture_2p_standard\\01_DM-Oblivion\\screenshots\\safe_zone_5.png",
+          "blackBorder": true
+        }
+      ],
+      "originalHarnessOk": true
+    },
+    {
+      "players": 4,
+      "wide": false,
+      "source": "C:\\Programming\\GitHub\\UnrealTournament_1.40\\UT99-Xbox\\build_cli\\safe_picture_4p_standard\\01_DM-Oblivion\\xemu_ram_log_accumulated.txt",
+      "checks": [
+        {
+          "phase": 0,
+          "slot": 1,
+          "size": 100,
+          "offset": [
+            0,
+            0
+          ],
+          "world": [
+            0,
+            0,
+            320,
+            240
+          ],
+          "ui": [
+            0,
+            0,
+            320,
+            240
+          ],
+          "aimCorrection": [
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "phase": 0,
+          "slot": 2,
+          "size": 100,
+          "offset": [
+            0,
+            0
+          ],
+          "world": [
+            320,
+            0,
+            320,
+            240
+          ],
+          "ui": [
+            320,
+            0,
+            320,
+            240
+          ],
+          "aimCorrection": [
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "phase": 0,
+          "slot": 3,
+          "size": 100,
+          "offset": [
+            0,
+            0
+          ],
+          "world": [
+            0,
+            240,
+            320,
+            240
+          ],
+          "ui": [
+            0,
+            240,
+            320,
+            240
+          ],
+          "aimCorrection": [
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "phase": 0,
+          "slot": 4,
+          "size": 100,
+          "offset": [
+            0,
+            0
+          ],
+          "world": [
+            320,
+            240,
+            320,
+            240
+          ],
+          "ui": [
+            320,
+            240,
+            320,
+            240
+          ],
+          "aimCorrection": [
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "phase": 1,
+          "slot": 1,
+          "size": 85,
+          "offset": [
+            0,
+            0
+          ],
+          "world": [
+            48,
+            36,
+            272,
+            204
+          ],
+          "ui": [
+            48,
+            36,
+            272,
+            204
+          ],
+          "aimCorrection": [
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "phase": 1,
+          "slot": 2,
+          "size": 85,
+          "offset": [
+            0,
+            0
+          ],
+          "world": [
+            320,
+            36,
+            272,
+            204
+          ],
+          "ui": [
+            320,
+            36,
+            272,
+            204
+          ],
+          "aimCorrection": [
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "phase": 1,
+          "slot": 3,
+          "size": 85,
+          "offset": [
+            0,
+            0
+          ],
+          "world": [
+            48,
+            240,
+            272,
+            204
+          ],
+          "ui": [
+            48,
+            240,
+            272,
+            204
+          ],
+          "aimCorrection": [
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "phase": 1,
+          "slot": 4,
+          "size": 85,
+          "offset": [
+            0,
+            0
+          ],
+          "world": [
+            320,
+            240,
+            272,
+            204
+          ],
+          "ui": [
+            320,
+            240,
+            272,
+            204
+          ],
+          "aimCorrection": [
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "phase": 2,
+          "slot": 1,
+          "size": 92,
+          "offset": [
+            18,
+            -12
+          ],
+          "world": [
+            44,
+            7,
+            294,
+            221
+          ],
+          "ui": [
+            44,
+            7,
+            294,
+            221
+          ],
+          "aimCorrection": [
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "phase": 2,
+          "slot": 2,
+          "size": 92,
+          "offset": [
+            18,
+            -12
+          ],
+          "world": [
+            338,
+            7,
+            294,
+            221
+          ],
+          "ui": [
+            338,
+            7,
+            294,
+            221
+          ],
+          "aimCorrection": [
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "phase": 2,
+          "slot": 3,
+          "size": 92,
+          "offset": [
+            18,
+            -12
+          ],
+          "world": [
+            44,
+            228,
+            294,
+            221
+          ],
+          "ui": [
+            44,
+            228,
+            294,
+            221
+          ],
+          "aimCorrection": [
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "phase": 2,
+          "slot": 4,
+          "size": 92,
+          "offset": [
+            18,
+            -12
+          ],
+          "world": [
+            338,
+            228,
+            294,
+            221
+          ],
+          "ui": [
+            338,
+            228,
+            294,
+            221
+          ],
+          "aimCorrection": [
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "phase": 3,
+          "slot": 1,
+          "size": 100,
+          "offset": [
+            0,
+            0
+          ],
+          "world": [
+            0,
+            0,
+            320,
+            240
+          ],
+          "ui": [
+            0,
+            0,
+            320,
+            240
+          ],
+          "aimCorrection": [
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "phase": 3,
+          "slot": 2,
+          "size": 100,
+          "offset": [
+            0,
+            0
+          ],
+          "world": [
+            320,
+            0,
+            320,
+            240
+          ],
+          "ui": [
+            320,
+            0,
+            320,
+            240
+          ],
+          "aimCorrection": [
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "phase": 3,
+          "slot": 3,
+          "size": 100,
+          "offset": [
+            0,
+            0
+          ],
+          "world": [
+            0,
+            240,
+            320,
+            240
+          ],
+          "ui": [
+            0,
+            240,
+            320,
+            240
+          ],
+          "aimCorrection": [
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "phase": 3,
+          "slot": 4,
+          "size": 100,
+          "offset": [
+            0,
+            0
+          ],
+          "world": [
+            320,
+            240,
+            320,
+            240
+          ],
+          "ui": [
+            320,
+            240,
+            320,
+            240
+          ],
+          "aimCorrection": [
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "phase": 4,
+          "slot": 1,
+          "size": 85,
+          "offset": [
+            0,
+            0
+          ],
+          "world": [
+            48,
+            36,
+            272,
+            204
+          ],
+          "ui": [
+            48,
+            36,
+            272,
+            204
+          ],
+          "aimCorrection": [
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "phase": 4,
+          "slot": 2,
+          "size": 85,
+          "offset": [
+            0,
+            0
+          ],
+          "world": [
+            320,
+            36,
+            272,
+            204
+          ],
+          "ui": [
+            320,
+            36,
+            272,
+            204
+          ],
+          "aimCorrection": [
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "phase": 4,
+          "slot": 3,
+          "size": 85,
+          "offset": [
+            0,
+            0
+          ],
+          "world": [
+            48,
+            240,
+            272,
+            204
+          ],
+          "ui": [
+            48,
+            240,
+            272,
+            204
+          ],
+          "aimCorrection": [
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "phase": 4,
+          "slot": 4,
+          "size": 85,
+          "offset": [
+            0,
+            0
+          ],
+          "world": [
+            320,
+            240,
+            272,
+            204
+          ],
+          "ui": [
+            320,
+            240,
+            272,
+            204
+          ],
+          "aimCorrection": [
+            0.0,
+            0.0
+          ]
+        }
+      ],
+      "nativeBorderChecks": [
+        {
+          "phase": 0,
+          "screenshot": "C:\\Programming\\GitHub\\UnrealTournament_1.40\\UT99-Xbox\\build_cli\\safe_picture_4p_standard\\01_DM-Oblivion\\screenshots\\safe_zone_1.png",
+          "blackBorder": true
+        },
+        {
+          "phase": 1,
+          "screenshot": "C:\\Programming\\GitHub\\UnrealTournament_1.40\\UT99-Xbox\\build_cli\\safe_picture_4p_standard\\01_DM-Oblivion\\screenshots\\safe_zone_2.png",
+          "blackBorder": true
+        },
+        {
+          "phase": 2,
+          "screenshot": "C:\\Programming\\GitHub\\UnrealTournament_1.40\\UT99-Xbox\\build_cli\\safe_picture_4p_standard\\01_DM-Oblivion\\screenshots\\safe_zone_3.png",
+          "blackBorder": true
+        },
+        {
+          "phase": 3,
+          "screenshot": "C:\\Programming\\GitHub\\UnrealTournament_1.40\\UT99-Xbox\\build_cli\\safe_picture_4p_standard\\01_DM-Oblivion\\screenshots\\safe_zone_4.png",
+          "blackBorder": true
+        },
+        {
+          "phase": 4,
+          "screenshot": "C:\\Programming\\GitHub\\UnrealTournament_1.40\\UT99-Xbox\\build_cli\\safe_picture_4p_standard\\01_DM-Oblivion\\screenshots\\safe_zone_5.png",
+          "blackBorder": true
+        }
+      ],
+      "originalHarnessOk": true
+    },
+    {
+      "players": 4,
+      "wide": true,
+      "source": "C:\\Programming\\GitHub\\UnrealTournament_1.40\\UT99-Xbox\\build_cli\\safe_picture_4p_wide\\01_DM-Oblivion\\xemu_ram_log_accumulated.txt",
+      "checks": [
+        {
+          "phase": 0,
+          "slot": 1,
+          "size": 100,
+          "offset": [
+            0,
+            0
+          ],
+          "world": [
+            80,
+            0,
+            240,
+            240
+          ],
+          "ui": [
+            80,
+            0,
+            240,
+            240
+          ],
+          "aimCorrection": [
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "phase": 0,
+          "slot": 2,
+          "size": 100,
+          "offset": [
+            0,
+            0
+          ],
+          "world": [
+            320,
+            0,
+            240,
+            240
+          ],
+          "ui": [
+            320,
+            0,
+            240,
+            240
+          ],
+          "aimCorrection": [
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "phase": 0,
+          "slot": 3,
+          "size": 100,
+          "offset": [
+            0,
+            0
+          ],
+          "world": [
+            80,
+            240,
+            240,
+            240
+          ],
+          "ui": [
+            80,
+            240,
+            240,
+            240
+          ],
+          "aimCorrection": [
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "phase": 0,
+          "slot": 4,
+          "size": 100,
+          "offset": [
+            0,
+            0
+          ],
+          "world": [
+            320,
+            240,
+            240,
+            240
+          ],
+          "ui": [
+            320,
+            240,
+            240,
+            240
+          ],
+          "aimCorrection": [
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "phase": 1,
+          "slot": 1,
+          "size": 85,
+          "offset": [
+            0,
+            0
+          ],
+          "world": [
+            116,
+            36,
+            204,
+            204
+          ],
+          "ui": [
+            116,
+            36,
+            204,
+            204
+          ],
+          "aimCorrection": [
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "phase": 1,
+          "slot": 2,
+          "size": 85,
+          "offset": [
+            0,
+            0
+          ],
+          "world": [
+            320,
+            36,
+            204,
+            204
+          ],
+          "ui": [
+            320,
+            36,
+            204,
+            204
+          ],
+          "aimCorrection": [
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "phase": 1,
+          "slot": 3,
+          "size": 85,
+          "offset": [
+            0,
+            0
+          ],
+          "world": [
+            116,
+            240,
+            204,
+            204
+          ],
+          "ui": [
+            116,
+            240,
+            204,
+            204
+          ],
+          "aimCorrection": [
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "phase": 1,
+          "slot": 4,
+          "size": 85,
+          "offset": [
+            0,
+            0
+          ],
+          "world": [
+            320,
+            240,
+            204,
+            204
+          ],
+          "ui": [
+            320,
+            240,
+            204,
+            204
+          ],
+          "aimCorrection": [
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "phase": 2,
+          "slot": 1,
+          "size": 92,
+          "offset": [
+            18,
+            -12
+          ],
+          "world": [
+            117,
+            7,
+            221,
+            221
+          ],
+          "ui": [
+            117,
+            7,
+            221,
+            221
+          ],
+          "aimCorrection": [
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "phase": 2,
+          "slot": 2,
+          "size": 92,
+          "offset": [
+            18,
+            -12
+          ],
+          "world": [
+            338,
+            7,
+            220,
+            221
+          ],
+          "ui": [
+            338,
+            7,
+            220,
+            221
+          ],
+          "aimCorrection": [
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "phase": 2,
+          "slot": 3,
+          "size": 92,
+          "offset": [
+            18,
+            -12
+          ],
+          "world": [
+            117,
+            228,
+            221,
+            221
+          ],
+          "ui": [
+            117,
+            228,
+            221,
+            221
+          ],
+          "aimCorrection": [
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "phase": 2,
+          "slot": 4,
+          "size": 92,
+          "offset": [
+            18,
+            -12
+          ],
+          "world": [
+            338,
+            228,
+            220,
+            221
+          ],
+          "ui": [
+            338,
+            228,
+            220,
+            221
+          ],
+          "aimCorrection": [
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "phase": 3,
+          "slot": 1,
+          "size": 100,
+          "offset": [
+            0,
+            0
+          ],
+          "world": [
+            80,
+            0,
+            240,
+            240
+          ],
+          "ui": [
+            80,
+            0,
+            240,
+            240
+          ],
+          "aimCorrection": [
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "phase": 3,
+          "slot": 2,
+          "size": 100,
+          "offset": [
+            0,
+            0
+          ],
+          "world": [
+            320,
+            0,
+            240,
+            240
+          ],
+          "ui": [
+            320,
+            0,
+            240,
+            240
+          ],
+          "aimCorrection": [
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "phase": 3,
+          "slot": 3,
+          "size": 100,
+          "offset": [
+            0,
+            0
+          ],
+          "world": [
+            80,
+            240,
+            240,
+            240
+          ],
+          "ui": [
+            80,
+            240,
+            240,
+            240
+          ],
+          "aimCorrection": [
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "phase": 3,
+          "slot": 4,
+          "size": 100,
+          "offset": [
+            0,
+            0
+          ],
+          "world": [
+            320,
+            240,
+            240,
+            240
+          ],
+          "ui": [
+            320,
+            240,
+            240,
+            240
+          ],
+          "aimCorrection": [
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "phase": 4,
+          "slot": 1,
+          "size": 85,
+          "offset": [
+            0,
+            0
+          ],
+          "world": [
+            116,
+            36,
+            204,
+            204
+          ],
+          "ui": [
+            116,
+            36,
+            204,
+            204
+          ],
+          "aimCorrection": [
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "phase": 4,
+          "slot": 2,
+          "size": 85,
+          "offset": [
+            0,
+            0
+          ],
+          "world": [
+            320,
+            36,
+            204,
+            204
+          ],
+          "ui": [
+            320,
+            36,
+            204,
+            204
+          ],
+          "aimCorrection": [
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "phase": 4,
+          "slot": 3,
+          "size": 85,
+          "offset": [
+            0,
+            0
+          ],
+          "world": [
+            116,
+            240,
+            204,
+            204
+          ],
+          "ui": [
+            116,
+            240,
+            204,
+            204
+          ],
+          "aimCorrection": [
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "phase": 4,
+          "slot": 4,
+          "size": 85,
+          "offset": [
+            0,
+            0
+          ],
+          "world": [
+            320,
+            240,
+            204,
+            204
+          ],
+          "ui": [
+            320,
+            240,
+            204,
+            204
+          ],
+          "aimCorrection": [
+            0.0,
+            0.0
+          ]
+        }
+      ],
+      "nativeBorderChecks": [
+        {
+          "phase": 0,
+          "screenshot": "C:\\Programming\\GitHub\\UnrealTournament_1.40\\UT99-Xbox\\build_cli\\safe_picture_4p_wide\\01_DM-Oblivion\\screenshots\\safe_zone_1.png",
+          "blackBorder": true
+        },
+        {
+          "phase": 1,
+          "screenshot": "C:\\Programming\\GitHub\\UnrealTournament_1.40\\UT99-Xbox\\build_cli\\safe_picture_4p_wide\\01_DM-Oblivion\\screenshots\\safe_zone_2.png",
+          "blackBorder": true
+        },
+        {
+          "phase": 2,
+          "screenshot": "C:\\Programming\\GitHub\\UnrealTournament_1.40\\UT99-Xbox\\build_cli\\safe_picture_4p_wide\\01_DM-Oblivion\\screenshots\\safe_zone_3.png",
+          "blackBorder": true
+        },
+        {
+          "phase": 3,
+          "screenshot": "C:\\Programming\\GitHub\\UnrealTournament_1.40\\UT99-Xbox\\build_cli\\safe_picture_4p_wide\\01_DM-Oblivion\\screenshots\\safe_zone_4.png",
+          "blackBorder": true
+        },
+        {
+          "phase": 4,
+          "screenshot": "C:\\Programming\\GitHub\\UnrealTournament_1.40\\UT99-Xbox\\build_cli\\safe_picture_4p_wide\\01_DM-Oblivion\\screenshots\\safe_zone_5.png",
+          "blackBorder": true
+        }
+      ],
+      "originalHarnessOk": false,
+      "revalidationNote": "Original validator assumed 640x480. Native 853x480 wide captures pass aspect-aware revalidation without rerunning or changing the binary."
+    },
+    {
+      "players": 1,
+      "wide": true,
+      "source": "C:\\Programming\\GitHub\\UnrealTournament_1.40\\UT99-Xbox\\build_cli\\safe_picture_1p_wide\\01_DM-Oblivion\\xemu_ram_log_accumulated.txt",
+      "checks": [
+        {
+          "phase": 0,
+          "slot": 1,
+          "size": 100,
+          "offset": [
+            0,
+            0
+          ],
+          "world": [
+            0,
+            0,
+            640,
+            480
+          ],
+          "ui": [
+            0,
+            0,
+            640,
+            480
+          ],
+          "aimCorrection": [
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "phase": 1,
+          "slot": 1,
+          "size": 85,
+          "offset": [
+            0,
+            0
+          ],
+          "world": [
+            48,
+            36,
+            544,
+            408
+          ],
+          "ui": [
+            48,
+            36,
+            544,
+            408
+          ],
+          "aimCorrection": [
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "phase": 2,
+          "slot": 1,
+          "size": 92,
+          "offset": [
+            18,
+            -12
+          ],
+          "world": [
+            44,
+            7,
+            588,
+            442
+          ],
+          "ui": [
+            44,
+            7,
+            588,
+            442
+          ],
+          "aimCorrection": [
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "phase": 3,
+          "slot": 1,
+          "size": 100,
+          "offset": [
+            0,
+            0
+          ],
+          "world": [
+            0,
+            0,
+            640,
+            480
+          ],
+          "ui": [
+            0,
+            0,
+            640,
+            480
+          ],
+          "aimCorrection": [
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "phase": 4,
+          "slot": 1,
+          "size": 85,
+          "offset": [
+            0,
+            0
+          ],
+          "world": [
+            48,
+            36,
+            544,
+            408
+          ],
+          "ui": [
+            48,
+            36,
+            544,
+            408
+          ],
+          "aimCorrection": [
+            0.0,
+            0.0
+          ]
+        }
+      ],
+      "nativeBorderChecks": [
+        {
+          "phase": 0,
+          "screenshot": "C:\\Programming\\GitHub\\UnrealTournament_1.40\\UT99-Xbox\\build_cli\\safe_picture_1p_wide\\01_DM-Oblivion\\screenshots\\safe_zone_1.png",
+          "blackBorder": true
+        },
+        {
+          "phase": 1,
+          "screenshot": "C:\\Programming\\GitHub\\UnrealTournament_1.40\\UT99-Xbox\\build_cli\\safe_picture_1p_wide\\01_DM-Oblivion\\screenshots\\safe_zone_2.png",
+          "blackBorder": true
+        },
+        {
+          "phase": 2,
+          "screenshot": "C:\\Programming\\GitHub\\UnrealTournament_1.40\\UT99-Xbox\\build_cli\\safe_picture_1p_wide\\01_DM-Oblivion\\screenshots\\safe_zone_3.png",
+          "blackBorder": true
+        },
+        {
+          "phase": 3,
+          "screenshot": "C:\\Programming\\GitHub\\UnrealTournament_1.40\\UT99-Xbox\\build_cli\\safe_picture_1p_wide\\01_DM-Oblivion\\screenshots\\safe_zone_4.png",
+          "blackBorder": true
+        },
+        {
+          "phase": 4,
+          "screenshot": "C:\\Programming\\GitHub\\UnrealTournament_1.40\\UT99-Xbox\\build_cli\\safe_picture_1p_wide\\01_DM-Oblivion\\screenshots\\safe_zone_5.png",
+          "blackBorder": true
+        }
+      ],
+      "originalHarnessOk": true
+    },
+    {
+      "players": 3,
+      "wide": true,
+      "source": "C:\\Programming\\GitHub\\UnrealTournament_1.40\\UT99-Xbox\\build_cli\\safe_picture_3p_wide\\01_DM-Oblivion\\xemu_ram_log_accumulated.txt",
+      "checks": [
+        {
+          "phase": 0,
+          "slot": 1,
+          "size": 100,
+          "offset": [
+            0,
+            0
+          ],
+          "world": [
+            80,
+            0,
+            240,
+            240
+          ],
+          "ui": [
+            80,
+            0,
+            240,
+            240
+          ],
+          "aimCorrection": [
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "phase": 0,
+          "slot": 2,
+          "size": 100,
+          "offset": [
+            0,
+            0
+          ],
+          "world": [
+            320,
+            0,
+            240,
+            240
+          ],
+          "ui": [
+            320,
+            0,
+            240,
+            240
+          ],
+          "aimCorrection": [
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "phase": 0,
+          "slot": 3,
+          "size": 100,
+          "offset": [
+            0,
+            0
+          ],
+          "world": [
+            80,
+            240,
+            240,
+            240
+          ],
+          "ui": [
+            80,
+            240,
+            240,
+            240
+          ],
+          "aimCorrection": [
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "phase": 1,
+          "slot": 1,
+          "size": 85,
+          "offset": [
+            0,
+            0
+          ],
+          "world": [
+            116,
+            36,
+            204,
+            204
+          ],
+          "ui": [
+            116,
+            36,
+            204,
+            204
+          ],
+          "aimCorrection": [
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "phase": 1,
+          "slot": 2,
+          "size": 85,
+          "offset": [
+            0,
+            0
+          ],
+          "world": [
+            320,
+            36,
+            204,
+            204
+          ],
+          "ui": [
+            320,
+            36,
+            204,
+            204
+          ],
+          "aimCorrection": [
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "phase": 1,
+          "slot": 3,
+          "size": 85,
+          "offset": [
+            0,
+            0
+          ],
+          "world": [
+            116,
+            240,
+            204,
+            204
+          ],
+          "ui": [
+            116,
+            240,
+            204,
+            204
+          ],
+          "aimCorrection": [
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "phase": 2,
+          "slot": 1,
+          "size": 92,
+          "offset": [
+            18,
+            -12
+          ],
+          "world": [
+            117,
+            7,
+            221,
+            221
+          ],
+          "ui": [
+            117,
+            7,
+            221,
+            221
+          ],
+          "aimCorrection": [
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "phase": 2,
+          "slot": 2,
+          "size": 92,
+          "offset": [
+            18,
+            -12
+          ],
+          "world": [
+            338,
+            7,
+            220,
+            221
+          ],
+          "ui": [
+            338,
+            7,
+            220,
+            221
+          ],
+          "aimCorrection": [
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "phase": 2,
+          "slot": 3,
+          "size": 92,
+          "offset": [
+            18,
+            -12
+          ],
+          "world": [
+            117,
+            228,
+            221,
+            221
+          ],
+          "ui": [
+            117,
+            228,
+            221,
+            221
+          ],
+          "aimCorrection": [
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "phase": 3,
+          "slot": 1,
+          "size": 100,
+          "offset": [
+            0,
+            0
+          ],
+          "world": [
+            80,
+            0,
+            240,
+            240
+          ],
+          "ui": [
+            80,
+            0,
+            240,
+            240
+          ],
+          "aimCorrection": [
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "phase": 3,
+          "slot": 2,
+          "size": 100,
+          "offset": [
+            0,
+            0
+          ],
+          "world": [
+            320,
+            0,
+            240,
+            240
+          ],
+          "ui": [
+            320,
+            0,
+            240,
+            240
+          ],
+          "aimCorrection": [
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "phase": 3,
+          "slot": 3,
+          "size": 100,
+          "offset": [
+            0,
+            0
+          ],
+          "world": [
+            80,
+            240,
+            240,
+            240
+          ],
+          "ui": [
+            80,
+            240,
+            240,
+            240
+          ],
+          "aimCorrection": [
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "phase": 4,
+          "slot": 1,
+          "size": 85,
+          "offset": [
+            0,
+            0
+          ],
+          "world": [
+            116,
+            36,
+            204,
+            204
+          ],
+          "ui": [
+            116,
+            36,
+            204,
+            204
+          ],
+          "aimCorrection": [
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "phase": 4,
+          "slot": 2,
+          "size": 85,
+          "offset": [
+            0,
+            0
+          ],
+          "world": [
+            320,
+            36,
+            204,
+            204
+          ],
+          "ui": [
+            320,
+            36,
+            204,
+            204
+          ],
+          "aimCorrection": [
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "phase": 4,
+          "slot": 3,
+          "size": 85,
+          "offset": [
+            0,
+            0
+          ],
+          "world": [
+            116,
+            240,
+            204,
+            204
+          ],
+          "ui": [
+            116,
+            240,
+            204,
+            204
+          ],
+          "aimCorrection": [
+            0.0,
+            0.0
+          ]
+        }
+      ],
+      "nativeBorderChecks": [
+        {
+          "phase": 0,
+          "screenshot": "C:\\Programming\\GitHub\\UnrealTournament_1.40\\UT99-Xbox\\build_cli\\safe_picture_3p_wide\\01_DM-Oblivion\\screenshots\\safe_zone_1.png",
+          "blackBorder": true
+        },
+        {
+          "phase": 1,
+          "screenshot": "C:\\Programming\\GitHub\\UnrealTournament_1.40\\UT99-Xbox\\build_cli\\safe_picture_3p_wide\\01_DM-Oblivion\\screenshots\\safe_zone_2.png",
+          "blackBorder": true
+        },
+        {
+          "phase": 2,
+          "screenshot": "C:\\Programming\\GitHub\\UnrealTournament_1.40\\UT99-Xbox\\build_cli\\safe_picture_3p_wide\\01_DM-Oblivion\\screenshots\\safe_zone_3.png",
+          "blackBorder": true
+        },
+        {
+          "phase": 3,
+          "screenshot": "C:\\Programming\\GitHub\\UnrealTournament_1.40\\UT99-Xbox\\build_cli\\safe_picture_3p_wide\\01_DM-Oblivion\\screenshots\\safe_zone_4.png",
+          "blackBorder": true
+        },
+        {
+          "phase": 4,
+          "screenshot": "C:\\Programming\\GitHub\\UnrealTournament_1.40\\UT99-Xbox\\build_cli\\safe_picture_3p_wide\\01_DM-Oblivion\\screenshots\\safe_zone_5.png",
+          "blackBorder": true
+        }
+      ],
+      "originalHarnessOk": true
+    }
+  ],
+  "layoutChecks": 75,
+  "screenshots": 30
+}

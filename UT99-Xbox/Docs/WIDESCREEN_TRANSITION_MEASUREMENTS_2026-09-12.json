@@ -1,0 +1,20 @@
+{
+  "buildSHA256": "57a1fc04d448f116cfa54abc8b16e94803834041ff3886367ae380cddd1c4ec2",
+  "cycles": 3,
+  "phaseChecks": 18,
+  "checks": [
+    "XEXIT cycle=1 phase=frontend owner=0 input=1 console=1 moved=0 result=PASS",
+    "XEXIT cycle=1 phase=single owner=0 input=1 console=1 moved=1 result=PASS",
+    "XEXIT cycle=1 phase=frontend_again owner=0 input=1 console=1 moved=1 result=PASS",
+    "XEXIT cycle=2 phase=frontend owner=0 input=1 console=1 moved=1 result=PASS",
+    "XEXIT cycle=2 phase=single owner=0 input=1 console=1 moved=1 result=PASS",
+    "XEXIT cycle=2 phase=frontend_again owner=0 input=1 console=1 moved=1 result=PASS",
+    "XEXIT cycle=3 phase=frontend owner=0 input=1 console=1 moved=1 result=PASS",
+    "XEXIT cycle=3 phase=single owner=0 input=1 console=1 moved=1 result=PASS",
+    "XEXIT cycle=3 phase=frontend_again owner=0 input=1 console=1 moved=1 result=PASS"
+  ],
+  "nativePlayerLayoutVerified": true,
+  "nativeCaptures": 18,
+  "allPassed": true,
+  "visualReview": "Pause and frontend/SP captures reviewed. Phase 17 arrived after return to frontend; SP cycle 3 is supported by runtime checks. No final LOADING-label capture; shared pause-label alignment was inspected."
+}

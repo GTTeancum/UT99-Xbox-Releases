@@ -1,0 +1,4 @@
+[Public]
+Object=(Name=HaloUTXbox.Elite,Class=Class,MetaClass=BotPack.TournamentPlayer,Description="Halo Elite")
+Object=(Name=HaloUTXbox.EliteBot,Class=Class,MetaClass=BotPack.Bot,Description="Halo Elite")
+Object=(Name=HaloUTXbox.HaloWeapons,Class=Class,MetaClass=Engine.Mutator,Description="HaloUT Weapons")

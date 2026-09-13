@@ -1,0 +1,3 @@
+[Public]
+Object=(Name=AdvancedModelSupport.AMSMenuItem,Class=Class,MetaClass=UMenu.UMenuModMenuItem,Description="Advanced Model Support v110,Configure Psychic_313's Advanced Model Support                                                                                                 {EnhancedUT:Options}")
+Object=(Name=AdvancedModelSupport.AMSBinds,Class=Class,MetaClass=UTMenu.UTExtraKeyBindings)

@@ -1,0 +1,13 @@
+out_header         titleimage.h
+out_packedresource titleimage.xbx
+out_error          titleimage.err
+out_prefix         titleimage
+
+Texture TitleImage
+{
+   Source      titleimage_128.bmp
+   Width       128
+   Height      128
+   Format      D3DFMT_DXT1
+   Levels      1
+}

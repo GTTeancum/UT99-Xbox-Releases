@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="Windows-1252"?>
+<VisualStudioProject
+	ProjectType="Visual C++"
+	Version="8.00"
+	Name="Fire"
+	ProjectGUID="{B1000013-0000-0000-0000-000000000013}"
+	RootNamespace="Fire"
+	>
+	<Platforms>
+		<Platform Name="Win32"/>
+	</Platforms>
+	<Configurations>
+		<Configuration
+			Name="Debug|Win32"
+			OutputDirectory="$(SolutionDir)build\debug\lib"
+			IntermediateDirectory="$(SolutionDir)build\debug\obj\Fire"
+			ConfigurationType="4"
+			>
+			<Tool
+				Name="VCPreBuildEventTool"
+			/>
+			<Tool
+				Name="VCCLCompilerTool"
+				AdditionalOptions="/Zp4 /MT /GS-"
+				Optimization="0"
+				AdditionalIncludeDirectories="C:\XDK\xbox\include;..\Core\Inc;..\Engine\Inc;.\Src;.\Inc"
+				PreprocessorDefinitions="TARGET_XBOX=1;_CRT_SECURE_NO_WARNINGS;_CRT_NONSTDC_NO_WARNINGS;WIN32;_DEBUG;_REALLY_WANT_DEBUG;ASM=0;ASM3DNOW=0;ASMKNI=0;CORE_API=;ENGINE_API=;FIRE_API=;FIRE_EXPORTS"
+				MinimalRebuild="true"
+				BasicRuntimeChecks="0"
+				RuntimeLibrary="0"
+				WarningLevel="2"
+				DebugInformationFormat="4"
+				DisableSpecificWarnings="4996;4244;4267;4305;4013;4133;4114;4028;4800"
+				ForcedIncludeFiles="CoreXboxCompat.h"
+			/>
+			<Tool
+				Name="VCLibrarianTool"
+				OutputFile="$(OutDir)\Fire.lib"
+			/>
+		</Configuration>
+		<Configuration
+			Name="Release|Win32"
+			OutputDirectory="$(SolutionDir)build\release\lib"
+			IntermediateDirectory="$(SolutionDir)build\release\obj\Fire"
+			ConfigurationType="4"
+			>
+			<Tool
+				Name="VCPreBuildEventTool"
+			/>
+			<Tool
+				Name="VCCLCompilerTool"
+				AdditionalOptions="/Zp4 /MT /GS-"
+				Optimization="2"
+				AdditionalIncludeDirectories="C:\XDK\xbox\include;..\Core\Inc;..\Engine\Inc;.\Src;.\Inc"
+				PreprocessorDefinitions="TARGET_XBOX=1;_CRT_SECURE_NO_WARNINGS;_CRT_NONSTDC_NO_WARNINGS;WIN32;NDEBUG;ASM=0;ASM3DNOW=0;ASMKNI=0;CORE_API=;ENGINE_API=;FIRE_API=;FIRE_EXPORTS"
+				RuntimeLibrary="0"
+				WarningLevel="2"
+				DebugInformationFormat="0"
+				DisableSpecificWarnings="4996;4244;4267;4305;4013;4133;4114;4028;4800"
+				ForcedIncludeFiles="CoreXboxCompat.h"
+			/>
+			<Tool
+				Name="VCLibrarianTool"
+				OutputFile="$(OutDir)\Fire.lib"
+			/>
+		</Configuration>
+	</Configurations>
+	<Files>
+		<Filter Name="Source Files" Filter="cpp">
+			<File RelativePath=".\Src\UnFractal.cpp"/>
+		</Filter>
+	</Files>
+</VisualStudioProject>

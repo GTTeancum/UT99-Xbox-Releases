@@ -47,6 +47,12 @@ Known limitations:
 ## Screenshots
 
 <p>
+  <img src="screenshots/halo-elite-plasma-rifle.png" alt="Halo Elite holding the plasma rifle on DM-Turbine in the upcoming Xbox v1.2 build" width="760">
+</p>
+
+*Version 1.2 preview: Halo Elite with the HaloUT plasma rifle on DM-Turbine. Captured in Xemu at 1920 × 1440 with increased gamma.*
+
+<p>
   <img src="screenshots/jailbreak-menu.png" alt="Jailbreak game type visible in the Xbox Instant Action menu" width="760">
 </p>
 

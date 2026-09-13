@@ -1,7 +1,7 @@
 {
   "previousRelease": "1.1.9b",
   "release": "1.2",
-  "archiveSha256": "1a111a3cb3a837814a44ae180378302bfd43ca3710290840c0dd1b8d4897cafa",
+  "archiveSha256": "72d7dbc6547414b79db84acb0c3457d733a22c6fa0254ca6d721bcb3c93d9b1b",
   "previousFileCount": 436,
   "releaseFileCount": 441,
   "unaccountedFiles": [],
@@ -43,7 +43,7 @@
       "previousPath": "default.xbe",
       "releasePath": "default.xbe",
       "previousSha256": "5e45944d86f78dfe3cd825488e4a3a852fd9625baff312cf12e9c5bb81cadc03",
-      "releaseSha256": "2f4af76f3b5811f121e6e455d2135793b439d328495165141f5b16c1ec0d1c7e",
+      "releaseSha256": "a1c208d51f40db3dac5706ddb4b236bc6fb25e64b9dee467e5a837b75e699b68",
       "status": "updated"
     },
     {
@@ -57,7 +57,7 @@
       "previousPath": "Docs/FILE_MANIFEST_SHA256.txt",
       "releasePath": "Docs/FILE_MANIFEST_SHA256.txt",
       "previousSha256": "58843e0b811c8df3ec64bb2e972c803766988f38c17523a2c9fa12a1ac79d2f6",
-      "releaseSha256": "ab3da8cb16c484bab5c410a4cf007e25e0a4534ae62dee853ffc672f4b866184",
+      "releaseSha256": "786f72f9cb1810a0a1375f1331033b7485a8cff6f0bddd7ea9d272474aa9f4ba",
       "status": "replaced-or-regenerated"
     },
     {
@@ -71,7 +71,7 @@
       "previousPath": "Docs/RELEASE_NOTES_1.1.9b.txt",
       "releasePath": "Docs/RELEASE_NOTES_1.2.txt",
       "previousSha256": "37f939e6a9ba51f24ee5ccea3080cd7343afb986fe387c0a022ba8d282a554d6",
-      "releaseSha256": "d83af16f4b84442080bcc6c1a48fbc15698d1aa6b3975b1765f5428c0c256981",
+      "releaseSha256": "d615d2f263b6dda9e9eef3143b67d617fbb95b970e1d9a3023a13e9cc0e79c3a",
       "status": "replaced-or-regenerated"
     },
     {

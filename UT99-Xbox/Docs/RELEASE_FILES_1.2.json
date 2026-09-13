@@ -2,7 +2,7 @@
   "version": "1.2",
   "date": "2026-09-12",
   "scope": "Final validated release archive payload",
-  "archiveSha256": "1a111a3cb3a837814a44ae180378302bfd43ca3710290840c0dd1b8d4897cafa",
+  "archiveSha256": "72d7dbc6547414b79db84acb0c3457d733a22c6fa0254ca6d721bcb3c93d9b1b",
   "files": [
     {
       "path": "CONTENT_CREDITS.txt",
@@ -13,8 +13,8 @@
     {
       "path": "default.xbe",
       "source": "release_work/release_1.2_final/UT99-Xbox-1.2/default.xbe",
-      "bytes": 2084864,
-      "sha256": "2f4af76f3b5811f121e6e455d2135793b439d328495165141f5b16c1ec0d1c7e"
+      "bytes": 2088960,
+      "sha256": "a1c208d51f40db3dac5706ddb4b236bc6fb25e64b9dee467e5a837b75e699b68"
     },
     {
       "path": "Docs/AgentX_099/axv099Readme.txt",
@@ -44,7 +44,7 @@
       "path": "Docs/FILE_MANIFEST_SHA256.txt",
       "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Docs/FILE_MANIFEST_SHA256.txt",
       "bytes": 46141,
-      "sha256": "ab3da8cb16c484bab5c410a4cf007e25e0a4534ae62dee853ffc672f4b866184"
+      "sha256": "786f72f9cb1810a0a1375f1331033b7485a8cff6f0bddd7ea9d272474aa9f4ba"
     },
     {
       "path": "Docs/INSTALLATION_1.2.txt",
@@ -643,8 +643,8 @@
     {
       "path": "Docs/RELEASE_NOTES_1.2.txt",
       "source": "release_work/release_1.2_final/UT99-Xbox-1.2/Docs/RELEASE_NOTES_1.2.txt",
-      "bytes": 1912,
-      "sha256": "d83af16f4b84442080bcc6c1a48fbc15698d1aa6b3975b1765f5428c0c256981"
+      "bytes": 1994,
+      "sha256": "d615d2f263b6dda9e9eef3143b67d617fbb95b970e1d9a3023a13e9cc0e79c3a"
     },
     {
       "path": "Maps/CTF-Phalanx.unr",

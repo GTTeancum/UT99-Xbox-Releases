@@ -15,6 +15,7 @@ Fixes and improvements
 
 - Improved split-screen FPS, tested in 4P across several maps.
 - Fixed controller sensitivity behaving differently in split-screen.
+- Fixed Y-button dodging sending you right when you pushed left, and vice versa.
 - Fixed issues when leaving split-screen and starting a single-player game.
 - Crosshair, HUD colors, and HUD opacity now save separately for each profile.
 - Match settings now stick after restarting, including bots, difficulty, map, limits, and mutators.

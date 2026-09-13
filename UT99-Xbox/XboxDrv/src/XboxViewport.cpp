@@ -14266,6 +14266,9 @@ enum EXboxSplitControlsProofTest
     XSCT_BDuck,
     XSCT_XUse,
     XSCT_YDodge,
+    XSCT_YDodgeLeft,
+    XSCT_YDodgeForward,
+    XSCT_YDodgeBack,
     XSCT_LTAltFire,
     XSCT_RTFire,
     XSCT_WhitePrevTap,
@@ -14335,6 +14338,7 @@ static UBOOL GXboxSplitControlsProofRunnerInput = 0;
 static FLOAT GXboxSplitControlsProofStartLevelTime = 0.0f;
 static FVector GXboxSplitControlsProofRunnerLocation;
 static FXboxSplitControlsProofSnapshot GXboxSplitControlsProofSnapshots[4];
+static FVector GXboxSplitControlsProofStartLocations[4];
 static INT GXboxSplitControlsProofSavedActions[XCB_Count];
 static INT GXboxSplitControlsProofSavedPreset = 0;
 static INT GXboxSplitControlsProofSavedButtonLayout = 0;
@@ -14350,7 +14354,10 @@ static const char* XboxSplitControlsProofTestName( INT Test )
         "A JUMP",
         "B DUCK",
         "X USE",
-        "Y DODGE",
+        "Y DODGE RIGHT",
+        "Y DODGE LEFT",
+        "Y DODGE FORWARD",
+        "Y DODGE BACK",
         "LT ALT FIRE",
         "RT FIRE",
         "WHITE PREV TAP",
@@ -14716,6 +14723,7 @@ static void XboxSplitControlsProofSetup( UXboxClient* Client, ULevel* Level, DOU
         if( !Player )
             continue;
         Player->bCheatsEnabled = 1;
+        GXboxSplitControlsProofStartLocations[i] = Player->Location;
         Player->bNeverAutoSwitch = 1;
         Player->bAutoActivate = 0;
         Player->ScriptConsoleExec( TEXT("God"), *GLog, Player );
@@ -14763,8 +14771,15 @@ static void XboxSplitControlsProofPrepareTest( UXboxClient* Client, DOUBLE Now )
             Target->ScriptConsoleExec( TEXT("GetWeapon Botpack.Enforcer"), *GLog, Target );
         if( GXboxSplitControlsProofTest == XSCT_XUse )
             XboxSplitControlsProofEnsureJumpBoots( Target );
-        if( GXboxSplitControlsProofTest == XSCT_YDodge )
+        if( GXboxSplitControlsProofTest >= XSCT_YDodge && GXboxSplitControlsProofTest <= XSCT_YDodgeBack )
         {
+            // Each direction starts on the same floor, even if the previous
+            // dodge carried the pawn off a ledge.
+            if( !Target->GetLevel()->FarMoveActor(Target, GXboxSplitControlsProofStartLocations[GXboxSplitControlsProofTarget]) )
+            {
+                GXboxSplitControlsProofFailures++;
+                GXboxLog.Write( "XSPLIT DODGE RESET FAIL slot=%d", GXboxSplitControlsProofTarget + 1 );
+            }
             Target->setPhysics( PHYS_Walking );
             Target->Velocity = FVector(0,0,0);
             Target->DodgeDir = DODGE_None;
@@ -14814,7 +14829,7 @@ static UBOOL XboxSplitControlsProofOtherPlayersUnchanged( UXboxClient* Client, I
             return 0;
         if( Test == XSCT_XUse && Player->SelectedItem && Player->SelectedItem->bActive != Snapshot.SelectedActive )
             return 0;
-        if( Test == XSCT_YDodge && Player->DodgeDir != Snapshot.DodgeDir )
+        if( (Test >= XSCT_YDodge && Test <= XSCT_YDodgeBack) && Player->DodgeDir != Snapshot.DodgeDir )
             return 0;
         if( Test == XSCT_LTAltFire && (Player->bAltFire != Snapshot.AltFire || Player->bJustAltFired != Snapshot.JustAltFired) )
             return 0;
@@ -14879,8 +14894,18 @@ static void XboxSplitControlsProofObserve( UXboxViewport* Viewport, const XINPUT
                 && Player->SelectedItem->bActive != Snapshot.SelectedActive;
             break;
         case XSCT_YDodge:
-            Expected = Player->DodgeDir != DODGE_None || (Player->Velocity-Snapshot.Velocity).SizeSquared() > 25.0f;
+        case XSCT_YDodgeLeft:
+        case XSCT_YDodgeForward:
+        case XSCT_YDodgeBack:
+        {
+            FCoords Axes = GMath.UnitCoords / Player->Rotation;
+            FVector Direction = Test == XSCT_YDodge ? Axes.YAxis
+                : Test == XSCT_YDodgeLeft ? -Axes.YAxis
+                : Test == XSCT_YDodgeForward ? Axes.XAxis : -Axes.XAxis;
+            Expected = (Player->Velocity | Direction) > Player->GroundSpeed
+                && Player->Velocity.Z > 100.0f;
             break;
+        }
         case XSCT_LTAltFire:
             Expected = Player->bAltFire != 0 || Player->bJustAltFired != Snapshot.JustAltFired;
             break;
@@ -15282,6 +15307,9 @@ static UBOOL XboxSplitControlsProofApply( UXboxViewport* Viewport, XINPUT_GAMEPA
         case XSCT_BDuck:             Pad.bAnalogButtons[XINPUT_GAMEPAD_B] = 255; break;
         case XSCT_XUse:              Pad.bAnalogButtons[XINPUT_GAMEPAD_X] = 255; break;
         case XSCT_YDodge:            Pad.bAnalogButtons[XINPUT_GAMEPAD_Y] = 255; Pad.sThumbLX = 28000; break;
+        case XSCT_YDodgeLeft:        Pad.bAnalogButtons[XINPUT_GAMEPAD_Y] = 255; Pad.sThumbLX = -28000; break;
+        case XSCT_YDodgeForward:     Pad.bAnalogButtons[XINPUT_GAMEPAD_Y] = 255; Pad.sThumbLY = 28000; break;
+        case XSCT_YDodgeBack:        Pad.bAnalogButtons[XINPUT_GAMEPAD_Y] = 255; Pad.sThumbLY = -28000; break;
         case XSCT_LTAltFire:         Pad.bAnalogButtons[XINPUT_GAMEPAD_LEFT_TRIGGER] = 255; break;
         case XSCT_RTFire:            Pad.bAnalogButtons[XINPUT_GAMEPAD_RIGHT_TRIGGER] = 255; break;
         case XSCT_WhitePrevTap:      Pad.bAnalogButtons[XINPUT_GAMEPAD_WHITE] = 255; break;
@@ -15353,7 +15381,9 @@ static BYTE XboxDodgeDirectionFromStick( INT StickLayout, const XINPUT_GAMEPAD& 
         return DODGE_None;
 
     if( Abs<INT>((INT)LX) > Abs<INT>((INT)LY) )
-        return LX < 0 ? DODGE_Left : DODGE_Right;
+        // Stock PlayerPawn treats positive strafe as DODGE_Left (+Y).
+        // Match its double-tap path, rather than the enum names.
+        return LX < 0 ? DODGE_Right : DODGE_Left;
     return LY < 0 ? DODGE_Back : DODGE_Forward;
 }
 

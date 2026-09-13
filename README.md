@@ -4,13 +4,13 @@ A native port of Unreal Tournament 1999 Game of the Year Edition for modded orig
 
 ## Current status
 
-Version **1.2 is available**: [download v1.2](https://github.com/GTTeancum/UT99-Xbox-Releases/releases/tag/1.2).
+Version **1.2 is the final release** (September 12, 2026): [download v1.2](https://github.com/GTTeancum/UT99-Xbox-Releases/releases/tag/1.2).
 
 Version 1.2 adds Halo Elite and the three-weapon HaloUT mutator, improves split-screen performance, and fixes profile preferences, match-settings persistence, controller sensitivity, safe margins and widescreen menus. Reversed left/right Y-button dodging is also fixed.
 
 Widescreen follows the Xbox dashboard: 480p when available, otherwise 480i. Single-player gets the wider view; split-screen uses 4:3 with side borders. All 39 converted PS2/Dreamcast maps and the previous release's content are included.
 
-System Link remains experimental. Co-op Tournament and skeletal LOD improvements are deferred. Video output is limited to 480i/480p.
+System Link remains experimental. Co-op Tournament and skeletal LOD improvements are not included; no further releases are planned. Video output is limited to 480i/480p.
 
 ## Installing the available release
 

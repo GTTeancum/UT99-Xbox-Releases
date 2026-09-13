@@ -1,8 +1,10 @@
-# Unreal Tournament 99 Xbox Roadmap
+# Unreal Tournament 99 Xbox Roadmap (Historical)
+
+**Closed September 12, 2026:** v1.2 is the final release. No further releases are planned. The roadmap below is retained as historical planning, not an active work queue. See [final release status](UT99-Xbox/Docs/FINAL_RELEASE_1.2.md).
 
 This roadmap tracks the original Xbox port from hardware boot to a complete console-quality release. Real Xbox hardware is the source of truth; CXBX-R is useful only when it shortens diagnosis without creating emulator-only assumptions.
 
-## Current Gate
+## Historical Gate
 
 The current gate is hardware package loading:
 

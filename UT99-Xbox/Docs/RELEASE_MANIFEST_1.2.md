@@ -1,13 +1,13 @@
 # UT99 Xbox v1.2 release manifest
 
-Prepared: 2026-09-12. Scope: final assembled and validated v1.2 release archive.
+Published: 2026-09-12. Version 1.2 is the final release. Scope: the published, validated v1.2 archive; its payload and checksums are unchanged by the documentation closeout.
 
 ## Changes since v1.1.9b
 
 - Halo Elite character with team-colored, face-on menu thumbnail and corrected animation conversion and weapon placement.
 - HaloUT three-weapon set in one non-reload variant per weapon, with adjusted first-person scale, position and recoil, and opaque assault-rifle display backing.
 - Epic custom models included with the character packages.
-- Split-screen performance improvements; skeletal LOD work remains deferred.
+- Split-screen performance improvements; skeletal LOD improvements are not included.
 - Dashboard-controlled display: preserve 4:3; widescreen uses 480p when supported, otherwise 480i. Single-player uses a wider view; multiplayer uses physical 4:3 pillarboxing. No 720p/1080i output.
 - Whole-picture TV safe margin, including world, weapons, HUD and menus.
 - Corrected widescreen HUD proportions, console notice alignment and compact, scrollable split-screen video settings.
@@ -43,7 +43,7 @@ Downloaded v1.1.9b comparison: all 436 previous files accounted for, with 429 un
 
 The Elite player/bot and three Halo weapons, including the HaloWeapons mutator, are bundled in System/HaloUTXbox.u. Its .int registers the player/bot/mutator; MenuAssets/char_haloelite.xui supplies the portrait.
 
-[File inventory](RELEASE_FILES_1.2.json), [directory tree](RELEASE_FILE_TREE_1.2.txt), and [previous-release comparison](RELEASE_COMPARISON_1.1.9b_TO_1.2.json) describe the final archive. Packaging log: release_work/release_1.2_package.log. The internal Docs/FILE_MANIFEST_SHA256.txt covers all 440 other files.
+[File inventory](RELEASE_FILES_1.2.json), [directory tree](RELEASE_FILE_TREE_1.2.txt), and [previous-release comparison](RELEASE_COMPARISON_1.1.9b_TO_1.2.json) describe the final archive. Packaging log: UT99-Xbox/build_cli/dodge_fix_package.log. The internal Docs/FILE_MANIFEST_SHA256.txt covers all 440 other files.
 
 Final configuration menu smoke: native screenshot confirms v1.2; emulator closed. The generic combat runner reports false for missing gameplay/bot coverage because this run intentionally stops at the main menu. The capture itself succeeded. Evidence: build_cli/release_12_menu/01_DM-Oblivion/screenshots/release_12_main_menu.png.
 

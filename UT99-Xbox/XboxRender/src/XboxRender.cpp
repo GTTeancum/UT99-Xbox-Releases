@@ -2068,6 +2068,7 @@ void UXboxRenderDevice::SetSceneNode( FSceneNode* Frame )
 
     FlushDGPBatch( "SetSceneNode" );
     FlushDTBatch( "SetSceneNode" );
+    XboxRenderFlushMenuRectBatch( this, "SetSceneNode" );
 
     static UBOOL bFirstSetSceneNode = 1;
     if( bFirstSetSceneNode )
@@ -3598,7 +3599,11 @@ void UXboxRenderDevice::DrawTile( FSceneNode* Frame, FTextureInfo& Info, FLOAT X
             (DWORD)(Info.CacheID >> 32), (DWORD)Info.CacheID, PolyFlags );
 
     if( GRD_MenuTextMode )
-        PolyFlags = (PolyFlags | PF_Masked | PF_NoSmooth) & ~(PF_Translucent | PF_Modulated);
+    {
+        PolyFlags = (PolyFlags | PF_Masked) & ~(PF_Translucent | PF_Modulated);
+        if(GetPixelAspectRatio()>1.0f) PolyFlags &= ~PF_NoSmooth;
+        else PolyFlags |= PF_NoSmooth;
+    }
 
     FLOAT RZ  = 1.0f / Z;
     FLOAT SZ  = ProjZRatio + ProjZOffset * RZ;
@@ -3912,6 +3917,8 @@ static void XboxRenderFlushMenuRectBatch( UXboxRenderDevice* Ren, const char* Re
     unguard;
 }
 
+extern FLOAT XboxCanvasPixelScaleX(FSceneNode* Frame);
+
 extern "C" void XboxRenderDrawMenuRect( FSceneNode* Frame, FLOAT X1, FLOAT Y1, FLOAT X2, FLOAT Y2, BYTE R, BYTE G, BYTE B, BYTE A )
 {
     guard(XboxRenderDrawMenuRect);
@@ -3921,6 +3928,8 @@ extern "C" void XboxRenderDrawMenuRect( FSceneNode* Frame, FLOAT X1, FLOAT Y1, F
         return;
 
     // Menu coordinates are canvas-local, just like UCanvas text coordinates.
+    FLOAT SX=XboxCanvasPixelScaleX(Frame);
+    X1*=SX; X2*=SX;
     X1 += Frame->XB;
     X2 += Frame->XB;
     Y1 += Frame->YB;
@@ -3958,7 +3967,8 @@ extern "C" void XboxRenderDrawMenuRingSlice( FSceneNode* Frame, FLOAT CX, FLOAT 
     if( !Ren || !Ren->Device || !Frame || OuterR <= InnerR || EndAngle <= StartAngle )
         return;
 
-    CX += Frame->XB;
+    FLOAT SX=XboxCanvasPixelScaleX(Frame);
+    CX=CX*SX+Frame->XB;
     CY += Frame->YB;
 
     Ren->FlushDGPBatch( "menu-ring-slice" );
@@ -3980,13 +3990,13 @@ extern "C" void XboxRenderDrawMenuRingSlice( FSceneNode* Frame, FLOAT CX, FLOAT 
         FLOAT A0 = StartAngle + (EndAngle - StartAngle) * T0;
         FLOAT A1 = StartAngle + (EndAngle - StartAngle) * T1;
 
-        FLOAT OX0 = CX - appSin(A0) * OuterR;
+        FLOAT OX0 = CX - appSin(A0) * OuterR * SX;
         FLOAT OY0 = CY - appCos(A0) * OuterR;
-        FLOAT OX1 = CX - appSin(A1) * OuterR;
+        FLOAT OX1 = CX - appSin(A1) * OuterR * SX;
         FLOAT OY1 = CY - appCos(A1) * OuterR;
-        FLOAT IX0 = CX - appSin(A0) * InnerR;
+        FLOAT IX0 = CX - appSin(A0) * InnerR * SX;
         FLOAT IY0 = CY - appCos(A0) * InnerR;
-        FLOAT IX1 = CX - appSin(A1) * InnerR;
+        FLOAT IX1 = CX - appSin(A1) * InnerR * SX;
         FLOAT IY1 = CY - appCos(A1) * InnerR;
 
         FXboxTLVertex Tri[6] =
@@ -4378,6 +4388,8 @@ extern "C" UBOOL XboxRenderDrawMenuTexture( FSceneNode* Frame, const char* Name,
     if( !Ren || !Ren->Device || !Frame || !Name )
         return 0;
 
+    FLOAT SX=XboxCanvasPixelScaleX(Frame);
+    X*=SX; XL*=SX;
     X += Frame->XB;
     Y += Frame->YB;
 
@@ -4444,6 +4456,8 @@ extern "C" UBOOL XboxRenderDrawMenuUTexture( FSceneNode* Frame, UTexture* Textur
     if( !Ren || !Ren->Device || !Frame || !Texture )
         return 0;
 
+    FLOAT SX=XboxCanvasPixelScaleX(Frame);
+    X*=SX; XL*=SX;
     X += Frame->XB;
     Y += Frame->YB;
 

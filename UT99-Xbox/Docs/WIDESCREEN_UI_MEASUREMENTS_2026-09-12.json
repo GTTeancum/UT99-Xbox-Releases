@@ -1,0 +1,1060 @@
+{
+  "buildSHA256": "cf1edac277fd532750c4c7cebad378d4c9d5583b145037f26c73ade707f55b74",
+  "runs": [
+    {
+      "case": "presentation_verified_1p_wide",
+      "players": 1,
+      "widescreen": true,
+      "checks": [
+        {
+          "phase": 1,
+          "slot": 0,
+          "buffer": [
+            26,
+            19,
+            588,
+            442
+          ],
+          "canvas": [
+            784.0,
+            442.0
+          ],
+          "sx": 0.75,
+          "focus": 0
+        },
+        {
+          "phase": 2,
+          "slot": 0,
+          "buffer": [
+            26,
+            19,
+            588,
+            442
+          ],
+          "canvas": [
+            784.0,
+            442.0
+          ],
+          "sx": 0.75,
+          "focus": 0
+        },
+        {
+          "phase": 3,
+          "slot": 0,
+          "buffer": [
+            26,
+            19,
+            588,
+            442
+          ],
+          "canvas": [
+            784.0,
+            442.0
+          ],
+          "sx": 0.75,
+          "focus": 6
+        },
+        {
+          "phase": 4,
+          "slot": 0,
+          "buffer": [
+            26,
+            19,
+            588,
+            442
+          ],
+          "canvas": [
+            784.0,
+            442.0
+          ],
+          "sx": 0.75,
+          "focus": 10
+        }
+      ],
+      "referenceSquares": [
+        {
+          "slot": 0,
+          "displayPixels": [
+            21,
+            20
+          ]
+        }
+      ],
+      "nativeCaptures": 4
+    },
+    {
+      "case": "presentation_verified_2p_wide",
+      "players": 2,
+      "widescreen": true,
+      "checks": [
+        {
+          "phase": 1,
+          "slot": 0,
+          "buffer": [
+            99,
+            19,
+            441,
+            221
+          ],
+          "canvas": [
+            588.0,
+            221.0
+          ],
+          "sx": 0.75,
+          "focus": 0
+        },
+        {
+          "phase": 1,
+          "slot": 1,
+          "buffer": [
+            99,
+            240,
+            441,
+            221
+          ],
+          "canvas": [
+            588.0,
+            221.0
+          ],
+          "sx": 0.75,
+          "focus": 0
+        },
+        {
+          "phase": 2,
+          "slot": 1,
+          "buffer": [
+            99,
+            240,
+            441,
+            221
+          ],
+          "canvas": [
+            588.0,
+            221.0
+          ],
+          "sx": 0.75,
+          "focus": 0
+        },
+        {
+          "phase": 2,
+          "slot": 0,
+          "buffer": [
+            99,
+            19,
+            441,
+            221
+          ],
+          "canvas": [
+            588.0,
+            221.0
+          ],
+          "sx": 0.75,
+          "focus": 0
+        },
+        {
+          "phase": 3,
+          "slot": 0,
+          "buffer": [
+            99,
+            19,
+            441,
+            221
+          ],
+          "canvas": [
+            588.0,
+            221.0
+          ],
+          "sx": 0.75,
+          "focus": 6
+        },
+        {
+          "phase": 3,
+          "slot": 1,
+          "buffer": [
+            99,
+            240,
+            441,
+            221
+          ],
+          "canvas": [
+            588.0,
+            221.0
+          ],
+          "sx": 0.75,
+          "focus": 6
+        },
+        {
+          "phase": 4,
+          "slot": 1,
+          "buffer": [
+            99,
+            240,
+            441,
+            221
+          ],
+          "canvas": [
+            588.0,
+            221.0
+          ],
+          "sx": 0.75,
+          "focus": 10
+        },
+        {
+          "phase": 4,
+          "slot": 0,
+          "buffer": [
+            99,
+            19,
+            441,
+            221
+          ],
+          "canvas": [
+            588.0,
+            221.0
+          ],
+          "sx": 0.75,
+          "focus": 10
+        }
+      ],
+      "referenceSquares": [
+        {
+          "slot": 0,
+          "displayPixels": [
+            20,
+            20
+          ]
+        },
+        {
+          "slot": 1,
+          "displayPixels": [
+            20,
+            20
+          ]
+        }
+      ],
+      "nativeCaptures": 4
+    },
+    {
+      "case": "presentation_verified_4p_wide",
+      "players": 4,
+      "widescreen": true,
+      "checks": [
+        {
+          "phase": 1,
+          "slot": 1,
+          "buffer": [
+            320,
+            19,
+            220,
+            221
+          ],
+          "canvas": [
+            293.0,
+            221.0
+          ],
+          "sx": 0.75,
+          "focus": 0
+        },
+        {
+          "phase": 1,
+          "slot": 2,
+          "buffer": [
+            99,
+            240,
+            221,
+            221
+          ],
+          "canvas": [
+            294.0,
+            221.0
+          ],
+          "sx": 0.75,
+          "focus": 0
+        },
+        {
+          "phase": 1,
+          "slot": 3,
+          "buffer": [
+            320,
+            240,
+            220,
+            221
+          ],
+          "canvas": [
+            293.0,
+            221.0
+          ],
+          "sx": 0.75,
+          "focus": 0
+        },
+        {
+          "phase": 1,
+          "slot": 0,
+          "buffer": [
+            99,
+            19,
+            221,
+            221
+          ],
+          "canvas": [
+            294.0,
+            221.0
+          ],
+          "sx": 0.75,
+          "focus": 0
+        },
+        {
+          "phase": 2,
+          "slot": 3,
+          "buffer": [
+            320,
+            240,
+            220,
+            221
+          ],
+          "canvas": [
+            293.0,
+            221.0
+          ],
+          "sx": 0.75,
+          "focus": 0
+        },
+        {
+          "phase": 2,
+          "slot": 0,
+          "buffer": [
+            99,
+            19,
+            221,
+            221
+          ],
+          "canvas": [
+            294.0,
+            221.0
+          ],
+          "sx": 0.75,
+          "focus": 0
+        },
+        {
+          "phase": 2,
+          "slot": 1,
+          "buffer": [
+            320,
+            19,
+            220,
+            221
+          ],
+          "canvas": [
+            293.0,
+            221.0
+          ],
+          "sx": 0.75,
+          "focus": 0
+        },
+        {
+          "phase": 2,
+          "slot": 2,
+          "buffer": [
+            99,
+            240,
+            221,
+            221
+          ],
+          "canvas": [
+            294.0,
+            221.0
+          ],
+          "sx": 0.75,
+          "focus": 0
+        },
+        {
+          "phase": 3,
+          "slot": 3,
+          "buffer": [
+            320,
+            240,
+            220,
+            221
+          ],
+          "canvas": [
+            293.0,
+            221.0
+          ],
+          "sx": 0.75,
+          "focus": 6
+        },
+        {
+          "phase": 3,
+          "slot": 0,
+          "buffer": [
+            99,
+            19,
+            221,
+            221
+          ],
+          "canvas": [
+            294.0,
+            221.0
+          ],
+          "sx": 0.75,
+          "focus": 6
+        },
+        {
+          "phase": 3,
+          "slot": 1,
+          "buffer": [
+            320,
+            19,
+            220,
+            221
+          ],
+          "canvas": [
+            293.0,
+            221.0
+          ],
+          "sx": 0.75,
+          "focus": 6
+        },
+        {
+          "phase": 3,
+          "slot": 2,
+          "buffer": [
+            99,
+            240,
+            221,
+            221
+          ],
+          "canvas": [
+            294.0,
+            221.0
+          ],
+          "sx": 0.75,
+          "focus": 6
+        },
+        {
+          "phase": 4,
+          "slot": 2,
+          "buffer": [
+            99,
+            240,
+            221,
+            221
+          ],
+          "canvas": [
+            294.0,
+            221.0
+          ],
+          "sx": 0.75,
+          "focus": 10
+        },
+        {
+          "phase": 4,
+          "slot": 3,
+          "buffer": [
+            320,
+            240,
+            220,
+            221
+          ],
+          "canvas": [
+            293.0,
+            221.0
+          ],
+          "sx": 0.75,
+          "focus": 10
+        },
+        {
+          "phase": 4,
+          "slot": 0,
+          "buffer": [
+            99,
+            19,
+            221,
+            221
+          ],
+          "canvas": [
+            294.0,
+            221.0
+          ],
+          "sx": 0.75,
+          "focus": 10
+        },
+        {
+          "phase": 4,
+          "slot": 1,
+          "buffer": [
+            320,
+            19,
+            220,
+            221
+          ],
+          "canvas": [
+            293.0,
+            221.0
+          ],
+          "sx": 0.75,
+          "focus": 10
+        }
+      ],
+      "referenceSquares": [
+        {
+          "slot": 0,
+          "displayPixels": [
+            20,
+            20
+          ]
+        },
+        {
+          "slot": 1,
+          "displayPixels": [
+            21,
+            20
+          ]
+        },
+        {
+          "slot": 2,
+          "displayPixels": [
+            20,
+            20
+          ]
+        },
+        {
+          "slot": 3,
+          "displayPixels": [
+            21,
+            20
+          ]
+        }
+      ],
+      "nativeCaptures": 4
+    },
+    {
+      "case": "presentation_verified_1p_standard",
+      "players": 1,
+      "widescreen": false,
+      "checks": [
+        {
+          "phase": 1,
+          "slot": 0,
+          "buffer": [
+            26,
+            19,
+            588,
+            442
+          ],
+          "canvas": [
+            588.0,
+            442.0
+          ],
+          "sx": 1.0,
+          "focus": 0
+        },
+        {
+          "phase": 2,
+          "slot": 0,
+          "buffer": [
+            26,
+            19,
+            588,
+            442
+          ],
+          "canvas": [
+            588.0,
+            442.0
+          ],
+          "sx": 1.0,
+          "focus": 0
+        },
+        {
+          "phase": 3,
+          "slot": 0,
+          "buffer": [
+            26,
+            19,
+            588,
+            442
+          ],
+          "canvas": [
+            588.0,
+            442.0
+          ],
+          "sx": 1.0,
+          "focus": 6
+        },
+        {
+          "phase": 4,
+          "slot": 0,
+          "buffer": [
+            26,
+            19,
+            588,
+            442
+          ],
+          "canvas": [
+            588.0,
+            442.0
+          ],
+          "sx": 1.0,
+          "focus": 10
+        }
+      ],
+      "referenceSquares": [
+        {
+          "slot": 0,
+          "displayPixels": [
+            20,
+            20
+          ]
+        }
+      ],
+      "nativeCaptures": 4
+    },
+    {
+      "case": "presentation_verified_2p_standard",
+      "players": 2,
+      "widescreen": false,
+      "checks": [
+        {
+          "phase": 1,
+          "slot": 0,
+          "buffer": [
+            26,
+            19,
+            588,
+            221
+          ],
+          "canvas": [
+            588.0,
+            221.0
+          ],
+          "sx": 1.0,
+          "focus": 0
+        },
+        {
+          "phase": 1,
+          "slot": 1,
+          "buffer": [
+            26,
+            240,
+            588,
+            221
+          ],
+          "canvas": [
+            588.0,
+            221.0
+          ],
+          "sx": 1.0,
+          "focus": 0
+        },
+        {
+          "phase": 2,
+          "slot": 1,
+          "buffer": [
+            26,
+            240,
+            588,
+            221
+          ],
+          "canvas": [
+            588.0,
+            221.0
+          ],
+          "sx": 1.0,
+          "focus": 0
+        },
+        {
+          "phase": 2,
+          "slot": 0,
+          "buffer": [
+            26,
+            19,
+            588,
+            221
+          ],
+          "canvas": [
+            588.0,
+            221.0
+          ],
+          "sx": 1.0,
+          "focus": 0
+        },
+        {
+          "phase": 3,
+          "slot": 1,
+          "buffer": [
+            26,
+            240,
+            588,
+            221
+          ],
+          "canvas": [
+            588.0,
+            221.0
+          ],
+          "sx": 1.0,
+          "focus": 6
+        },
+        {
+          "phase": 3,
+          "slot": 0,
+          "buffer": [
+            26,
+            19,
+            588,
+            221
+          ],
+          "canvas": [
+            588.0,
+            221.0
+          ],
+          "sx": 1.0,
+          "focus": 6
+        },
+        {
+          "phase": 4,
+          "slot": 0,
+          "buffer": [
+            26,
+            19,
+            588,
+            221
+          ],
+          "canvas": [
+            588.0,
+            221.0
+          ],
+          "sx": 1.0,
+          "focus": 10
+        },
+        {
+          "phase": 4,
+          "slot": 1,
+          "buffer": [
+            26,
+            240,
+            588,
+            221
+          ],
+          "canvas": [
+            588.0,
+            221.0
+          ],
+          "sx": 1.0,
+          "focus": 10
+        }
+      ],
+      "referenceSquares": [
+        {
+          "slot": 0,
+          "displayPixels": [
+            20,
+            20
+          ]
+        },
+        {
+          "slot": 1,
+          "displayPixels": [
+            20,
+            20
+          ]
+        }
+      ],
+      "nativeCaptures": 4
+    },
+    {
+      "case": "presentation_verified_4p_standard",
+      "players": 4,
+      "widescreen": false,
+      "checks": [
+        {
+          "phase": 1,
+          "slot": 0,
+          "buffer": [
+            26,
+            19,
+            294,
+            221
+          ],
+          "canvas": [
+            294.0,
+            221.0
+          ],
+          "sx": 1.0,
+          "focus": 0
+        },
+        {
+          "phase": 1,
+          "slot": 1,
+          "buffer": [
+            320,
+            19,
+            294,
+            221
+          ],
+          "canvas": [
+            294.0,
+            221.0
+          ],
+          "sx": 1.0,
+          "focus": 0
+        },
+        {
+          "phase": 1,
+          "slot": 2,
+          "buffer": [
+            26,
+            240,
+            294,
+            221
+          ],
+          "canvas": [
+            294.0,
+            221.0
+          ],
+          "sx": 1.0,
+          "focus": 0
+        },
+        {
+          "phase": 1,
+          "slot": 3,
+          "buffer": [
+            320,
+            240,
+            294,
+            221
+          ],
+          "canvas": [
+            294.0,
+            221.0
+          ],
+          "sx": 1.0,
+          "focus": 0
+        },
+        {
+          "phase": 2,
+          "slot": 0,
+          "buffer": [
+            26,
+            19,
+            294,
+            221
+          ],
+          "canvas": [
+            294.0,
+            221.0
+          ],
+          "sx": 1.0,
+          "focus": 0
+        },
+        {
+          "phase": 2,
+          "slot": 1,
+          "buffer": [
+            320,
+            19,
+            294,
+            221
+          ],
+          "canvas": [
+            294.0,
+            221.0
+          ],
+          "sx": 1.0,
+          "focus": 0
+        },
+        {
+          "phase": 2,
+          "slot": 2,
+          "buffer": [
+            26,
+            240,
+            294,
+            221
+          ],
+          "canvas": [
+            294.0,
+            221.0
+          ],
+          "sx": 1.0,
+          "focus": 0
+        },
+        {
+          "phase": 2,
+          "slot": 3,
+          "buffer": [
+            320,
+            240,
+            294,
+            221
+          ],
+          "canvas": [
+            294.0,
+            221.0
+          ],
+          "sx": 1.0,
+          "focus": 0
+        },
+        {
+          "phase": 3,
+          "slot": 2,
+          "buffer": [
+            26,
+            240,
+            294,
+            221
+          ],
+          "canvas": [
+            294.0,
+            221.0
+          ],
+          "sx": 1.0,
+          "focus": 6
+        },
+        {
+          "phase": 3,
+          "slot": 3,
+          "buffer": [
+            320,
+            240,
+            294,
+            221
+          ],
+          "canvas": [
+            294.0,
+            221.0
+          ],
+          "sx": 1.0,
+          "focus": 6
+        },
+        {
+          "phase": 3,
+          "slot": 0,
+          "buffer": [
+            26,
+            19,
+            294,
+            221
+          ],
+          "canvas": [
+            294.0,
+            221.0
+          ],
+          "sx": 1.0,
+          "focus": 6
+        },
+        {
+          "phase": 3,
+          "slot": 1,
+          "buffer": [
+            320,
+            19,
+            294,
+            221
+          ],
+          "canvas": [
+            294.0,
+            221.0
+          ],
+          "sx": 1.0,
+          "focus": 6
+        },
+        {
+          "phase": 4,
+          "slot": 2,
+          "buffer": [
+            26,
+            240,
+            294,
+            221
+          ],
+          "canvas": [
+            294.0,
+            221.0
+          ],
+          "sx": 1.0,
+          "focus": 10
+        },
+        {
+          "phase": 4,
+          "slot": 3,
+          "buffer": [
+            320,
+            240,
+            294,
+            221
+          ],
+          "canvas": [
+            294.0,
+            221.0
+          ],
+          "sx": 1.0,
+          "focus": 10
+        },
+        {
+          "phase": 4,
+          "slot": 0,
+          "buffer": [
+            26,
+            19,
+            294,
+            221
+          ],
+          "canvas": [
+            294.0,
+            221.0
+          ],
+          "sx": 1.0,
+          "focus": 10
+        },
+        {
+          "phase": 4,
+          "slot": 1,
+          "buffer": [
+            320,
+            19,
+            294,
+            221
+          ],
+          "canvas": [
+            294.0,
+            221.0
+          ],
+          "sx": 1.0,
+          "focus": 10
+        }
+      ],
+      "referenceSquares": [
+        {
+          "slot": 0,
+          "displayPixels": [
+            20,
+            20
+          ]
+        },
+        {
+          "slot": 1,
+          "displayPixels": [
+            20,
+            20
+          ]
+        },
+        {
+          "slot": 2,
+          "displayPixels": [
+            20,
+            20
+          ]
+        },
+        {
+          "slot": 3,
+          "displayPixels": [
+            20,
+            20
+          ]
+        }
+      ],
+      "nativeCaptures": 4
+    }
+  ],
+  "allPassed": true
+}

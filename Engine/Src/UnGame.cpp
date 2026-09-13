@@ -20,6 +20,7 @@ IMPLEMENT_CLASS(UGameEngine);
 extern void XboxCanvasProfileBegin();
 extern DOUBLE XboxCanvasProfileEnd(INT& Calls);
 extern void XboxMenuPostRender( UViewport* Viewport, UCanvas* Canvas );
+extern "C" void XboxViewportApplyProfileHUD( UViewport* Viewport );
 extern "C" void XboxViewportApplyViewRegion( UViewport* Viewport, FSceneNode* Frame );
 extern "C" UBOOL XboxViewportShouldPostRenderPlayer( UViewport* Viewport );
 extern "C" UBOOL XboxViewportShouldUpdateAudio( UViewport* Viewport );
@@ -2813,6 +2814,9 @@ void UGameEngine::Draw( UViewport* Viewport, UBOOL Blit, BYTE* HitData, INT* Hit
 		if( Viewport->Console && !bXboxNativeLoadingDraw )
 			Viewport->Console->PreRender( Frame );
 		Viewport->Canvas->Update( Frame );
+#if TARGET_XBOX
+		if( !bXboxNativeLoadingDraw ) XboxViewportApplyProfileHUD(Viewport);
+#endif
 		if( !bXboxNativeLoadingDraw )
 			Viewport->Actor->eventPreRender( Viewport->Canvas );
 #if defined(LEGEND) //MWP
@@ -2843,6 +2847,10 @@ void UGameEngine::Draw( UViewport* Viewport, UBOOL Blit, BYTE* HitData, INT* Hit
 #endif
 		Viewport->RenDev->EndFlash();
 #if TARGET_XBOX
+		if( !bXboxNativeLoadingDraw ) XboxViewportApplyProfileHUD(Viewport);
+		extern void XboxCanvasBeginAspect(UCanvas*);
+		extern void XboxCanvasEndAspect(UCanvas*);
+		XboxCanvasBeginAspect(Viewport->Canvas);
 		const DOUBLE ProfileHudStart = ProfileView ? appSeconds() : 0.0;
 		if( ProfileView ) XboxCanvasProfileBegin();
 		if( !bXboxNativeLoadingDraw && XboxViewportShouldPostRenderPlayer( Viewport ) )
@@ -2860,7 +2868,11 @@ void UGameEngine::Draw( UViewport* Viewport, UBOOL Blit, BYTE* HitData, INT* Hit
 		)
 		{
 			Viewport->Console->PostRender( Frame );
+#if TARGET_XBOX
+            Viewport->Console->PostRenderCanvas(Viewport->Canvas);
+#else
 			Viewport->Console->eventPostRender( Viewport->Canvas );
+#endif
 		}
 #if TARGET_XBOX
 		const DOUBLE ProfileHudConsoleEnd = ProfileView ? appSeconds() : 0.0;
@@ -2868,6 +2880,7 @@ void UGameEngine::Draw( UViewport* Viewport, UBOOL Blit, BYTE* HitData, INT* Hit
 			XboxMenuPostRender( Viewport, Viewport->Canvas );
 		if( ViewActor->Level && ViewActor->Level->LevelAction == LEVACT_Loading )
 			XboxDrawLoadingActivity( Viewport );
+		XboxCanvasEndAspect(Viewport->Canvas);
 #endif
 		if( Audio && bXboxUpdateAudio )
 			Audio->PostRender( Frame );

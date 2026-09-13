@@ -1,0 +1,44 @@
+{
+  "buildSHA256": "0ec7e531536e0439042cf3211d6c2a402c5250294afbc5debbc4ec62c13838b8",
+  "runs": [
+    {
+      "case": "4p_wide",
+      "cycles": 3,
+      "phaseChecks": 18,
+      "exitChecks": [
+        "XEXIT cycle=1 phase=frontend owner=0 input=1 console=1 moved=0 result=PASS",
+        "XEXIT cycle=1 phase=single owner=0 input=1 console=1 moved=1 result=PASS",
+        "XEXIT cycle=1 phase=frontend_again owner=0 input=1 console=1 moved=1 result=PASS",
+        "XEXIT cycle=2 phase=frontend owner=0 input=1 console=1 moved=1 result=PASS",
+        "XEXIT cycle=2 phase=single owner=0 input=1 console=1 moved=1 result=PASS",
+        "XEXIT cycle=2 phase=frontend_again owner=0 input=1 console=1 moved=1 result=PASS",
+        "XEXIT cycle=3 phase=frontend owner=0 input=1 console=1 moved=1 result=PASS",
+        "XEXIT cycle=3 phase=single owner=0 input=1 console=1 moved=1 result=PASS",
+        "XEXIT cycle=3 phase=frontend_again owner=0 input=1 console=1 moved=1 result=PASS"
+      ],
+      "nativeCaptures": 18,
+      "nativePlayerLayoutVerified": true,
+      "evidence": "UT99-Xbox\\build_cli\\split_exit_verified_4p_wide\\01_DM-Oblivion"
+    },
+    {
+      "case": "2p_standard",
+      "cycles": 3,
+      "phaseChecks": 18,
+      "exitChecks": [
+        "XEXIT cycle=1 phase=frontend owner=0 input=1 console=1 moved=0 result=PASS",
+        "XEXIT cycle=1 phase=single owner=0 input=1 console=1 moved=1 result=PASS",
+        "XEXIT cycle=1 phase=frontend_again owner=0 input=1 console=1 moved=1 result=PASS",
+        "XEXIT cycle=2 phase=frontend owner=0 input=1 console=1 moved=1 result=PASS",
+        "XEXIT cycle=2 phase=single owner=0 input=1 console=1 moved=1 result=PASS",
+        "XEXIT cycle=2 phase=frontend_again owner=0 input=1 console=1 moved=1 result=PASS",
+        "XEXIT cycle=3 phase=frontend owner=0 input=1 console=1 moved=1 result=PASS",
+        "XEXIT cycle=3 phase=single owner=0 input=1 console=1 moved=1 result=PASS",
+        "XEXIT cycle=3 phase=frontend_again owner=0 input=1 console=1 moved=1 result=PASS"
+      ],
+      "nativeCaptures": 18,
+      "nativePlayerLayoutVerified": true,
+      "evidence": "UT99-Xbox\\build_cli\\split_exit_verified_2p_standard\\01_DM-Oblivion"
+    }
+  ],
+  "allPassed": true
+}

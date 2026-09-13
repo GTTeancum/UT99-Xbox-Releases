@@ -197,8 +197,7 @@ void UXboxClient::Tick()
             if( bBoundaryTick )
                 GXboxLog.Write( "XCLIENT tick=%d vp=%d poll-begin VP=0x%08X actor=0x%08X rendev=0x%08X",
                     ClientTickCount, i, (DWORD)VP, (DWORD)VP->Actor, (DWORD)VP->RenDev );
-            if( !bSplit )
-                VP->PollController();
+            VP->PollControllerForFrame();
             if( bBoundaryTick )
                 GXboxLog.Write( "XCLIENT tick=%d vp=%d draw-begin", ClientTickCount, i );
             if( bSplit && !XboxSplitShouldRenderViewport( VP, i ) )

@@ -11,6 +11,33 @@ Revision history:
 #include "UnRender.h"
 
 #if TARGET_XBOX
+// A square-pixel 2D coordinate space over the existing anamorphic framebuffer.
+// World frames and DrawActor retain their original projection and dimensions.
+static UCanvas* GXboxAspectCanvas=NULL;
+static FLOAT GXboxCanvasScaleX=1.0f;
+static FLOAT GXboxSavedCanvasClipX=0;
+static INT GXboxSavedCanvasX=0;
+FLOAT XboxCanvasPixelScaleX(FSceneNode* Frame)
+{
+    return GXboxAspectCanvas && GXboxAspectCanvas->Frame==Frame ? GXboxCanvasScaleX : 1.0f;
+}
+void XboxCanvasBeginAspect(UCanvas* Canvas)
+{
+    if(!Canvas || !Canvas->Frame || !Canvas->Viewport || !Canvas->Viewport->RenDev) return;
+    GXboxAspectCanvas=Canvas;
+    GXboxCanvasScaleX=1.0f/Max<FLOAT>(1.0f,Canvas->Viewport->RenDev->GetPixelAspectRatio());
+    GXboxSavedCanvasClipX=Canvas->ClipX; GXboxSavedCanvasX=Canvas->X;
+    Canvas->ClipX/=GXboxCanvasScaleX; Canvas->X=appRound(Canvas->ClipX);
+}
+void XboxCanvasEndAspect(UCanvas* Canvas)
+{
+    if(Canvas && GXboxAspectCanvas==Canvas)
+    {
+        Canvas->ClipX=GXboxSavedCanvasClipX; Canvas->X=GXboxSavedCanvasX;
+        GXboxAspectCanvas=NULL; GXboxCanvasScaleX=1.0f;
+    }
+}
+
 // Armed only around a benchmarked player HUD. Exclude nested canvas calls
 // so DrawActor/DrawPortal callbacks cannot count the same elapsed time twice.
 static UBOOL GXboxCanvasProfileActive=0;
@@ -75,12 +102,18 @@ void UCanvas::DrawTile
 	guard(UCanvas::DrawTile);
 	check(Texture);
 
+#if TARGET_XBOX
+    FLOAT PixelScaleX=XboxCanvasPixelScaleX(Frame);
+#else
+    FLOAT PixelScaleX=1.0f;
+#endif
+    FLOAT CanvasWidth=Frame->FX/PixelScaleX;
 	// Compute clipping region.
 	FLOAT ClipY0 = /*SpanBuffer ? SpanBuffer->StartY :*/ 0;
 	FLOAT ClipY1 = /*SpanBuffer ? SpanBuffer->EndY   :*/ Frame->FY;
 
 	// Reject.
-	if( XL<=0.f || YL<=0.f || X+XL<=0.f || Y+YL<=ClipY0 || X>=Frame->FX || Y>=ClipY1 )
+	if( XL<=0.f || YL<=0.f || X+XL<=0.f || Y+YL<=ClipY0 || X>=CanvasWidth || Y>=ClipY1 )
 		return;
 
 	// Clip.
@@ -88,8 +121,8 @@ void UCanvas::DrawTile
 		{FLOAT C=X*UL/XL; U-=C; UL+=C; XL+=X; X=0.f;}
 	if( Y<0.f )
 		{FLOAT C=Y*VL/YL; V-=C; VL+=C; YL+=Y; Y=0.f;}
-	if( XL>Frame->FX-X )
-		{UL+=(Frame->FX-X-XL)*UL/XL; XL=Frame->FX-X;}
+	if( XL>CanvasWidth-X )
+		{UL+=(CanvasWidth-X-XL)*UL/XL; XL=CanvasWidth-X;}
 	if( YL>Frame->FY-Y )
 		{VL+=(Frame->FY-Y-YL)*VL/YL; YL=Frame->FY-Y;}
 
@@ -100,7 +133,7 @@ void UCanvas::DrawTile
 	Texture->Lock( Info, Viewport->CurrentTime, -1, Viewport->RenDev );
 	FLOAT UF = Info.UScale * Info.USize / Texture->USize; U *= UF; UL *= UF;
 	FLOAT VF = Info.VScale * Info.VSize / Texture->VSize; V *= VF; VL *= VF;
-	Viewport->RenDev->DrawTile( Frame, Info, X, Y, XL, YL, U, V, UL, VL, SpanBuffer, Z, Color, Fog, PolyFlags | (Texture->PolyFlags()&PF_Masked) );
+	Viewport->RenDev->DrawTile( Frame, Info, X*PixelScaleX, Y, XL*PixelScaleX, YL, U, V, UL, VL, SpanBuffer, Z, Color, Fog, PolyFlags | (Texture->PolyFlags()&PF_Masked) );
 	Texture->Unlock( Info );
 
 	unguard;
@@ -199,20 +232,27 @@ static inline void DrawChar
 
 	// Reject.
 	FSceneNode* Frame=Canvas->Frame;
-	if( !(Flags & PF_Invisible) && X+XL>0 && Y+YL>0 && X<Frame->X && Y<Frame->Y && XL>0 && YL>0 )
+#if TARGET_XBOX
+    FLOAT PixelScaleX=XboxCanvasPixelScaleX(Frame);
+#else
+    FLOAT PixelScaleX=1.0f;
+#endif
+    INT CanvasWidth=appRound(Frame->X/PixelScaleX);
+    if(PixelScaleX<1.0f) Flags &= ~PF_NoSmooth;
+	if( !(Flags & PF_Invisible) && X+XL>0 && Y+YL>0 && X<CanvasWidth && Y<Frame->Y && XL>0 && YL>0 )
 	{
 		// Clip.
 		if( X<0 )
 			{INT C=X*UL/XL; U-=C; UL+=C; XL+=X; X=0;}
 		if( Y<0 )
 			{INT C=Y*VL/YL; V-=C; VL+=C; YL+=Y; Y=0;}
-		if( XL>Frame->X-X )
-			{UL+=(Frame->X-X-XL)*UL/XL; XL=Frame->X-X;}
+		if( XL>CanvasWidth-X )
+			{UL+=(CanvasWidth-X-XL)*UL/XL; XL=CanvasWidth-X;}
 		if( YL>Frame->Y-Y )
 			{VL+=(Frame->Y-Y-YL)*VL/YL; YL=Frame->Y-Y;}
 
 		// Draw.
-		Frame->Viewport->RenDev->DrawTile( Frame, Info, X, Y, UL, VL, U, V, UL, VL, NULL, Canvas->Z, Color, FPlane(0,0,0,0), Flags );
+		Frame->Viewport->RenDev->DrawTile( Frame, Info, X*PixelScaleX, Y, UL*PixelScaleX, VL, U, V, UL, VL, NULL, Canvas->Z, Color, FPlane(0,0,0,0), Flags );
 	}
 	unguardSlow;
 }

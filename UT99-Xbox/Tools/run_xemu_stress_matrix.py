@@ -353,12 +353,33 @@ def prepare_base(args):
         "XboxSplitBenchmark.ini",
         "XboxSplitCombatBenchmark.ini",
         "XboxDashboardVideoProof.ini",
+        "XboxSplitExitRepeatProof.ini",
+        "XboxSensitivityProof.ini",
+        "XboxUISafeZoneProof.ini",
+        "XboxProfileHUDProof.ini",
+        "XboxMatchSettingsWrite.ini",
+        "XboxMatchSettingsRead.ini",
+        "XboxPresentationProof.ini",
         "XboxSplitLayout03.ini",
         "XboxSplitLayout07.ini",
     ):
         path = os.path.join(stage, marker)
         if os.path.isfile(path):
             os.remove(path)
+    if args.sensitivity_proof:
+        with open(os.path.join(stage, "XboxSensitivityProof.ini"), "w") as handle:
+            handle.write("; Process-local sensitivity qualification\n")
+    if args.presentation_proof:
+        with open(os.path.join(stage,"XboxPresentationProof.ini"),"w") as handle: handle.write("; Native widescreen UI proof\n")
+    if args.match_settings_proof:
+        with open(os.path.join(stage, "XboxMatchSettings%s.ini" % args.match_settings_proof.title()), "w") as handle:
+            handle.write("; isolated two-boot match settings proof\n")
+    if args.profile_hud_proof:
+        with open(os.path.join(stage,"XboxProfileHUDProof.ini"),"w") as handle:
+            handle.write("; process-local profile HUD smoke\n")
+    if args.safe_zone_proof:
+        with open(os.path.join(stage,"XboxUISafeZoneProof.ini"),"w") as handle:
+            handle.write("; Process-local UI-only TV safe zone qualification\n")
     raster_marker = {"audit": "XboxRasterAudit.ini", "legacy": "XboxLegacyRaster.ini", "alternating": "XboxAlternateRaster.ini"}.get(args.raster_mode)
     if raster_marker:
         with open(os.path.join(stage, raster_marker), "w") as handle:
@@ -369,7 +390,7 @@ def prepare_base(args):
     elif args.lighting_proof:
         with open(os.path.join(stage, "XboxLightingProof.ini"), "w") as handle:
             handle.write("; Deterministic map-lighting viewpoint qualification\n")
-    elif not args.crosshair_proof and not is_frontend_live_proof(args.frontend_loading_proof):
+    elif not args.crosshair_proof and not args.safe_zone_proof and not args.profile_hud_proof and not args.presentation_proof and not is_frontend_live_proof(args.frontend_loading_proof):
         with open(os.path.join(stage, "XboxCharacterSoak.ini"), "w") as handle:
             handle.write("; Log exact bot class, mesh, and skin during Xemu stress\n")
     if args.skeletal_state_proof:
@@ -417,7 +438,19 @@ def prepare_case(args, stage, case, run_dir):
                 case.get("bot_class"),
             )
 
-    if args.frontend_loading_proof:
+    if args.crosshair_proof:
+        # A real selected profile is required by the production HUD setter.
+        with open(os.path.join(stage,"System","User.ini"),"a") as handle:
+            handle.write("\n[XboxProfiles]\nActive=0\n[XboxProfile0]\nCreated=1\nName=CROSSHAIR PROOF\n")
+
+    if args.match_settings_proof:
+        start_url_path = os.path.join(stage,"XboxStartURL.ini")
+        if os.path.isfile(start_url_path): os.remove(start_url_path)
+        character_marker = os.path.join(stage,"XboxCharacterSoak.ini")
+        if os.path.isfile(character_marker): os.remove(character_marker)
+        url = "frontend-match-settings:" + args.match_settings_proof
+        proof_markers = ["XboxMatchSettings%s.ini" % args.match_settings_proof.title()]
+    elif args.frontend_loading_proof:
         marker_by_mode = {
             "issue": "XboxIssueMapSmoke.ini",
             "soak": "XboxSoakSmoke.ini",
@@ -462,6 +495,13 @@ def prepare_case(args, stage, case, run_dir):
                 with open(os.path.join(stage, "XboxDashboardVideoProof.ini"), "w") as handle:
                     handle.write("; Process-local dashboard video transitions\n")
                 proof_markers.append("XboxDashboardVideoProof.ini")
+                if args.split_exit_repeat:
+                    with open(os.path.join(stage,"XboxSplitExitRepeatProof.ini"),"w") as handle: handle.write("; Three exit cycles\n")
+                    proof_markers.append("XboxSplitExitRepeatProof.ini")
+            if args.sensitivity_proof:
+                with open(os.path.join(stage, "XboxSensitivityProof.ini"), "w") as handle:
+                    handle.write("; Fixed process-local stick rate qualification\n")
+                proof_markers.append("XboxSensitivityProof.ini")
         if args.frontend_loading_proof == "split-smoke" and args.split_players < 4:
             layout = "XboxSplitLayout%02X.ini" % ((1 << args.split_players) - 1)
             with open(os.path.join(stage, layout), "w") as handle:
@@ -489,8 +529,14 @@ def prepare_case(args, stage, case, run_dir):
             proof_markers.append("XboxFlickerTraversal.ini")
         elif args.lighting_proof:
             proof_markers.append("XboxLightingProof.ini")
-        elif not args.crosshair_proof:
+        elif not args.crosshair_proof and not args.safe_zone_proof and not args.profile_hud_proof and not args.presentation_proof:
             proof_markers.append("XboxCharacterSoak.ini")
+    if args.presentation_proof:
+        proof_markers.append("XboxPresentationProof.ini")
+    if args.profile_hud_proof:
+        proof_markers.append("XboxProfileHUDProof.ini")
+    if args.safe_zone_proof:
+        proof_markers.append("XboxUISafeZoneProof.ini")
     if args.skeletal_state_proof:
         proof_markers.append("XboxSkeletalStateProof.ini")
     if args.record_gameplay or args.right_side_proof:
@@ -787,7 +833,7 @@ def run_case(args, stage, case, index, xiso_tool, config_path):
         phys_delta="auto",
         # Preserve five-second timing windows between eight-second polls.
         # Combat logs can exceed 4 KB between observations.
-        tail_bytes=65536 if args.split_combat_benchmark else 4096,
+        tail_bytes=65536 if args.split_combat_benchmark or args.sensitivity_proof or args.safe_zone_proof or args.profile_hud_proof or args.match_settings_proof or args.presentation_proof else 4096,
     )
     required_tick = case.get("minimum_tick", args.minimum_tick)
     deadline = time.time() + args.boot_timeout + case["seconds"] + args.tick_timeout
@@ -1279,6 +1325,53 @@ def run_case(args, stage, case, index, xiso_tool, config_path):
                 if lighting_proof or case["bots"] == 0
                 else current["activeMapMaxBots"] >= case["bots"]
             )
+            if args.presentation_proof:
+                proof_text=accumulated or snapshot
+                if re.search(r"XUIPROOF .*result=FAIL",proof_text):
+                    marker="UI aspect assertion failed"; break
+                captures=re.findall(r"XUIPROOF capture=(\d+)",snapshot)
+                if captures:
+                    path=os.path.join(screenshot_dir,"presentation_%s.png"%captures[-1])
+                    if not os.path.isfile(path):
+                        capture_screen(proc.pid,args.screenshot_dir,path,args.monitor_port)
+                        if os.path.isfile(path): screenshots.append(path)
+                if all(os.path.isfile(os.path.join(screenshot_dir,"presentation_%d.png"%p)) for p in range(1,5)):
+                    ok=True; marker="Presentation phases captured"; break
+                time.sleep(args.poll_interval); continue
+            if args.match_settings_proof:
+                match = re.search(r"XMATCHPROOF .*result=(PASS|FAIL)", accumulated or snapshot)
+                if match:
+                    ok = match.group(1) == "PASS"
+                    marker = "Match settings %s %s" % (args.match_settings_proof, match.group(1))
+                    path = os.path.join(screenshot_dir, "match_settings.png")
+                    capture_screen(proc.pid, args.screenshot_dir, path, args.monitor_port)
+                    if os.path.isfile(path): screenshots.append(path)
+                    break
+                time.sleep(args.poll_interval)
+                continue
+            if args.profile_hud_proof:
+                if re.search(r'XHUDPROFILE .*result=FAIL',accumulated or snapshot):
+                    marker='Profile HUD assertion failed';break
+                captures=re.findall(r'XHUDPROFILE capture=(\d+) result=PASS',snapshot)
+                if captures:
+                    path=os.path.join(screenshot_dir,'profile_hud_%s.png'%captures[-1])
+                    if not os.path.isfile(path):
+                        capture_screen(proc.pid,args.screenshot_dir,path,args.monitor_port)
+                        if os.path.isfile(path):screenshots.append(path)
+                if all(os.path.isfile(os.path.join(screenshot_dir,'profile_hud_%d.png'%p)) for p in range(1,6)):
+                    ok=True;marker='Profile HUD isolation and reload passed';break
+                time.sleep(args.poll_interval);continue
+            if args.safe_zone_proof:
+                captures=re.findall(r'XSAFEUI capture=(\d+)',snapshot)
+                if captures:
+                    path=os.path.join(screenshot_dir,'safe_zone_%s.png'%captures[-1])
+                    if not os.path.isfile(path):
+                        capture_screen(proc.pid,args.screenshot_dir,path,args.monitor_port)
+                        if os.path.isfile(path): screenshots.append(path)
+                if all(os.path.isfile(os.path.join(screenshot_dir,'safe_zone_%d.png'%p)) for p in range(1,6)):
+                    ok=True;marker='UI safe zone phases captured';break
+                time.sleep(args.poll_interval)
+                continue
             if args.dashboard_video_proof:
                 proof_text = accumulated or snapshot
                 captures = re.findall(r"XVIDEOPROOF capture=(\d+)", snapshot)
@@ -1290,6 +1383,11 @@ def run_case(args, stage, case, index, xiso_tool, config_path):
                 if re.search(r"XVIDEOPROOF phase=\w+ result=FAIL", proof_text):
                     marker = "dashboard video transition failed"
                     break
+                if args.split_exit_repeat:
+                    if "XEXIT complete cycles=3 result=PASS" in proof_text:
+                        ok=all(os.path.isfile(os.path.join(screenshot_dir,"video_phase_%d.png"%p)) for p in range(1,19))
+                        marker="Three split exit cycles passed" if ok else "Missing cycle captures";break
+                    time.sleep(args.poll_interval);continue
                 if "XVIDEOPROOF phase=single result=PASS" in proof_text:
                     ok = all("XVIDEOPROOF phase=%s result=PASS" % phase in proof_text
                              for phase in ("split", "pause", "resume", "frontend", "single"))
@@ -1299,6 +1397,8 @@ def run_case(args, stage, case, index, xiso_tool, config_path):
                     break
                 time.sleep(args.poll_interval)
                 continue
+            if args.sensitivity_proof:
+                map_live_enough = 'XSENS slot=' in (accumulated or snapshot)
             if map_live_enough and live_started is None:
                 live_started = time.time()
                 if not args.skip_general_screenshots:
@@ -1371,7 +1471,7 @@ def run_case(args, stage, case, index, xiso_tool, config_path):
                             handle.write(reply + "\n")
                 if (
                     elapsed >= case["seconds"]
-                    and current["activeMapLastTick"] >= required_tick
+                    and (args.sensitivity_proof or current["activeMapLastTick"] >= required_tick)
                     and (
                         not lighting_proof
                         or len(captured_lighting_slots) >= args.lighting_proof_screenshots
@@ -1506,6 +1606,7 @@ def run_case(args, stage, case, index, xiso_tool, config_path):
         "masterChiefBotCount": master_chief_count,
         "customRosterOnly": not unexpected_classes,
         "ok": bool(
+            (ok and summary["fatalCount"] == 0 and bool(screenshots)) if args.match_settings_proof or args.presentation_proof else
             (ok and summary["fatalCount"] == 0
              and all(os.path.join(screenshot_dir, "crosshair_%d.png" % i) in screenshots for i in range(9)))
             if args.crosshair_proof else
@@ -1514,7 +1615,7 @@ def run_case(args, stage, case, index, xiso_tool, config_path):
                 and summary["fatalCount"] == 0
                 and loading_proof_complete
             )
-            if frontend_loading_proof else
+            if frontend_loading_proof or args.sensitivity_proof or args.safe_zone_proof or args.profile_hud_proof else
             (
                 ok
                 and summary["fatalCount"] == 0
@@ -1583,7 +1684,25 @@ def run_case(args, stage, case, index, xiso_tool, config_path):
         summary.update(dashboardVideoProof=True, nativePlayerLayoutVerified=layout_passed,
                        videoTransitionPhases=dict(re.findall(r'XVIDEOPROOF phase=(\w+) result=(PASS|FAIL)', proof_text)))
         summary['ok'] = bool(summary['ok'] and layout_passed)
-    if args.split_combat_benchmark and not args.dashboard_video_proof:
+    if args.sensitivity_proof:
+        from pathlib import Path
+        from summarize_sensitivity_proof import collect
+        summary['sensitivityProof'] = True
+        try:
+            summary['sensitivityMeasurements'] = collect(Path(run_dir)/'xemu_ram_log_accumulated.txt', args.split_players)
+        except ValueError as error:
+            summary['sensitivityError'] = str(error)
+            summary['ok'] = False
+    if args.safe_zone_proof:
+        summary['safeZoneProof']=True
+        summary['safeZoneBounds']=list(dict.fromkeys(re.findall(r'XSAFEUI phase=.*',accumulated or last_snapshot)))
+        from pathlib import Path
+        from summarize_safe_zone_proof import collect
+        try:
+            summary['safeZoneMeasurements']=collect(Path(run_dir)/'xemu_ram_log_accumulated.txt',args.split_players,args.xemu_aspect_ratio=='16x9')
+        except ValueError as error:
+            summary['safeZoneError']=str(error);summary['ok']=False
+    if args.split_combat_benchmark and not args.dashboard_video_proof and not args.sensitivity_proof and not args.safe_zone_proof and not args.profile_hud_proof and not args.presentation_proof:
         combat = []
         pattern = (r'XCOMBAT elapsed=([\d.]+) players=(\d+) bots=(\d+) living=(\d+) '
                    r'moving=(\d+) firing=(\d+) projectiles=(\d+) deaths=(\d+) movedMask=([0-9A-Fa-f]+)')
@@ -1750,10 +1869,17 @@ def main(argv):
         default="menu_proof.png",
         help="Screenshot filename used with --menu-proof-log-pattern",
     )
+    parser.add_argument("--presentation-proof", action="store_true")
+    parser.add_argument("--match-settings-proof", choices=("write", "read"))
+    parser.add_argument("--profile-hud-proof", action="store_true")
     parser.add_argument("--crosshair-proof", action="store_true", help="Capture all nine live-HUD crosshair previews")
+    parser.add_argument("--split-exit-repeat", action="store_true")
     parser.add_argument("--dashboard-video-proof", action="store_true",
                         help="Verify split, pause, resume, frontend and single-player video transitions")
-    parser.add_argument("--split-players", type=int, choices=(2, 3, 4), default=4,
+    parser.add_argument("--sensitivity-proof", action="store_true",
+                        help="Measure fixed process-local stick rotation; excludes combat qualification")
+    parser.add_argument("--safe-zone-proof", action="store_true", help="Capture UI-only TV safe zone phases")
+    parser.add_argument("--split-players", type=int, choices=(1, 2, 3, 4), default=4,
                         help="Local player count for --frontend-loading-proof split-smoke")
     parser.add_argument("--split-benchmark", action="store_true",
                         help="Keep split-smoke players in gameplay without controls-test actions")
@@ -1902,8 +2028,16 @@ def main(argv):
             raise RuntimeError("--bots-override must be between 1 and 15")
         for case in selected:
             case["bots"] = args.bots_override
+    if args.split_exit_repeat and not args.dashboard_video_proof:
+        raise RuntimeError("--split-exit-repeat requires --dashboard-video-proof")
     if args.dashboard_video_proof and not args.split_combat_benchmark:
         raise RuntimeError("--dashboard-video-proof requires --split-combat-benchmark")
+    if args.sensitivity_proof and args.dashboard_video_proof:
+        raise RuntimeError("Sensitivity and transition proofs require separate runs")
+    if args.safe_zone_proof and (args.dashboard_video_proof or args.sensitivity_proof):
+        raise RuntimeError("Safe zone qualification requires a separate run")
+    if args.split_players == 1 and (not (args.sensitivity_proof or args.safe_zone_proof or args.profile_hud_proof or args.presentation_proof) or args.frontend_loading_proof == "split-smoke"):
+        raise RuntimeError("One-player qualification requires the standalone sensitivity proof")
     if args.split_combat_benchmark:
         if args.frontend_loading_proof != "split-smoke":
             raise RuntimeError("--split-combat-benchmark requires --frontend-loading-proof split-smoke")

@@ -1,0 +1,21 @@
+{
+  "buildSHA256": "5606cc5348f4aec1377f58dcef401f926f3d7ce1db50cb000f57c034495d7f76",
+  "runs": [
+    {
+      "mode": "write",
+      "pid": 29940,
+      "assertion": "XMATCHPROOF mode=write bots=6 skill=3 score=30 time=0 map=66 mutators=1 result=PASS",
+      "result": "PASS",
+      "screenshot": "UT99-Xbox\\build_cli\\match_settings_verified_write\\01_DM-Oblivion\\screenshots\\match_settings.png"
+    },
+    {
+      "mode": "read",
+      "pid": 36300,
+      "assertion": "XMATCHPROOF mode=read bots=6 skill=3 score=30 time=0 map=66 mutators=1 result=PASS",
+      "result": "PASS",
+      "screenshot": "UT99-Xbox\\build_cli\\match_settings_verified_read\\01_DM-Oblivion\\screenshots\\match_settings.png"
+    }
+  ],
+  "storage": "U:\\MatchSettingsSmoke.ini (test-only User.ini redirect)",
+  "freshProcessVerified": true
+}

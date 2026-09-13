@@ -165,3 +165,15 @@ void UConsole::PostRender( FSceneNode* Frame )
 /*------------------------------------------------------------------------------
 	The End.
 ------------------------------------------------------------------------------*/
+
+#if TARGET_XBOX
+void UConsole::PostRenderCanvas(UCanvas* Canvas)
+{
+    // DrawLevelAction and other legacy console overlays use FrameX rather
+    // than Canvas.ClipX. Keep their layout in the same 2D coordinate space.
+    FLOAT SavedFrameX=FrameX;
+    if(Viewport && Viewport->RenDev) FrameX*=Viewport->RenDev->GetPixelAspectRatio();
+    eventPostRender(Canvas);
+    FrameX=SavedFrameX;
+}
+#endif

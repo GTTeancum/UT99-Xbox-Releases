@@ -1,0 +1,457 @@
+UT99-Xbox-1.2/
+├── Docs/
+│   ├── AgentX_099/
+│   │   └── axv099Readme.txt
+│   ├── AkimboArena/
+│   │   ├── AkimboArena.txt
+│   │   └── akimboarena.umod
+│   ├── JailbreakIII/
+│   │   ├── JailbreakIII/
+│   │   │   ├── html/
+│   │   │   │   ├── ingame.html
+│   │   │   │   ├── mapguide.html
+│   │   │   │   ├── other.html
+│   │   │   │   ├── servers.html
+│   │   │   │   └── starting.html
+│   │   │   ├── images/
+│   │   │   │   ├── arrow-back.gif
+│   │   │   │   ├── arrow-next.gif
+│   │   │   │   ├── back-rollover.gif
+│   │   │   │   ├── back.gif
+│   │   │   │   ├── bottom-text.gif
+│   │   │   │   ├── hud-blue.gif
+│   │   │   │   ├── hud-compass.gif
+│   │   │   │   ├── hud-red.gif
+│   │   │   │   ├── hud-stance.gif
+│   │   │   │   ├── jbmanual.gif
+│   │   │   │   ├── left-dottedline.gif
+│   │   │   │   ├── line-left.gif
+│   │   │   │   ├── line-right.gif
+│   │   │   │   ├── logo.gif
+│   │   │   │   ├── logo2.jpg
+│   │   │   │   ├── navigation.gif
+│   │   │   │   ├── next-rollover.gif
+│   │   │   │   ├── next.gif
+│   │   │   │   ├── shot-arenalarge.jpg
+│   │   │   │   ├── shot-arenasmall.jpg
+│   │   │   │   ├── shot-deathscenelarge.jpg
+│   │   │   │   ├── shot-deathscenesmall.jpg
+│   │   │   │   ├── shot-install1.gif
+│   │   │   │   ├── shot-install2.gif
+│   │   │   │   ├── shot-mapintrolarge.jpg
+│   │   │   │   ├── shot-mapintrosmall.jpg
+│   │   │   │   ├── shot-menu1.gif
+│   │   │   │   ├── shot-menu2.gif
+│   │   │   │   ├── shot-menu3.gif
+│   │   │   │   ├── shot-menu4.gif
+│   │   │   │   ├── shot-menu5.gif
+│   │   │   │   ├── shot-menu6.gif
+│   │   │   │   ├── shot-prisonlarge.jpg
+│   │   │   │   ├── shot-prisonsmall.jpg
+│   │   │   │   ├── shot-publicstatslarge.gif
+│   │   │   │   ├── shot-publicstatssmall.gif
+│   │   │   │   ├── shot-scoreboardbottom.gif
+│   │   │   │   ├── shot-scoreboardlarge.jpg
+│   │   │   │   ├── shot-scoreboardsmall.gif
+│   │   │   │   ├── shot-selectpractice.gif
+│   │   │   │   ├── shot-serveradminlarge.gif
+│   │   │   │   ├── shot-serveradminsmall.gif
+│   │   │   │   ├── shot-serverbrowser.gif
+│   │   │   │   ├── shot-start2.gif
+│   │   │   │   ├── shot-start3.gif
+│   │   │   │   ├── shot-statsclient.gif
+│   │   │   │   ├── shot-translarge.gif
+│   │   │   │   ├── shot-transsmall.gif
+│   │   │   │   ├── spacer.gif
+│   │   │   │   ├── title-aboutjb.gif
+│   │   │   │   ├── title-arena.gif
+│   │   │   │   ├── title-bots.gif
+│   │   │   │   ├── title-compatibility.gif
+│   │   │   │   ├── title-console.gif
+│   │   │   │   ├── title-copyright.gif
+│   │   │   │   ├── title-credits.gif
+│   │   │   │   ├── title-deathscenes.gif
+│   │   │   │   ├── title-hud.gif
+│   │   │   │   ├── title-humanlad.gif
+│   │   │   │   ├── title-installation.gif
+│   │   │   │   ├── title-issues.gif
+│   │   │   │   ├── title-jbpref.gif
+│   │   │   │   ├── title-joinmulti.gif
+│   │   │   │   ├── title-llamahunt.gif
+│   │   │   │   ├── title-mapguide.gif
+│   │   │   │   ├── title-objectives.gif
+│   │   │   │   ├── title-prisons.gif
+│   │   │   │   ├── title-publicstats.gif
+│   │   │   │   ├── title-releaseprot.gif
+│   │   │   │   ├── title-scoreboard.gif
+│   │   │   │   ├── title-scoring.gif
+│   │   │   │   ├── title-serverbrowse.gif
+│   │   │   │   ├── title-startgame.gif
+│   │   │   │   ├── title-startserv.gif
+│   │   │   │   ├── title-statstrack.gif
+│   │   │   │   ├── title-suddendeath.gif
+│   │   │   │   ├── title-trans.gif
+│   │   │   │   ├── title-webadmin.gif
+│   │   │   │   ├── title-whatsnew.gif
+│   │   │   │   ├── top-right.gif
+│   │   │   │   └── top.gif
+│   │   │   ├── Mutators/
+│   │   │   │   ├── JailFight.txt
+│   │   │   │   ├── JBFatboy.txt
+│   │   │   │   └── JBMadmen.txt
+│   │   │   └── manual.html
+│   │   ├── JailbreakIII-Gold.bmp
+│   │   ├── JailbreakIII-Gold.txt
+│   │   ├── JailbreakIII-SP1.txt
+│   │   ├── JailbreakIII-SP2.txt
+│   │   ├── JailbreakIII-Tutorial.txt
+│   │   ├── RandomRelic.txt
+│   │   └── Screen.txt
+│   ├── Console_Map_Pack_README.txt
+│   ├── FILE_MANIFEST_SHA256.txt
+│   ├── INSTALLATION_1.2.txt
+│   ├── ISSUE_FIXES_2026-09-08.md
+│   └── RELEASE_NOTES_1.2.txt
+├── Maps/
+│   ├── CTF-Phalanx.unr
+│   ├── CTF-Sepulchre.unr
+│   ├── CTF-Spirito.unr
+│   ├── CTF-Stormfront.unr
+│   ├── CTF-Sundial.unr
+│   ├── CTF-Titania.unr
+│   ├── DM-Babylon.unr
+│   ├── DM-Blockparty.unr
+│   ├── DM-Brickyard.unr
+│   ├── DM-CanyonFear.unr
+│   ├── DM-Coagulate.unr
+│   ├── DM-Coldsteelpressure.unr
+│   ├── DM-Core.unr
+│   ├── DM-Damnation.unr
+│   ├── DM-Depot.unr
+│   ├── DM-Dust.unr
+│   ├── DM-Flux.unr
+│   ├── DM-Gearbox.unr
+│   ├── DM-Girder.unr
+│   ├── DM-Google.unr
+│   ├── DM-Halberd.unr
+│   ├── DM-Halo-Derelict.unr
+│   ├── DM-HangEmHigh.unr
+│   ├── DM-Hood.unr
+│   ├── DM-Industrial.unr
+│   ├── DM-Infernal.unr
+│   ├── DM-Instinct.unr
+│   ├── DM-Loathing.unr
+│   ├── DM-Megaplex.unr
+│   ├── DM-Nebula.unr
+│   ├── DM-Neotokyo.unr
+│   ├── DM-Outskirts.unr
+│   ├── DM-Paladin.unr
+│   ├── DM-Pantheon.unr
+│   ├── DM-ScreenDemo.unr
+│   ├── DM-Sector9.unr
+│   ├── DM-Singularity.unr
+│   ├── DM-Sorayama.unr
+│   ├── DM-Stationcontrol.unr
+│   ├── DM-Underlord.unr
+│   ├── DOM-Coagulate.unr
+│   ├── DOM-Hood.unr
+│   ├── DOM-Osiris.unr
+│   ├── JB-Alcatraz.unr
+│   ├── JB-Basmma.unr
+│   ├── JB-Complex.unr
+│   ├── JB-Furia.unr
+│   ├── JB-Grudge.unr
+│   ├── JB-Nifam.unr
+│   ├── JB-Pharynx.unr
+│   ├── JB-Raid-Gold.unr
+│   ├── JB-Talaeron-Gold.unr
+│   ├── JBCredits.unr
+│   └── JBTutorialMap.unr
+├── MenuAssets/
+│   ├── button_a.xui
+│   ├── button_b.xui
+│   ├── button_back.xui
+│   ├── button_black.xui
+│   ├── button_ddown.xui
+│   ├── button_dleft.xui
+│   ├── button_dpad.xui
+│   ├── button_dright.xui
+│   ├── button_dup.xui
+│   ├── button_l.xui
+│   ├── button_lmove.xui
+│   ├── button_lstick.xui
+│   ├── button_lt.xui
+│   ├── button_r.xui
+│   ├── button_rmove.xui
+│   ├── button_rstick.xui
+│   ├── button_rt.xui
+│   ├── button_start.xui
+│   ├── button_white.xui
+│   ├── button_x.xui
+│   ├── button_y.xui
+│   ├── char_annaka.xui
+│   ├── char_arkon.xui
+│   ├── char_aryss.xui
+│   ├── char_atomiccow.xui
+│   ├── char_baetal.xui
+│   ├── char_berserker.xui
+│   ├── char_blake.xui
+│   ├── char_boris.xui
+│   ├── char_cathode.xui
+│   ├── char_cilia.xui
+│   ├── char_cryss.xui
+│   ├── char_damien.xui
+│   ├── char_disconnect.xui
+│   ├── char_dominator.xui
+│   ├── char_dominator_ps2.xui
+│   ├── char_firewall.xui
+│   ├── char_freylis.xui
+│   ├── char_fury.xui
+│   ├── char_gorn.xui
+│   ├── char_grail.xui
+│   ├── char_graves.xui
+│   ├── char_guardian.xui
+│   ├── char_haloelite.xui
+│   ├── char_isis.xui
+│   ├── char_jayce.xui
+│   ├── char_johnson.xui
+│   ├── char_kragoth.xui
+│   ├── char_kregore.xui
+│   ├── char_kyla.xui
+│   ├── char_lauren.xui
+│   ├── char_lilith.xui
+│   ├── char_luthor.xui
+│   ├── char_malcom.xui
+│   ├── char_malise.xui
+│   ├── char_mariana.xui
+│   ├── char_masterchief.xui
+│   ├── char_matrix.xui
+│   ├── char_missing.xui
+│   ├── char_othello.xui
+│   ├── char_ouboudah.xui
+│   ├── char_pharoh.xui
+│   ├── char_priest.xui
+│   ├── char_ramirez.xui
+│   ├── char_rampage.xui
+│   ├── char_rankin.xui
+│   ├── char_riker.xui
+│   ├── char_sara.xui
+│   ├── char_sarena.xui
+│   ├── char_skaarj_boss.xui
+│   ├── char_skrilax.xui
+│   ├── char_tanya.xui
+│   ├── char_tensor.xui
+│   ├── char_vector.xui
+│   ├── char_visse.xui
+│   ├── char_vixen.xui
+│   ├── char_warcow.xui
+│   ├── char_xan.xui
+│   ├── char_xan_ps2.xui
+│   ├── controller_s.xui
+│   ├── ut_logo.png
+│   ├── ut_logo.xui
+│   ├── ut_logo_256.xui
+│   ├── weapon_bio.png
+│   ├── weapon_bio.xui
+│   ├── weapon_chainsaw.png
+│   ├── weapon_chainsaw.xui
+│   ├── weapon_enforcer.png
+│   ├── weapon_enforcer.xui
+│   ├── weapon_flak.png
+│   ├── weapon_flak.xui
+│   ├── weapon_impact.png
+│   ├── weapon_impact.xui
+│   ├── weapon_mesh_contact.png
+│   ├── weapon_mini.png
+│   ├── weapon_mini.xui
+│   ├── weapon_pulse.png
+│   ├── weapon_pulse.xui
+│   ├── weapon_redeemer.png
+│   ├── weapon_redeemer.xui
+│   ├── weapon_ripper.png
+│   ├── weapon_ripper.xui
+│   ├── weapon_rocket.png
+│   ├── weapon_rocket.xui
+│   ├── weapon_shock.png
+│   ├── weapon_shock.xui
+│   ├── weapon_sniper.png
+│   ├── weapon_sniper.xui
+│   ├── weapon_trans.png
+│   └── weapon_trans.xui
+├── Music/
+│   ├── 5-2SA1.umx
+│   └── halochant.umx
+├── MusicXbox/
+│   ├── Botmca9.wav
+│   ├── Botpck10.wav
+│   ├── Cannon.wav
+│   ├── Colossus.wav
+│   ├── Course.wav
+│   ├── Credits.wav
+│   ├── Ending.wav
+│   ├── Enigma.wav
+│   ├── firebr.wav
+│   ├── Foregone.wav
+│   ├── Godown.wav
+│   ├── Lock.wav
+│   ├── Mech8.wav
+│   ├── Mission.wav
+│   ├── Nether.wav
+│   ├── Organic.wav
+│   ├── Phantom.wav
+│   ├── Razor-ub.wav
+│   ├── Run.wav
+│   ├── SaveMe.wav
+│   ├── Savemeg.wav
+│   ├── Seeker.wav
+│   ├── Seeker2.wav
+│   ├── Skyward.wav
+│   ├── Strider.wav
+│   ├── Suprfist.wav
+│   ├── UnWorld2.wav
+│   ├── utmenu23.wav
+│   ├── Uttitle.wav
+│   └── Wheels.wav
+├── Sounds/
+│   ├── JBAudio.uax
+│   └── JBAudioTutorial.uax
+├── System/
+│   ├── AdvancedModelSupport.int
+│   ├── AdvancedModelSupport.u
+│   ├── AgentX.int
+│   ├── AgentX.u
+│   ├── AkimboArena.int
+│   ├── AkimboArena.u
+│   ├── BossSkins.int
+│   ├── Botpack.int
+│   ├── Botpack.u
+│   ├── ChaosUT.int
+│   ├── ChaosUT.u
+│   ├── ChaosUTMedia1.u
+│   ├── ChaosUTMedia2.u
+│   ├── ChaosUTMiscMuts.int
+│   ├── ChaosUTMiscMuts.u
+│   ├── ChaosUTRHUD.u
+│   ├── CommandoSkins.int
+│   ├── Core.int
+│   ├── Core.u
+│   ├── DamienPS2.int
+│   ├── de.int
+│   ├── de.u
+│   ├── Default.ini
+│   ├── DefUser.ini
+│   ├── Editor.int
+│   ├── Editor.u
+│   ├── Engine.int
+│   ├── Engine.u
+│   ├── EpicCustomModels.u
+│   ├── FCommandoSkins.int
+│   ├── Fire.u
+│   ├── HaloMasterChief.int
+│   ├── HaloMasterChief.u
+│   ├── HaloMasterChiefSkins.int
+│   ├── HaloMasterChiefSkins.utx
+│   ├── HaloMasterChiefSkinsExtraA.int
+│   ├── HaloMasterChiefSkinsExtraA.utx
+│   ├── HaloMasterChiefSkinsExtraB.int
+│   ├── HaloMasterChiefSkinsExtraB.utx
+│   ├── HaloMasterChiefSkinsExtraC.int
+│   ├── HaloMasterChiefSkinsExtraC.utx
+│   ├── HaloMasterChiefSkinsExtraD.int
+│   ├── HaloMasterChiefSkinsExtraD.utx
+│   ├── HaloTex.utx
+│   ├── HaloUTXbox.int
+│   ├── HaloUTXbox.u
+│   ├── IpDrv.int
+│   ├── IpDrv.u
+│   ├── IpServer.int
+│   ├── IpServer.u
+│   ├── JailBreak.int
+│   ├── JailBreak.u
+│   ├── JailFight.int
+│   ├── JailFight.u
+│   ├── JBArena.u
+│   ├── JBFatboy.int
+│   ├── JBFatboy.u
+│   ├── JBMadmen.ini
+│   ├── JBMadmen.int
+│   ├── JBMadmen.u
+│   ├── JBRelics.u
+│   ├── JBServerAdmin-plaintext.int
+│   ├── JBSkinCheese.int
+│   ├── JBSkinClassic.int
+│   ├── JBSkinDefault.int
+│   ├── JBSkinKryty.int
+│   ├── JBSkinOpression.int
+│   ├── JBSkinTankazz.int
+│   ├── JBSpecials.u
+│   ├── JBTutorial.u
+│   ├── multimesh.int
+│   ├── multimesh.u
+│   ├── OldSkool.ini
+│   ├── OLweapons.int
+│   ├── OLweapons.u
+│   ├── PS2WarMachineM.int
+│   ├── QUAKE3c.utx
+│   ├── RandomRelic.ini
+│   ├── RandomRelic.int
+│   ├── RandomRelic.u
+│   ├── relics.int
+│   ├── relics.u
+│   ├── relicsbindings.int
+│   ├── relicsbindings.u
+│   ├── RocketArena.int
+│   ├── RocketArena.u
+│   ├── RocketArenaMedia.u
+│   ├── RocketArenaMultiMesh.u
+│   ├── Screen.int
+│   ├── Screen.u
+│   ├── SGirlSkins.int
+│   ├── SkeletalChars.u
+│   ├── sky.utx
+│   ├── SoldierSkins.int
+│   ├── Startup.int
+│   ├── tcowmeshskins.int
+│   ├── tnalimeshskins.int
+│   ├── tskmskins.int
+│   ├── UBrowser.int
+│   ├── UBrowser.u
+│   ├── UMenu.int
+│   ├── UMenu.u
+│   ├── UnrealI.int
+│   ├── UnrealI.u
+│   ├── UnrealShare.int
+│   ├── UnrealShare.u
+│   ├── UnrealTournament.ini
+│   ├── UnrealTournament.int
+│   ├── User.ini
+│   ├── UTBrowser.u
+│   ├── UTChaosMap.u
+│   ├── UTDMT.u
+│   ├── UTDMT.utx
+│   ├── UTMenu.int
+│   ├── UTMenu.u
+│   ├── UTPS2Characters.int
+│   ├── UTPS2Characters.u
+│   ├── UTPS2CharactersSkins.int
+│   ├── UTPS2CharactersSkins.utx
+│   ├── UTServerAdmin.int
+│   ├── UTServerAdmin.u
+│   ├── UWeb.int
+│   ├── UWeb.u
+│   └── UWindow.u
+├── Textures/
+│   ├── JB-AF-Pack-1.utx
+│   ├── JBSkinCheese.utx
+│   ├── JBSkinClassic.utx
+│   ├── JBSkinKryty.utx
+│   ├── JBSkinOpression.utx
+│   ├── JBSkinTankazz.utx
+│   ├── richrig.utx
+│   ├── ScreenFonts.utx
+│   └── ScriptedScreen.utx
+├── CONTENT_CREDITS.txt
+├── default.xbe
+├── SaveImage.xbx
+├── TitleImage.xbx
+└── TitleMeta.xbx

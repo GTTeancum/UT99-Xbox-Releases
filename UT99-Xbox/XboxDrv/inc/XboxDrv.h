@@ -94,6 +94,8 @@ public:
     XINPUT_STATE    PrevControllerState;
     UBOOL           ControllerConnected;
     UBOOL           bXboxSplitDummy;
+    FLOAT           ControllerInputSeconds;
+    UBOOL           bControllerPolled;
 
     void            Destroy();
     void            ShutdownAfterError();
@@ -108,6 +110,7 @@ public:
     void            UpdateWindowFrame();
     void            SetMouseCapture( UBOOL Capture, UBOOL Clip, UBOOL FocusOnly=0 );
     void            UpdateInput( UBOOL Reset );
+    void            ReadInput( FLOAT DeltaSeconds );
     void*           GetWindow();
     void            OpenWindow( DWORD ParentWindow, UBOOL Temporary, INT NewX,
                                 INT NewY, INT OpenX, INT OpenY );
@@ -115,5 +118,6 @@ public:
     UBOOL           Exec( const TCHAR* Cmd, FOutputDevice& Ar=*GLog );
     void            SetViewRegion( INT X, INT Y, INT W, INT H );
     void            PollController();
+    void            PollControllerForFrame();
     void            ProcessControllerInput( const XINPUT_GAMEPAD& Pad );
 };

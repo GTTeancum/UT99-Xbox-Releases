@@ -4,34 +4,15 @@ A native port of Unreal Tournament 1999 Game of the Year Edition for modded orig
 
 ## Current status
 
-Version **1.1.9b** is the public test build for the upcoming 1.2 release. It is playable on original Xbox hardware and in Xemu, with the complete frontend, controller input, hardware-accelerated rendering, music and sound, local multiplayer, Tournament, and Xbox networking in place.
+Version **1.2** is available from the [UT99 Xbox Releases repository](https://github.com/GTTeancum/UT99-Xbox-Releases/releases/tag/1.2).
 
-The current download was rebuilt from the latest source and verified complete after a fresh extraction, including the matching Xbox configuration, bundled maps, mutators, game modes, and supporting files.
+This release adds Halo Elite and the three-weapon HaloUT mutator, improves split-screen performance, and fixes profile preferences, match-settings persistence, controller sensitivity, safe margins and widescreen menus.
 
-The current public test includes:
+Widescreen follows the Xbox dashboard: 480p when available, otherwise 480i. Single-player gets the wider view; split-screen uses 4:3 with side borders. All 39 converted PS2/Dreamcast maps and the previous release's content are included.
 
-- Instant Action, Tournament, Split Screen, and experimental System Link
-- Last Man Standing in Instant Action, Split Screen, and System Link
-- All fourteen standard mutators, plus AgentX Arena and Akimbo Arena
-- Fixed OldSkool Weapons minigun replacement and corrected its slow, low-pitched looping audio
-- Automatic widescreen detection from the Xbox dashboard setting with a wider gameplay view
-- Texture, lighting, and UV fixes, including stability while changing brightness, contrast, and gamma
-- Reduced intermittent texture pop-in and gameplay hitches caused by premature texture-cache recycling
-- Faster menu transitions without freezing the music or CityIntro
-- Fixed startup failures in CTF-Phalanx, CTF-Spirito, CTF-Stormfront, CTF-Sundial, DM-CanyonFear, DM-Halberd, DM-Hood, and DM-Pantheon
-- Tournament first-match and ladder-advance fixes across all five ladders
-- More reliable System Link joining, reconnecting, map travel, lobby return, and subsequent matches
+System Link remains experimental. Co-op Tournament and skeletal LOD improvements are deferred. Video output is limited to 480i/480p.
 
-Known limitations in the public test:
-
-- System Link remains experimental pending broader real-hardware testing
-- The HUD and menus remain horizontally stretched in widescreen
-- Safe Area Size currently scales the full picture instead of moving only the HUD
-- Co-op Tournament is not included and is deferred until after 1.2
-
-Public downloads, installation instructions, release notes, and issue reporting are maintained in the [UT99 Xbox Releases repository](https://github.com/GTTeancum/UT99-Xbox-Releases).
-
-## Installing the public test
+## Installing v1.2
 
 The public release is a complete Xbox-side package, not a patch.
 
@@ -40,7 +21,7 @@ The public release is a complete Xbox-side package, not a patch.
 3. From a legally owned PC GOTY installation, merge the `Maps`, `Music`, `Sounds`, and `Textures` folders into the Xbox folder
 4. Launch `default.xbe`
 
-Do not copy the PC `System` folder or an older release's configuration files over the public test. The release includes the matching Xbox System files, configuration, menus, community packages, and executable.
+Do not copy the PC `System` folder or an older release's configuration files over this release. The release includes the matching Xbox System files, configuration, menus, community packages, and executable.
 
 ## Reporting problems
 

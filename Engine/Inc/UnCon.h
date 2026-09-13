@@ -35,6 +35,9 @@ class ENGINE_API UConsole : public UObject, public FOutputDevice
 	virtual void _Init( UViewport* Viewport );
 	virtual void PreRender( FSceneNode* Frame );
 	virtual void PostRender( FSceneNode* Frame );
+#if TARGET_XBOX
+    void PostRenderCanvas(UCanvas* Canvas);
+#endif
 	virtual void Serialize( const TCHAR* Data, EName MsgType );
 	virtual UBOOL GetDrawWorld();
 

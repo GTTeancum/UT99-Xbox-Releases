@@ -16,6 +16,10 @@ Projection compensation preserves the original split-screen field of view.
 Three-player mode clears the unused lower-right quadrant as well as the bars.
 The video signal is not recreated when switching layouts.
 
+The later [widescreen UI correction](WIDESCREEN_UI_2026-09-12.md) compensates
+Canvas and native-menu drawing for pixel aspect without changing this output
+policy or the world/split-screen render regions.
+
 ## Verification
 
 Evidence directories are under `UT99-Xbox/build_cli/` (local, ignored).

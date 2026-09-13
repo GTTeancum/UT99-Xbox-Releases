@@ -1,0 +1,39 @@
+Unreal Tournament Xbox v1.2
+==========================
+
+This update adds some Halo content, improves split-screen performance, and fixes several settings and display issues.
+
+HaloUT
+------
+
+- Halo Elite is now playable, with team colors and a proper menu portrait. Bots can use it too.
+- Added the HaloUT weapon mutator: Assault Rifle, Pistol, and Plasma Rifle. One set, no separate reload versions.
+- Adjusted the Halo weapons' positioning, scale, and recoil.
+
+Fixes and improvements
+----------------------
+
+- Improved split-screen FPS, tested in 4P across several maps.
+- Fixed controller sensitivity behaving differently in split-screen.
+- Fixed issues when leaving split-screen and starting a single-player game.
+- Crosshair, HUD colors, and HUD opacity now save separately for each profile.
+- Match settings now stick after restarting, including bots, difficulty, map, limits, and mutators.
+- Music and sound stop when loading begins, instead of stuttering through it.
+
+Video and menus
+---------------
+
+- Widescreen follows your Xbox dashboard setting. It uses 480p when available and falls back to 480i otherwise.
+- Single-player gets the wider view. Split-screen switches to 4:3 with side borders to keep the performance cost down.
+- Safe margin adjusts the entire picture.
+- Fixed stretched widescreen HUD elements and clipped split-screen settings menus.
+- Version number now shows v1.2.
+
+All 39 PS2/Dreamcast maps and the previous release's content are still included, along with the Epic custom models and their needed files.
+
+Installing
+----------
+
+Use a clean folder. Copy in the release, then merge your PC GOTY Maps, Music, Sounds, and Textures folders. Don't copy over the PC System folder or configs from an older Xbox release.
+
+System Link is still experimental. Co-op Tournament and skeletal LOD work are still deferred. Video output stays at 480i/480p.

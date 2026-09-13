@@ -228,6 +228,27 @@ public:
 
     FString ResolvePath( const TCHAR* Filename )
     {
+        // Optical-disc smoke runs need writable profile storage to exercise
+        // the same User.ini read/write calls used by HDD-installed games.
+        // This redirect is opt-in and touches only this dedicated test file.
+        if( appStricmp(Filename,TEXT("User.ini"))==0 )
+        {
+            static INT MatchProof=-1;
+            if(MatchProof<0)
+            {
+                UBOOL Write=GetFileAttributesA("D:\\XboxMatchSettingsWrite.ini")!=0xFFFFFFFF;
+                MatchProof=Write || GetFileAttributesA("D:\\XboxMatchSettingsRead.ini")!=0xFFFFFFFF;
+                if(Write) DeleteFileA("U:\\MatchSettingsSmoke.ini");
+            }
+            if(MatchProof) return FString(TEXT("U:\\MatchSettingsSmoke.ini"));
+            static INT HUDProof=-1;
+            if( HUDProof<0 )
+            {
+                HUDProof=GetFileAttributesA("D:\\XboxProfileHUDProof.ini")!=0xFFFFFFFF;
+                if( HUDProof ) DeleteFileA("U:\\ProfileHUDSmoke.ini");
+            }
+            if( HUDProof ) return FString(TEXT("U:\\ProfileHUDSmoke.ini"));
+        }
         if( Filename[0] && Filename[1]==':' )
             return NormalizePath( Filename );
 

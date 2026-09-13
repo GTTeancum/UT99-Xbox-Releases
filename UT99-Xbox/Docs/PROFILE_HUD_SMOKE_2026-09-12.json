@@ -1,0 +1,65 @@
+{
+  "xbeSha256": "79b894f25f9ce4dc62309a49977a6a0c491226cfcc722c155dd17fab7217ed75",
+  "runs": [
+    {
+      "players": 2,
+      "aspect": "standard",
+      "checks": [
+        "XHUDPROFILE phase=0 slot=1 profile=1 crosshair=0 opacity=12 hud=(R=0,G=0,B=16,A=0) cross=(R=0,G=16,B=0,A=0) result=PASS",
+        "XHUDPROFILE phase=0 slot=2 profile=2 crosshair=1 opacity=13 hud=(R=0,G=16,B=0,A=0) cross=(R=16,G=0,B=0,A=0) result=PASS",
+        "XHUDPROFILE phase=1 slot=1 profile=1 crosshair=0 opacity=12 hud=(R=0,G=0,B=16,A=0) cross=(R=0,G=16,B=0,A=0) result=PASS",
+        "XHUDPROFILE phase=1 slot=2 profile=2 crosshair=2 opacity=14 hud=(R=16,G=0,B=0,A=0) cross=(R=16,G=12,B=0,A=0) result=PASS",
+        "XHUDPROFILE phase=2 slot=1 profile=1 crosshair=0 opacity=12 hud=(R=0,G=0,B=16,A=0) cross=(R=0,G=16,B=0,A=0) result=PASS",
+        "XHUDPROFILE phase=2 slot=2 profile=2 crosshair=2 opacity=14 hud=(R=16,G=0,B=0,A=0) cross=(R=16,G=12,B=0,A=0) result=PASS",
+        "XHUDPROFILE phase=3 slot=1 profile=1 crosshair=0 opacity=12 hud=(R=0,G=0,B=16,A=0) cross=(R=0,G=16,B=0,A=0) result=PASS",
+        "XHUDPROFILE phase=3 slot=2 profile=2 crosshair=2 opacity=14 hud=(R=16,G=0,B=0,A=0) cross=(R=16,G=12,B=0,A=0) result=PASS",
+        "XHUDPROFILE phase=4 slot=1 profile=1 crosshair=0 opacity=12 hud=(R=0,G=0,B=16,A=0) cross=(R=0,G=16,B=0,A=0) result=PASS",
+        "XHUDPROFILE phase=4 slot=2 profile=2 crosshair=2 opacity=14 hud=(R=16,G=0,B=0,A=0) cross=(R=16,G=12,B=0,A=0) result=PASS"
+      ],
+      "evidence": "UT99-Xbox\\build_cli\\profile_hud_writable_2p_standard\\01_DM-Oblivion"
+    },
+    {
+      "players": 4,
+      "aspect": "wide",
+      "checks": [
+        "XHUDPROFILE phase=0 slot=1 profile=1 crosshair=0 opacity=12 hud=(R=0,G=0,B=16,A=0) cross=(R=0,G=16,B=0,A=0) result=PASS",
+        "XHUDPROFILE phase=0 slot=2 profile=2 crosshair=1 opacity=13 hud=(R=0,G=16,B=0,A=0) cross=(R=16,G=0,B=0,A=0) result=PASS",
+        "XHUDPROFILE phase=0 slot=3 profile=3 crosshair=2 opacity=14 hud=(R=16,G=0,B=0,A=0) cross=(R=16,G=12,B=0,A=0) result=PASS",
+        "XHUDPROFILE phase=0 slot=4 profile=4 crosshair=3 opacity=15 hud=(R=16,G=12,B=0,A=0) cross=(R=0,G=16,B=16,A=0) result=PASS",
+        "XHUDPROFILE phase=1 slot=1 profile=1 crosshair=0 opacity=12 hud=(R=0,G=0,B=16,A=0) cross=(R=0,G=16,B=0,A=0) result=PASS",
+        "XHUDPROFILE phase=1 slot=2 profile=2 crosshair=2 opacity=14 hud=(R=16,G=0,B=0,A=0) cross=(R=16,G=12,B=0,A=0) result=PASS",
+        "XHUDPROFILE phase=1 slot=3 profile=3 crosshair=2 opacity=14 hud=(R=16,G=0,B=0,A=0) cross=(R=16,G=12,B=0,A=0) result=PASS",
+        "XHUDPROFILE phase=1 slot=4 profile=4 crosshair=3 opacity=15 hud=(R=16,G=12,B=0,A=0) cross=(R=0,G=16,B=16,A=0) result=PASS",
+        "XHUDPROFILE phase=2 slot=1 profile=1 crosshair=0 opacity=12 hud=(R=0,G=0,B=16,A=0) cross=(R=0,G=16,B=0,A=0) result=PASS",
+        "XHUDPROFILE phase=2 slot=2 profile=2 crosshair=2 opacity=14 hud=(R=16,G=0,B=0,A=0) cross=(R=16,G=12,B=0,A=0) result=PASS",
+        "XHUDPROFILE phase=2 slot=3 profile=3 crosshair=2 opacity=14 hud=(R=16,G=0,B=0,A=0) cross=(R=16,G=12,B=0,A=0) result=PASS",
+        "XHUDPROFILE phase=2 slot=4 profile=4 crosshair=3 opacity=15 hud=(R=16,G=12,B=0,A=0) cross=(R=0,G=16,B=16,A=0) result=PASS",
+        "XHUDPROFILE phase=3 slot=1 profile=1 crosshair=0 opacity=12 hud=(R=0,G=0,B=16,A=0) cross=(R=0,G=16,B=0,A=0) result=PASS",
+        "XHUDPROFILE phase=3 slot=2 profile=2 crosshair=2 opacity=14 hud=(R=16,G=0,B=0,A=0) cross=(R=16,G=12,B=0,A=0) result=PASS",
+        "XHUDPROFILE phase=3 slot=3 profile=3 crosshair=2 opacity=14 hud=(R=16,G=0,B=0,A=0) cross=(R=16,G=12,B=0,A=0) result=PASS",
+        "XHUDPROFILE phase=3 slot=4 profile=4 crosshair=3 opacity=15 hud=(R=16,G=12,B=0,A=0) cross=(R=0,G=16,B=16,A=0) result=PASS",
+        "XHUDPROFILE phase=4 slot=1 profile=1 crosshair=0 opacity=12 hud=(R=0,G=0,B=16,A=0) cross=(R=0,G=16,B=0,A=0) result=PASS",
+        "XHUDPROFILE phase=4 slot=2 profile=2 crosshair=2 opacity=14 hud=(R=16,G=0,B=0,A=0) cross=(R=16,G=12,B=0,A=0) result=PASS",
+        "XHUDPROFILE phase=4 slot=3 profile=3 crosshair=2 opacity=14 hud=(R=16,G=0,B=0,A=0) cross=(R=16,G=12,B=0,A=0) result=PASS",
+        "XHUDPROFILE phase=4 slot=4 profile=4 crosshair=3 opacity=15 hud=(R=16,G=12,B=0,A=0) cross=(R=0,G=16,B=16,A=0) result=PASS"
+      ],
+      "evidence": "UT99-Xbox\\build_cli\\profile_hud_writable_4p_wide\\01_DM-Oblivion"
+    }
+  ],
+  "crosshairPreviewSweep": {
+    "evidence": "UT99-Xbox\\build_cli\\profile_hud_nine_crosshairs\\01_DM-Oblivion",
+    "textures": {
+      "0": "Botpack.Icons.Chair1",
+      "1": "Botpack.Icons.Chair2",
+      "2": "Botpack.Icons.CHair3",
+      "3": "Botpack.Icons.CHair4",
+      "4": "Botpack.Icons.CHair5",
+      "5": "Botpack.Icons.CHair6",
+      "6": "Botpack.Icons.CHair7",
+      "7": "Botpack.Icons.CHair8",
+      "8": "Botpack.Icons.CHair9"
+    },
+    "allNinePassed": true
+  },
+  "nativeCapturesIndividuallyInspected": 19
+}

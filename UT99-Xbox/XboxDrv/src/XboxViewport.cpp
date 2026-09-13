@@ -885,6 +885,7 @@ static UBOOL GXboxSplitReadyInitialized = 0;
 static UBOOL XboxSetObjectPropertyText( UObject* Object, const TCHAR* PropertyName, const TCHAR* Value );
 static UBOOL XboxSetClassDefaultPropertyText( const TCHAR* ClassName, const TCHAR* PropertyName, const TCHAR* Value );
 static UBOOL XboxSetClassDefaultPropertyInt( const TCHAR* ClassName, const TCHAR* PropertyName, INT Value );
+extern FLOAT XboxCanvasPixelScaleX(FSceneNode* Frame);
 static void XboxMenuLoadDiscoveredLists();
 static UBOOL XboxProfileActiveCreated();
 static UBOOL XboxMenuGameUsesLives( const TCHAR* GameClassName );
@@ -1791,6 +1792,13 @@ static UBOOL XboxSafeAreaProofSmokeEnabled()
     return XboxSmokeMarkerExists( "XboxSafeAreaProofSmoke.ini", Cached );
 }
 
+static UBOOL XboxUISafeZoneProofEnabled()
+{
+    static INT Cached=-1;
+    return XboxSmokeMarkerExists("XboxUISafeZoneProof.ini",Cached);
+}
+static INT GXboxUISafeProofPhase=-1;
+
 static UBOOL XboxInstantRulesProofSmokeEnabled()
 {
     return XboxInstantRulesProofRequestedPrefix() != NULL;
@@ -2055,6 +2063,8 @@ extern "C" UBOOL XboxViewportShouldUpdateAudio( UViewport* Viewport )
     return XboxViewport->ControllerPort == XboxSplitFirstActiveSlot();
 }
 
+static void XboxViewportApplyPictureSafeArea( UXboxClient*, INT&, INT&, INT&, INT& );
+
 extern "C" void XboxSplitClearUnusedRenderRegions( UClient* Client )
 {
     if( !GXboxSplitActive || !Client || Client->Viewports.Num() <= 0 )
@@ -2064,15 +2074,14 @@ extern "C" void XboxSplitClearUnusedRenderRegions( UClient* Client )
     if( !Primary || !Primary->RenDev )
         return;
 
-    const INT RegionW = XboxSplitPillarboxed(Primary) ? 480 : XBOX_SCREEN_WIDTH;
-    const INT RegionX = (XBOX_SCREEN_WIDTH - RegionW) / 2;
-    if( RegionX )
-    {
-        XboxRenderClearRegion( Primary->RenDev, 0, 0, RegionX, XBOX_SCREEN_HEIGHT );
-        XboxRenderClearRegion( Primary->RenDev, RegionX + RegionW, 0, RegionX, XBOX_SCREEN_HEIGHT );
-    }
     if( GXboxSplitActivePlayerCount == 3 )
-        XboxRenderClearRegion( Primary->RenDev, RegionX + RegionW / 2, XBOX_SCREEN_HEIGHT / 2, RegionW / 2, XBOX_SCREEN_HEIGHT / 2 );
+    {
+        const INT RegionW = XboxSplitPillarboxed(Primary) ? 480 : XBOX_SCREEN_WIDTH;
+        INT X=(XBOX_SCREEN_WIDTH-RegionW)/2+RegionW/2, Y=XBOX_SCREEN_HEIGHT/2;
+        INT W=RegionW/2, H=XBOX_SCREEN_HEIGHT/2;
+        XboxViewportApplyPictureSafeArea(Cast<UXboxClient>(Client),X,Y,W,H);
+        XboxRenderClearRegion(Primary->RenDev,X,Y,W,H);
+    }
 }
 
 extern "C" UBOOL XboxSplitShouldClearRenderLock()
@@ -2097,6 +2106,42 @@ static void XboxViewportApplySafeArea( UXboxClient* Client, INT& X, INT& Y, INT&
     H -= InsetY * 2;
 }
 
+// Transform the complete composed picture into one TV-safe rectangle. Shared
+// split boundaries use the same integer mapping, so there are no internal gaps.
+static void XboxViewportApplyPictureSafeArea( UXboxClient* Client, INT& X, INT& Y, INT& W, INT& H )
+{
+    INT SX=0, SY=0, SW=XBOX_SCREEN_WIDTH, SH=XBOX_SCREEN_HEIGHT;
+    XboxViewportApplySafeArea(Client,SX,SY,SW,SH);
+    INT Right=SX+(X+W)*SW/XBOX_SCREEN_WIDTH;
+    INT Bottom=SY+(Y+H)*SH/XBOX_SCREEN_HEIGHT;
+    X=SX+X*SW/XBOX_SCREEN_WIDTH;
+    Y=SY+Y*SH/XBOX_SCREEN_HEIGHT;
+    W=Max<INT>(1,Right-X); H=Max<INT>(1,Bottom-Y);
+}
+
+static ULevel* GXboxSafeProofLevel=NULL;
+static DOUBLE GXboxSafeProofStart=0, GXboxSafeProofLastCapture=0;
+static INT GXboxSafeProofLoggedPhase[4]={-1,-1,-1,-1};
+
+static void XboxSafePictureProofTick( UXboxViewport* Viewport )
+{
+    UXboxClient* Client=Cast<UXboxClient>(Viewport->GetOuter());
+    ULevel* Level=Viewport->Actor ? Viewport->Actor->GetLevel() : NULL;
+    if( !Client || !Level || !XboxUISafeZoneProofEnabled() || XboxIsFrontendLevel(Level) ) return;
+    if( GXboxSafeProofLevel!=Level )
+    {
+        GXboxSafeProofLevel=Level; GXboxSafeProofStart=appSeconds(); GXboxSafeProofLastCapture=0;
+        for(INT i=0;i<4;i++) GXboxSafeProofLoggedPhase[i]=-1;
+    }
+    // Change settings only before the first view, keeping every split tile on
+    // the same settings for this frame, including its clear and world draw.
+    if( GXboxSplitRenderViewport!=0 ) return;
+    GXboxUISafeProofPhase=Min<INT>(4,(INT)((appSeconds()-GXboxSafeProofStart)/8.0));
+    Client->SafeAreaSize=(GXboxUISafeProofPhase==1 || GXboxUISafeProofPhase==4) ? 85 : GXboxUISafeProofPhase==2 ? 92 : 100;
+    Client->SafeAreaX=GXboxUISafeProofPhase==2 ? 18 : 0;
+    Client->SafeAreaY=GXboxUISafeProofPhase==2 ? -12 : 0;
+}
+
 extern "C" void XboxViewportApplyViewRegion( UViewport* Viewport, FSceneNode* Frame )
 {
     UXboxViewport* XboxViewport = Cast<UXboxViewport>( Viewport );
@@ -2108,18 +2153,29 @@ extern "C" void XboxViewportApplyViewRegion( UViewport* Viewport, FSceneNode* Fr
     INT W = XboxViewport->ViewWidth;
     INT H = XboxViewport->ViewHeight;
 
-    if( !GXboxSplitActive && !XboxViewport->bXboxSplitDummy )
-    {
-        UXboxClient* Client = Cast<UXboxClient>( XboxViewport->GetOuter() );
-        if( Client )
-            XboxViewportApplySafeArea( Client, X, Y, W, H );
-    }
-
+    XboxViewportApplyPictureSafeArea(Cast<UXboxClient>(Viewport->GetOuter()),X,Y,W,H);
     Frame->XB = X;
     Frame->YB = Y;
     Frame->X  = Max<INT>( W, 1 );
     Frame->Y  = Max<INT>( H, 1 );
     Frame->ComputeRenderSize();
+    if( XboxUISafeZoneProofEnabled() && GXboxSafeProofLevel==Frame->Level && GXboxUISafeProofPhase>=0 )
+    {
+        UXboxClient* Client=Cast<UXboxClient>(Viewport->GetOuter());
+        INT Slot=Clamp<INT>(XboxViewportIndex(XboxViewport),0,3);
+        if( GXboxSafeProofLoggedPhase[Slot]!=GXboxUISafeProofPhase )
+        {
+            GXboxSafeProofLoggedPhase[Slot]=GXboxUISafeProofPhase;
+            GXboxLog.Write("XSAFEUI phase=%d slot=%d size=%d offset=%d,%d world=%d,%d,%d,%d ui=%d,%d,%d,%d aim=0.0,0.0",
+                GXboxUISafeProofPhase,Slot+1,Client->SafeAreaSize,Client->SafeAreaX,Client->SafeAreaY,
+                X,Y,W,H,X,Y,W,H);
+        }
+        if( Slot==0 && appSeconds()-GXboxSafeProofStart-GXboxUISafeProofPhase*8>=3 && appSeconds()-GXboxSafeProofLastCapture>=1 )
+        {
+            GXboxSafeProofLastCapture=appSeconds();
+            GXboxLog.Write("XSAFEUI capture=%d",GXboxUISafeProofPhase+1);
+        }
+    }
 }
 
 extern "C" UBOOL XboxViewportShouldPostRenderPlayer( UViewport* Viewport )
@@ -5007,6 +5063,14 @@ static void XboxMenuLoadMapsForGameType( INT GameType )
         }
     }
 
+    if(GConfig && GameType>=0 && GameType<ARRAY_COUNT(GXboxMenu.InstantMap))
+    {
+        const TCHAR* SavedValue=GConfig->GetStr(TEXT("Xbox.MatchMaps"),*Game.URLValue,TEXT("User.ini"));
+        FString SavedMap=SavedValue ? SavedValue : TEXT("");
+        for(INT i=0;i<GXboxDiscoveredMaps.Num();i++)
+            if(appStricmp(*SavedMap,*GXboxDiscoveredMaps(i).URLValue)==0) GXboxMenu.InstantMap[GameType]=i;
+    }
+
     GXboxLog.Write( "XMENU discovered %d maps for game=%s prefix=%s",
         GXboxDiscoveredMaps.Num(), TCHAR_TO_ANSI(*Game.URLValue), TCHAR_TO_ANSI(*Game.MapPrefix) );
 }
@@ -5123,6 +5187,68 @@ static void XboxMenuBuildMutatorLabel( TCHAR* Out, INT OutCount )
     Out[OutCount-1] = 0;
 }
 
+// Match setup is shared by Instant Action, split-screen and System Link.
+// Save actual rule values and content names, never discovery-list indices.
+static const TCHAR* XboxMatchSection = TEXT("Xbox.MatchSettings");
+static void XboxMenuMatchRule( const TCHAR* Key, INT& Index, const INT* Values, INT Count, UBOOL Save )
+{
+    if( Save ) GConfig->SetInt(XboxMatchSection,Key,Values[Clamp<INT>(Index,0,Count-1)],TEXT("User.ini"));
+    else
+    {
+        INT Value;
+        if( GConfig->GetInt(XboxMatchSection,Key,Value,TEXT("User.ini")) )
+            for(INT i=0;i<Count;i++) if(Values[i]==Value) { Index=i; break; }
+    }
+}
+
+static void XboxMenuMatchSettings( UBOOL Save )
+{
+    if( !GConfig ) return;
+    XboxMenuLoadDiscoveredLists();
+    XboxMenuMatchRule(TEXT("Bots"),GXboxMenu.InstantBots,GXboxBotCounts,ARRAY_COUNT(GXboxBotCounts),Save);
+    XboxMenuMatchRule(TEXT("ScoreLimit"),GXboxMenu.InstantFragLimit,GXboxFragLimits,ARRAY_COUNT(GXboxFragLimits),Save);
+    XboxMenuMatchRule(TEXT("TimeLimit"),GXboxMenu.InstantTimeLimit,GXboxTimeLimits,ARRAY_COUNT(GXboxTimeLimits),Save);
+    if(Save) GConfig->SetInt(XboxMatchSection,TEXT("Skill"),GXboxMenu.InstantSkill,TEXT("User.ini"));
+    else
+    {
+        INT Skill;
+        if(GConfig->GetInt(XboxMatchSection,TEXT("Skill"),Skill,TEXT("User.ini")) && Skill>=0 && Skill<ARRAY_COUNT(GXboxSkillLabels))
+            GXboxMenu.InstantSkill=Skill;
+    }
+    if(Save)
+    {
+        const FXboxDiscoveredOption& Game=XboxMenuGameType(GXboxMenu.InstantGameType);
+        GConfig->SetString(XboxMatchSection,TEXT("GameClass"),*Game.URLValue,TEXT("User.ini"));
+        if(XboxInstantMapList(GXboxMenu.InstantGameType)>0)
+            GConfig->SetString(TEXT("Xbox.MatchMaps"),*Game.URLValue,
+                *XboxMenuMap(GXboxMenu.InstantGameType,GXboxMenu.InstantMap[GXboxMenu.InstantGameType]).URLValue,TEXT("User.ini"));
+    }
+    else
+    {
+        const TCHAR* SavedValue=GConfig->GetStr(XboxMatchSection,TEXT("GameClass"),TEXT("User.ini"));
+        FString Game=SavedValue ? SavedValue : TEXT("");
+        for(INT i=0;i<GXboxDiscoveredGameTypes.Num();i++)
+            if(appStricmp(*Game,*GXboxDiscoveredGameTypes(i).URLValue)==0) GXboxMenu.InstantGameType=i;
+    }
+    for(INT i=0;i<GXboxDiscoveredMutators.Num() && i<128;i++)
+    {
+        DWORD Bit=1UL<<(i&31);
+        if(Save) GConfig->SetInt(TEXT("Xbox.MatchMutators"),*GXboxDiscoveredMutators(i).URLValue,
+            (GXboxMenu.InstantMutatorMask[i>>5]&Bit)!=0,TEXT("User.ini"));
+        else
+        {
+            INT Enabled=0;
+            GConfig->GetInt(TEXT("Xbox.MatchMutators"),*GXboxDiscoveredMutators(i).URLValue,Enabled,TEXT("User.ini"));
+            if(Enabled==1) GXboxMenu.InstantMutatorMask[i>>5]|=Bit;
+            else GXboxMenu.InstantMutatorMask[i>>5]&=~Bit;
+        }
+    }
+    if(Save) GConfig->Flush(0,TEXT("User.ini"));
+    GXboxLog.Write("XMATCH settings %s bots=%d skill=%d score=%d time=%d",Save?"save":"load",
+        GXboxBotCounts[GXboxMenu.InstantBots],GXboxMenu.InstantSkill,
+        GXboxFragLimits[GXboxMenu.InstantFragLimit],GXboxTimeLimits[GXboxMenu.InstantTimeLimit]);
+}
+
 static void XboxMenuToggleCurrentMutator()
 {
     XboxMenuLoadDiscoveredLists();
@@ -5176,6 +5302,7 @@ static void XboxMenuToggleCurrentMutator()
             }
         }
     }
+    XboxMenuMatchSettings(1);
     GXboxLog.Write( "XMENU mutator toggle choice=%d word=%d mask=0x%08X", Index, Word, GXboxMenu.InstantMutatorMask[Word] );
 }
 
@@ -7581,15 +7708,17 @@ static UBOOL XboxMenuDrawPlayerPreviewActor( UXboxViewport* Viewport, UCanvas* C
     INT OldRendMap = Viewport->Actor->RendMap;
     UBOOL bOldHidden = Actor->bHidden;
 
+    X *= XboxCanvasPixelScaleX(Canvas->Frame);
+    W *= XboxCanvasPixelScaleX(Canvas->Frame);
     Canvas->Frame->X = (INT)W;
     Canvas->Frame->Y = (INT)H;
-    Canvas->Frame->XB = (INT)X;
-    Canvas->Frame->YB = (INT)Y;
+    Canvas->Frame->XB = OldXB + (INT)X;
+    Canvas->Frame->YB = OldYB + (INT)Y;
     Canvas->Frame->ComputeRenderCoords( FVector(0,0,0), FRotator(0,0,0) );
     Canvas->Frame->ComputeRenderSize();
 
     Actor->bHidden = 0;
-    XboxRenderBeginMenuMeshSlot( Canvas->Frame, X, Y, W, H );
+    XboxRenderBeginMenuMeshSlot( Canvas->Frame, Canvas->Frame->XB, Canvas->Frame->YB, W, H );
     Canvas->Render->DrawActor( Canvas->Frame, Actor );
     XboxRenderEndMenuMeshSlot( Canvas->Frame );
     Actor->bHidden = bOldHidden;
@@ -7783,6 +7912,90 @@ static INT XboxProfileForViewport( UXboxViewport* Viewport )
             return ProfileIndex;
     }
     return GXboxActiveProfile;
+}
+
+// HUD preferences belong to the selected profile, never the shared HUD CDO.
+// Seed older profiles once from their existing legacy settings.
+struct FXboxProfileHUDSettings
+{
+    INT Crosshair, HudColor, CrosshairColor, Opacity;
+};
+
+static UBOOL XboxProfileReadHUD( UXboxViewport* Viewport, FXboxProfileHUDSettings& Settings )
+{
+    INT Profile= XboxProfileForViewport(Viewport);
+    if( !GConfig || !GXboxProfiles[Profile].Created ) return 0;
+    TCHAR Section[32];
+    XboxProfileSectionName(Profile,Section,ARRAY_COUNT(Section));
+    if( !XboxProfileConfigInt(Section,TEXT("HUDSettingsVersion"),0) )
+    {
+        XboxProfileSetInt(Section,TEXT("Crosshair"),Clamp<INT>(XboxProfileConfigInt(TEXT("Engine.HUD"),TEXT("Crosshair"),0),0,8));
+        XboxProfileSetInt(Section,TEXT("HudColor"),XboxMenuLoadTripletColor(TEXT("FavoriteHUDColor"),0));
+        XboxProfileSetInt(Section,TEXT("CrosshairColor"),XboxMenuLoadTripletColor(TEXT("CrosshairColor"),1));
+        XboxProfileSetInt(Section,TEXT("HudOpacity"),Clamp<INT>(XboxProfileConfigInt(TEXT("Botpack.ChallengeHUD"),TEXT("Opacity"),15),1,16));
+        XboxProfileSetInt(Section,TEXT("HUDSettingsVersion"),1);
+        GConfig->Flush(0,TEXT("User.ini"));
+    }
+    Settings.Crosshair=Clamp<INT>(XboxProfileConfigInt(Section,TEXT("Crosshair"),0),0,8);
+    Settings.HudColor=Clamp<INT>(XboxProfileConfigInt(Section,TEXT("HudColor"),0),0,ARRAY_COUNT(GXboxColorNames)-1);
+    Settings.CrosshairColor=Clamp<INT>(XboxProfileConfigInt(Section,TEXT("CrosshairColor"),1),0,ARRAY_COUNT(GXboxColorNames)-1);
+    Settings.Opacity=Clamp<INT>(XboxProfileConfigInt(Section,TEXT("HudOpacity"),15),1,16);
+    return 1;
+}
+
+static void XboxProfileApplyHUD( UXboxViewport* Viewport, const FXboxProfileHUDSettings& Settings )
+{
+    AHUD* HUD=Viewport && Viewport->Actor ? Viewport->Actor->myHUD : NULL;
+    if( !HUD ) return;
+    TCHAR Value[64];
+    HUD->Crosshair=Settings.Crosshair;
+    XboxMenuFormatTripletColor(Settings.HudColor,Value,ARRAY_COUNT(Value));
+    XboxSetObjectPropertyText(HUD,TEXT("FavoriteHUDColor"),Value);
+    XboxMenuFormatTripletColor(Settings.CrosshairColor,Value,ARRAY_COUNT(Value));
+    XboxSetObjectPropertyText(HUD,TEXT("CrosshairColor"),Value);
+    XboxSetObjectPropertyInt(HUD,TEXT("Opacity"),Settings.Opacity);
+}
+
+static void XboxProfileLoadHUDForMenu( UXboxViewport* Viewport )
+{
+    FXboxProfileHUDSettings Settings;
+    if( !XboxProfileReadHUD(Viewport,Settings) ) return;
+    GXboxSettingsHudColor=Settings.HudColor;
+    GXboxSettingsCrosshairColor=Settings.CrosshairColor;
+    GXboxSettingsHudOpacity=Settings.Opacity;
+    XboxProfileApplyHUD(Viewport,Settings);
+}
+
+static void XboxProfileSaveHUDSetting( UXboxViewport* Viewport, const TCHAR* Key, INT Value )
+{
+    FXboxProfileHUDSettings Settings;
+    if( !XboxProfileReadHUD(Viewport,Settings) ) return;
+    TCHAR Section[32];
+    XboxProfileSectionName(XboxProfileForViewport(Viewport),Section,ARRAY_COUNT(Section));
+    XboxProfileSetInt(Section,Key,Value);
+    GConfig->Flush(0,TEXT("User.ini"));
+    XboxProfileLoadHUDForMenu(Viewport);
+}
+
+extern "C" void XboxViewportApplyProfileHUD( UViewport* Viewport )
+{
+    UXboxViewport* VP=Cast<UXboxViewport>(Viewport);
+    if( !VP ) return;
+    // Avoid config/reflection work on steady-state frames. Reapply on HUD,
+    // player, level, or selected-profile changes, including lazy HUD creation.
+    static AHUD* LastHUD[4]={NULL,NULL,NULL,NULL};
+    static APlayerPawn* LastPlayer[4]={NULL,NULL,NULL,NULL};
+    static ULevel* LastLevel[4]={NULL,NULL,NULL,NULL};
+    static INT LastProfile[4]={-1,-1,-1,-1};
+    INT Port=Clamp<INT>(XboxViewportIndex(VP),0,3);
+    APlayerPawn* Player=VP->Actor;
+    AHUD* HUD=Player ? Player->myHUD : NULL;
+    ULevel* Level=Player ? Player->GetLevel() : NULL;
+    INT Profile=XboxProfileForViewport(VP);
+    if( LastHUD[Port]==HUD && LastPlayer[Port]==Player && LastLevel[Port]==Level && LastProfile[Port]==Profile ) return;
+    LastHUD[Port]=HUD; LastPlayer[Port]=Player; LastLevel[Port]=Level; LastProfile[Port]=Profile;
+    FXboxProfileHUDSettings Settings;
+    if( HUD && XboxProfileReadHUD(VP,Settings) ) XboxProfileApplyHUD(VP,Settings);
 }
 
 static void XboxProfileLoadControlsForContext( UXboxViewport* Viewport )
@@ -8161,31 +8374,12 @@ static void XboxProfileCancelName()
 
 static void XboxMenuApplyHudColor( UXboxViewport* Viewport, INT Index )
 {
-    GXboxSettingsHudColor = XboxMenuWrapInt( Index, 0, ARRAY_COUNT(GXboxColorNames) );
-    APlayerPawn* Player = Viewport ? Viewport->Actor : NULL;
-    if( Player && Player->myHUD )
-    {
-        TCHAR Value[64];
-        XboxMenuFormatTripletColor( GXboxSettingsHudColor, Value, ARRAY_COUNT(Value) );
-        XboxSetObjectPropertyText( Player->myHUD, TEXT("FavoriteHUDColor"), Value );
-        XboxSetClassDefaultPropertyText( Player->myHUD->GetClass(), TEXT("FavoriteHUDColor"), Value );
-        Player->myHUD->SaveConfig();
-    }
-    XboxMenuSaveTripletColor( TEXT("FavoriteHUDColor"), GXboxSettingsHudColor );
+    XboxProfileSaveHUDSetting(Viewport,TEXT("HudColor"),XboxMenuWrapInt(Index,0,ARRAY_COUNT(GXboxColorNames)));
 }
 
 static void XboxMenuApplyCrosshairColor( UXboxViewport* Viewport, INT Index )
 {
-    GXboxSettingsCrosshairColor = XboxMenuWrapInt( Index, 0, ARRAY_COUNT(GXboxColorNames) );
-    XboxMenuSaveTripletColor( TEXT("CrosshairColor"), GXboxSettingsCrosshairColor );
-    if( Viewport && Viewport->Actor && Viewport->Actor->myHUD )
-    {
-        TCHAR Value[64];
-        XboxMenuFormatTripletColor( GXboxSettingsCrosshairColor, Value, ARRAY_COUNT(Value) );
-        XboxSetObjectPropertyText( Viewport->Actor->myHUD, TEXT("CrosshairColor"), Value );
-        XboxSetClassDefaultPropertyText( Viewport->Actor->myHUD->GetClass(), TEXT("CrosshairColor"), Value );
-        Viewport->Actor->myHUD->SaveConfig();
-    }
+    XboxProfileSaveHUDSetting(Viewport,TEXT("CrosshairColor"),XboxMenuWrapInt(Index,0,ARRAY_COUNT(GXboxColorNames)));
 }
 
 static UBOOL XboxMenuIsGameplayMatch( UXboxViewport* Viewport )
@@ -10536,16 +10730,23 @@ static void XboxMenuReturnToFrontend( UXboxViewport* Viewport )
 }
 
 // Opt-in, process-local video transition proof. No host input is generated.
+static void XboxMenuMove( INT Delta );
+
 static UBOOL XboxDashboardVideoProofTick( UXboxViewport* VP )
 {
-    static INT Marker = 0, Phase = 0;
+    static INT Marker = 0, Phase = 0, Cycle = 0, Count = 0, FirstYaw=0;
+    static UBOOL HaveYaw=0, Moved=0;
+    static INT RepeatMarker=-1;
+    UBOOL Repeat=XboxSmokeMarkerExists("XboxSplitExitRepeatProof.ini",RepeatMarker);
     static DOUBLE Since = 0, LastCapture = 0;
     if( !VP || XboxViewportIndex(VP) != 0
-        || !XboxSmokeMarkerExists("XboxDashboardVideoProof.ini", Marker) || Phase >= 6 )
+        || !XboxSmokeMarkerExists("XboxDashboardVideoProof.ini", Marker) || Phase >= (Repeat ? 7 : 6) )
         return 0;
     UXboxClient* Client = (UXboxClient*)VP->GetOuter();
     DOUBLE Now = appSeconds();
     UBOOL Frontend = VP->Actor && XboxIsFrontendLevel(VP->Actor->GetLevel());
+    if( Repeat && Phase>=4 && Phase!=5 && Frontend && GXboxMenu.Screen==XMS_ProfileSelect )
+        XboxProfileLoadFrontend(VP,GXboxActiveProfile);
     if( Phase == 0 )
     {
         if( !GXboxSplitActive || Frontend || !VP->Actor ) return 0;
@@ -10575,31 +10776,64 @@ static UBOOL XboxDashboardVideoProofTick( UXboxViewport* VP )
             XVIDEO_CHECK_STRING(ngWorldSecret);
 #undef XVIDEO_CHECK_STRING
         }
+        Count=GXboxSplitActivePlayerCount;
         Since = Now; Phase = 1;
     }
+    if( Repeat && Phase==5 && !Frontend && VP->Actor )
+    {
+        if( !HaveYaw ) { FirstYaw=VP->Actor->ViewRotation.Yaw; HaveYaw=1; Since=Now; }
+        else if( Abs(VP->Actor->ViewRotation.Yaw-FirstYaw)>1024 ) Moved=1;
+    }
+    if( Repeat && Phase==5 && !HaveYaw ) return 0;
     if( Now-Since >= 5.0 && Now-LastCapture >= 2.0 )
     {
-        GXboxLog.Write("XVIDEOPROOF capture=%d", Phase);
+        GXboxLog.Write("XVIDEOPROOF capture=%d", Cycle*6+Phase);
         LastCapture = Now;
     }
-    if( Now-Since < 15.0 ) return 0;
+    if( Now-Since < (Repeat ? 9.0 : 15.0) ) return 0;
     const char* Label = Phase == 1 ? "split" : Phase == 2 ? "pause" :
-        Phase == 3 ? "resume" : Phase == 4 ? "frontend" : "single";
+        Phase == 3 ? "resume" : Phase == 4 ? "frontend" : Phase == 5 ? "single" : "frontend_again";
     UBOOL Passed = Phase <= 3 ? GXboxSplitActive && !Frontend :
         !GXboxSplitActive && Client->Viewports.Num() == 1
         && VP->ViewX == 0 && VP->ViewY == 0 && VP->ViewWidth == 640 && VP->ViewHeight == 480
-        && (Phase == 4 ? Frontend && GXboxMenu.Active : !Frontend && !GXboxMenu.Active);
+        && (Phase != 5 ? Frontend && GXboxMenu.Active : !Frontend && !GXboxMenu.Active);
     if( Phase == 2 ) Passed = Passed && GXboxMenu.Active && GXboxMenu.Screen == XMS_Pause;
     if( Phase == 3 ) Passed = Passed && !GXboxMenu.Active;
+    if( Repeat && Phase>=4 )
+    {
+        Passed=Passed && VP->Actor && VP->Actor->Player==VP && VP->Input && VP->Console && GXboxMenuOwnerViewport==0;
+        if( Phase!=5 )
+        {
+            INT Before=GXboxMenu.MainFocus;
+            XboxMenuMove(1);
+            Passed=Passed && GXboxMenu.MainFocus==(Before+1)%6;
+            XboxMenuMove(-1);
+        }
+        else Passed=Passed && Moved;
+        GXboxLog.Write("XEXIT cycle=%d phase=%s owner=%d input=%d console=%d moved=%d result=%s",
+            Cycle+1,Label,GXboxMenuOwnerViewport,VP->Input!=NULL,VP->Console!=NULL,Moved,Passed ? "PASS" : "FAIL");
+    }
     GXboxLog.Write("XVIDEOPROOF phase=%s result=%s views=%d region=%d,%d,%d,%d",
         Label, Passed ? "PASS" : "FAIL", Client->Viewports.Num(),
         VP->ViewX, VP->ViewY, VP->ViewWidth, VP->ViewHeight);
-    if( !Passed ) { Phase = 6; return 0; }
+    if( !Passed ) { Phase = 7; return 0; }
+    if( Repeat && Phase==6 )
+    {
+        if( ++Cycle==3 ) { GXboxLog.Write("XEXIT complete cycles=3 result=PASS"); Phase=7; return 0; }
+        XboxSplitReadyReset(VP); XboxSplitReadyEnsure();
+        for(INT i=0;i<Count;i++)
+        {
+            XboxSplitEnsureProfileForJoin(VP,i,1);
+            GXboxSplitReadySlots[i].Joined=1; GXboxSplitReadySlots[i].Locked=1;
+        }
+        XboxMenuStartSplitMatch(VP); Phase=0; return 1;
+    }
     ++Phase; Since = Now;
     if( Phase == 2 ) XboxMenuOpen(VP);
     else if( Phase == 3 ) XboxMenuClose(VP);
     else if( Phase == 4 ) { XboxMenuReturnToFrontend(VP); return 1; }
-    else if( Phase == 5 ) { XboxMenuStartInstantAction(VP); return 1; }
+    else if( Phase == 5 ) { HaveYaw=Moved=0; XboxMenuStartInstantAction(VP); return 1; }
+    else if( Repeat && Phase==6 ) { XboxMenuReturnToFrontend(VP); return 1; }
     return 0;
 }
 
@@ -12114,6 +12348,7 @@ static void XboxMenuAdjustInstantAction( INT Delta )
         }
     }
 
+    XboxMenuMatchSettings(1);
     GXboxLog.Write( "XMENU instant adjust row=%d delta=%d", GXboxMenu.InstantFocus, Delta );
 }
 
@@ -12168,6 +12403,7 @@ static void XboxMenuAdjustSplitMapSelect( INT Delta )
         }
     }
 
+    XboxMenuMatchSettings(1);
     GXboxLog.Write( "%s map adjust row=%d delta=%d",
         GXboxMenu.Screen == XMS_SystemLinkMapSelect ? "XSL" : "XMENU split",
         GXboxMenu.SplitFocus, Delta );
@@ -12366,6 +12602,7 @@ static void XboxMenuAdjustVideoSettings( UXboxViewport* Viewport, INT Delta )
         return;
 
     XboxMenuLoadSettings();
+    XboxProfileLoadHUDForMenu(Viewport);
     UXboxClient* Client = XboxMenuGetClient( Viewport );
     APlayerPawn* Player = Viewport ? Viewport->Actor : NULL;
 
@@ -12417,7 +12654,7 @@ static void XboxMenuAdjustVideoSettings( UXboxViewport* Viewport, INT Delta )
             if( Player && Player->myHUD )
             {
                 Player->myHUD->Crosshair = XboxMenuWrapInt( Player->myHUD->Crosshair, Delta, 9 );
-                Player->myHUD->SaveConfig();
+                XboxProfileSaveHUDSetting(Viewport,TEXT("Crosshair"),Player->myHUD->Crosshair);
             }
             break;
         case XVR_HudColor:
@@ -12427,16 +12664,7 @@ static void XboxMenuAdjustVideoSettings( UXboxViewport* Viewport, INT Delta )
             XboxMenuApplyCrosshairColor( Viewport, GXboxSettingsCrosshairColor + Delta );
             break;
         case XVR_HudOpacity:
-            GXboxSettingsHudOpacity = Clamp<INT>( GXboxSettingsHudOpacity + Delta, 1, 16 );
-            if( Player && Player->myHUD )
-            {
-                XboxSetObjectPropertyInt( Player->myHUD, TEXT("Opacity"), GXboxSettingsHudOpacity );
-                TCHAR NewValue[16];
-                appSprintf( NewValue, TEXT("%i"), GXboxSettingsHudOpacity );
-                XboxSetClassDefaultPropertyText( Player->myHUD->GetClass(), TEXT("Opacity"), NewValue );
-                Player->myHUD->SaveConfig();
-            }
-            XboxMenuSetUserInt( TEXT("Botpack.ChallengeHUD"), TEXT("Opacity"), GXboxSettingsHudOpacity );
+            XboxProfileSaveHUDSetting(Viewport,TEXT("HudOpacity"),Clamp<INT>(GXboxSettingsHudOpacity+Delta,1,16));
             break;
         case XVR_MatureLanguage:
         {
@@ -13054,6 +13282,8 @@ static UBOOL XboxMenuHandleInput( UXboxViewport* Viewport, const XINPUT_GAMEPAD&
     return 1;
 }
 
+extern FLOAT XboxCanvasPixelScaleX(FSceneNode* Frame);
+
 static void XboxMenuDrawRect( UCanvas* Canvas, FLOAT X1, FLOAT Y1, FLOAT X2, FLOAT Y2, BYTE R, BYTE G, BYTE B, FLOAT A=1.0f )
 {
     if( Canvas && Canvas->Frame )
@@ -13646,14 +13876,16 @@ static void XboxWeaponWheelDrawPickupMesh( UXboxViewport* Viewport, UCanvas* Can
     FSphere Sphere = Mesh->GetRenderBoundingSphere( Actor, 0 );
     Actor->Location = FVector( Distance, -Sphere.Y * Actor->DrawScale, -Sphere.Z * Actor->DrawScale );
 
+    X *= XboxCanvasPixelScaleX(Canvas->Frame);
+    W *= XboxCanvasPixelScaleX(Canvas->Frame);
     Canvas->Frame->X = (INT)W;
     Canvas->Frame->Y = (INT)H;
-    Canvas->Frame->XB = (INT)X;
-    Canvas->Frame->YB = (INT)Y;
+    Canvas->Frame->XB = OldXB + (INT)X;
+    Canvas->Frame->YB = OldYB + (INT)Y;
     Canvas->Frame->ComputeRenderCoords( FVector(0,0,0), FRotator(0,0,0) );
     Canvas->Frame->ComputeRenderSize();
 
-    XboxRenderBeginMenuMeshSlot( Canvas->Frame, X, Y, W, H );
+    XboxRenderBeginMenuMeshSlot( Canvas->Frame, Canvas->Frame->XB, Canvas->Frame->YB, W, H );
     Canvas->Render->DrawActor( Canvas->Frame, Actor );
     XboxRenderEndMenuMeshSlot( Canvas->Frame );
 
@@ -15357,7 +15589,13 @@ static void XboxMenuDrawSettingsPreview( UCanvas* Canvas, UFont* Font, UXboxClie
     INT SafeY = (INT)(Y1 + 42.0f);
     INT SafeW = (INT)((X2 - 14.0f) - (X1 + 14.0f));
     INT SafeH = (INT)((Y1 + 118.0f) - (Y1 + 42.0f));
-    XboxViewportApplySafeArea( Client, SafeX, SafeY, SafeW, SafeH );
+    // Preview the same full-TV margins, including offsets, at miniature scale.
+    INT TVX=0, TVY=0, TVW=XBOX_SCREEN_WIDTH, TVH=XBOX_SCREEN_HEIGHT;
+    XboxViewportApplySafeArea(Client,TVX,TVY,TVW,TVH);
+    SafeX += TVX*SafeW/XBOX_SCREEN_WIDTH;
+    SafeY += TVY*SafeH/XBOX_SCREEN_HEIGHT;
+    SafeW = TVW*SafeW/XBOX_SCREEN_WIDTH;
+    SafeH = TVH*SafeH/XBOX_SCREEN_HEIGHT;
     XboxMenuDrawRect( Canvas, (FLOAT)SafeX, (FLOAT)SafeY, (FLOAT)(SafeX + SafeW), (FLOAT)(SafeY + 2), 38, 142, 220, 0.92f );
     XboxMenuDrawRect( Canvas, (FLOAT)SafeX, (FLOAT)(SafeY + SafeH - 2), (FLOAT)(SafeX + SafeW), (FLOAT)(SafeY + SafeH), 38, 142, 220, 0.92f );
     XboxMenuDrawRect( Canvas, (FLOAT)SafeX, (FLOAT)SafeY, (FLOAT)(SafeX + 2), (FLOAT)(SafeY + SafeH), 38, 142, 220, 0.92f );
@@ -15411,7 +15649,7 @@ static void XboxMenuDrawChrome( UCanvas* Canvas, const TCHAR* Section, UBOOL bSh
 
 static void XboxMenuDrawMain( UCanvas* Canvas )
 {
-    static const TCHAR* VersionLabel = TEXT("v1.1.9b");
+    static const TCHAR* VersionLabel = TEXT("v1.2");
     static const TCHAR* Items[] =
     {
         TEXT("TOURNAMENT"),
@@ -16835,16 +17073,18 @@ static void XboxMenuDrawVideoSettings( UXboxViewport* Viewport, UCanvas* Canvas 
     if( XboxSmokeMarkerExists("XboxCrosshairProof.ini", CrosshairProof) && Viewport && Viewport->Actor && Viewport->Actor->myHUD )
     {
         if( CrosshairProofStart == 0.0 ) CrosshairProofStart = appSeconds();
-        Viewport->Actor->myHUD->Crosshair = ((INT)((appSeconds() - CrosshairProofStart) / 12.0)) % 9;
+        INT Selection=((INT)((appSeconds() - CrosshairProofStart) / 12.0)) % 9;
+        if( Viewport->Actor->myHUD->Crosshair!=Selection )
+            XboxProfileSaveHUDSetting(Viewport,TEXT("Crosshair"),Selection);
     }
     static const TCHAR* Labels[] =
     {
         TEXT("BRIGHTNESS"),
         TEXT("CONTRAST"),
         TEXT("GAMMA"),
-        TEXT("SAFE AREA SIZE"),
-        TEXT("SAFE AREA X"),
-        TEXT("SAFE AREA Y"),
+        TEXT("TV SAFE ZONE"),
+        TEXT("PICTURE OFFSET X"),
+        TEXT("PICTURE OFFSET Y"),
         TEXT("CROSSHAIR"),
         TEXT("HUD COLOR"),
         TEXT("CROSSHAIR COLOR"),
@@ -16853,6 +17093,7 @@ static void XboxMenuDrawVideoSettings( UXboxViewport* Viewport, UCanvas* Canvas 
     };
 
     XboxMenuLoadSettings();
+    XboxProfileLoadHUDForMenu(Viewport);
     UXboxClient* Client = XboxMenuGetClient( Viewport );
     APlayerPawn* Player = Viewport ? Viewport->Actor : NULL;
     UFont* MenuFont = Canvas->MedFont;
@@ -16894,6 +17135,29 @@ static void XboxMenuDrawVideoSettings( UXboxViewport* Viewport, UCanvas* Canvas 
         OpacityValue,
         MatureValue
     };
+
+    if(Canvas->ClipY<360.0f || Canvas->ClipX<500.0f)
+    {
+        const FLOAT Left=18.0f, Right=Canvas->ClipX-18.0f;
+        const FLOAT Top=46.0f, RowHeight=20.0f;
+        INT Visible=Clamp<INT>((INT)((XboxMenuFooterTop(Canvas)-Top-20.0f)/RowHeight),1,ARRAY_COUNT(Labels));
+        INT First=Clamp<INT>(GXboxMenu.SettingsFocus-Visible/2,0,ARRAY_COUNT(Labels)-Visible);
+        XboxMenuDrawChromeCommands(Canvas,TEXT("VIDEO"),"button_a.xui",TEXT("CHANGE"),"button_b.xui",TEXT("BACK"));
+        XboxMenuDrawRect(Canvas,12,14,Canvas->ClipX-12,XboxMenuFooterTop(Canvas)-2,2,8,18,0.96f);
+        XboxMenuText(Canvas,SmallFont,Left,22,255,255,255,TEXT("VIDEO"));
+        TCHAR Page[32]; appSprintf(Page,TEXT("%d / %d"),GXboxMenu.SettingsFocus+1,ARRAY_COUNT(Labels));
+        XboxMenuText(Canvas,SmallFont,Right-64,22,180,215,245,Page);
+        for(INT i=First;i<First+Visible;i++)
+        {
+            FLOAT Y=Top+(i-First)*RowHeight;
+            UBOOL Selected=i==GXboxMenu.SettingsFocus;
+            if(Selected) XboxMenuDrawRect(Canvas,Left-4,Y-3,Right+4,Y+15,12,82,166,0.65f);
+            XboxMenuTextFit(Canvas,SmallFont,Left,Y,Right-Left-92,Selected?255:140,Selected?255:178,Selected?255:212,Labels[i]);
+            XboxMenuTextFit(Canvas,SmallFont,Right-82,Y,82,220,235,255,Values[i]);
+        }
+        XboxMenuText(Canvas,SmallFont,Left,XboxMenuFooterTop(Canvas)-16,135,170,205,TEXT("UP/DOWN SCROLL   LEFT/RIGHT CHANGE"));
+        return;
+    }
 
     XboxMenuDrawChromeCommands( Canvas, TEXT("VIDEO"), "button_a.xui", TEXT("CHANGE"), "button_b.xui", TEXT("BACK") );
     XboxMenuText( Canvas, MenuFont, 46, 62, 255, 255, 255, TEXT("VIDEO") );
@@ -17149,12 +17413,169 @@ static void XboxMenuDrawComingSoon( UCanvas* Canvas )
     XboxMenuCenteredText( Canvas, Canvas->MedFont, 230, 160, 205, 240, TEXT("COMING SOON") );
 }
 
+static UBOOL XboxHUDProofColorMatches( const TCHAR* Actual, const TCHAR* Expected )
+{
+    INT AR=-1,AG=-1,AB=-1,ER=-2,EG=-2,EB=-2;
+    Parse(Actual,TEXT("R="),AR); Parse(Actual,TEXT("G="),AG); Parse(Actual,TEXT("B="),AB);
+    Parse(Expected,TEXT("R="),ER); Parse(Expected,TEXT("G="),EG); Parse(Expected,TEXT("B="),EB);
+    return AR==ER && AG==EG && AB==EB;
+}
+
+// Opt-in process-local smoke: exercise production profile/menu paths, then
+// inspect every player's actual HUD and persisted profile independently.
+static void XboxProfileHUDProofTick( UXboxViewport* VP )
+{
+    static INT Enabled=-1, Phase=-1;
+    static DOUBLE Start=0, Capture=0;
+    static UBOOL Failed=0;
+    if( !XboxSmokeMarkerExists("XboxProfileHUDProof.ini",Enabled) || !VP || XboxViewportIndex(VP)!=0
+    || !GXboxSplitActive || !VP->Actor || XboxIsFrontendLevel(VP->Actor->GetLevel()) ) return;
+    UXboxClient* Client=Cast<UXboxClient>(VP->GetOuter());
+    INT Count=GXboxSplitActivePlayerCount;
+    if( Count<2 ) return;
+    for(INT i=0;i<Count;i++) if( !Client->Viewports(i)->Actor || !Client->Viewports(i)->Actor->myHUD ) return;
+    if( !Start ) Start=appSeconds();
+    INT Next=Min<INT>(4,(INT)((appSeconds()-Start)/8.0));
+    if( Next!=Phase )
+    {
+        Phase=Next;
+        if( Phase==0 )
+        {
+            for(INT i=0;i<Count;i++)
+            {
+                UXboxViewport* P=Cast<UXboxViewport>(Client->Viewports(i));
+                XboxProfileSaveHUDSetting(P,TEXT("Crosshair"),i);
+                XboxProfileSaveHUDSetting(P,TEXT("HudColor"),i);
+                XboxProfileSaveHUDSetting(P,TEXT("CrosshairColor"),i+1);
+                XboxProfileSaveHUDSetting(P,TEXT("HudOpacity"),12+i);
+            }
+        }
+        if( Phase==1 )
+        {
+            UXboxViewport* P=Cast<UXboxViewport>(Client->Viewports(1));
+            XboxMenuOpen(P); GXboxMenu.Screen=XMS_SettingsVideo;
+            GXboxMenu.SettingsFocus=XVR_Crosshair; XboxMenuAdjustVideoSettings(P,1);
+            GXboxMenu.SettingsFocus=XVR_HudColor; XboxMenuAdjustVideoSettings(P,1);
+            GXboxMenu.SettingsFocus=XVR_CrosshairColor; XboxMenuAdjustVideoSettings(P,1);
+            GXboxMenu.SettingsFocus=XVR_HudOpacity; XboxMenuAdjustVideoSettings(P,1);
+            XboxMenuClose(P);
+        }
+        if( Phase==2 || Phase==3 )
+        {
+            if( Phase==3 ) GConfig->Flush(1,TEXT("User.ini"));
+            for(INT i=0;i<Count;i++)
+            {
+                APlayerPawn* P=Client->Viewports(i)->Actor;
+                AHUD* Old=P->myHUD; P->myHUD=NULL; P->GetLevel()->DestroyActor(Old);
+            }
+            return;
+        }
+        if( Phase==4 )
+        {
+            XboxMenuOpen(VP); GXboxMenu.Screen=XMS_SettingsVideo;
+            XboxProfileLoadHUDForMenu(VP);
+        }
+    }
+    if( appSeconds()-Start-Phase*8<3 || appSeconds()-Capture<1 ) return;
+    Capture=appSeconds();
+    for(INT i=0;i<Count;i++)
+    {
+        UXboxViewport* P=Cast<UXboxViewport>(Client->Viewports(i));
+        AHUD* HUD=P->Actor->myHUD;
+        INT Delta=(Phase>=1 && i==1) ? 1 : 0;
+        FXboxProfileHUDSettings Saved;
+        UBOOL Ok=XboxProfileReadHUD(P,Saved);
+        TCHAR HC[64],CC[64],ActualHC[64],ActualCC[64];
+        XboxMenuFormatTripletColor(i+Delta,HC,ARRAY_COUNT(HC));
+        XboxMenuFormatTripletColor(i+1+Delta,CC,ARRAY_COUNT(CC));
+        UProperty* H=FindField<UProperty>(HUD->GetClass(),TEXT("FavoriteHUDColor"));
+        UProperty* C=FindField<UProperty>(HUD->GetClass(),TEXT("CrosshairColor"));
+        ActualHC[0]=ActualCC[0]=0;
+        if(H) H->ExportText(0,ActualHC,(BYTE*)HUD,(BYTE*)HUD,0);
+        if(C) C->ExportText(0,ActualCC,(BYTE*)HUD,(BYTE*)HUD,0);
+        Ok=Ok && HUD->Crosshair==i+Delta && XboxGetObjectPropertyInt(HUD,TEXT("Opacity"),-1)==12+i+Delta
+            && Saved.Crosshair==i+Delta && Saved.HudColor==i+Delta && Saved.CrosshairColor==i+1+Delta && Saved.Opacity==12+i+Delta
+            && XboxHUDProofColorMatches(ActualHC,HC) && XboxHUDProofColorMatches(ActualCC,CC);
+        Failed=Failed || !Ok;
+        GXboxLog.Write("XHUDPROFILE phase=%d slot=%d profile=%d crosshair=%d opacity=%d hud=%s cross=%s result=%s",
+            Phase,i+1,XboxProfileForViewport(P)+1,HUD->Crosshair,XboxGetObjectPropertyInt(HUD,TEXT("Opacity"),-1),ActualHC,ActualCC,Ok ? "PASS" : "FAIL");
+    }
+    GXboxLog.Write("XHUDPROFILE capture=%d result=%s",Phase+1,Failed ? "FAIL" : "PASS");
+}
+
+// Two separate emulator boots share only the dedicated writable proof INI.
+static void XboxMatchSettingsProofTick( UXboxViewport* VP )
+{
+    static INT WriteMarker=-1,ReadMarker=-1;
+    static DOUBLE Since=0;
+    static UBOOL Done=0;
+    UBOOL Write=XboxSmokeMarkerExists("XboxMatchSettingsWrite.ini",WriteMarker);
+    UBOOL Read=XboxSmokeMarkerExists("XboxMatchSettingsRead.ini",ReadMarker);
+    if((!Write && !Read) || Done || !VP || XboxViewportIndex(VP)!=0 || !VP->Actor || !XboxIsFrontendLevel(VP->Actor->GetLevel())) return;
+    if(!Since) Since=appSeconds();
+    if(appSeconds()-Since<5.0) return;
+    Done=1;
+    if(Write)
+    {
+        GXboxMenu.Screen=XMS_InstantAction;
+        GXboxMenu.InstantGameType=0;
+        GXboxMenu.InstantFocus=2; XboxMenuAdjustInstantAction(6-GXboxMenu.InstantBots);
+        GXboxMenu.InstantFocus=3; XboxMenuAdjustInstantAction(3-GXboxMenu.InstantSkill);
+        GXboxMenu.InstantFocus=4; XboxMenuAdjustInstantAction(5-GXboxMenu.InstantFragLimit);
+        GXboxMenu.InstantFocus=5; XboxMenuAdjustInstantAction(-GXboxMenu.InstantTimeLimit);
+        GXboxMenu.InstantFocus=1;
+        XboxMenuAdjustInstantAction(XboxInstantMapList(0)-1-GXboxMenu.InstantMap[0]);
+        GXboxMenu.InstantMutatorChoice=0;
+        if(!(GXboxMenu.InstantMutatorMask[0]&1)) XboxMenuToggleCurrentMutator();
+    }
+    UBOOL Passed=GXboxMenu.InstantGameType==0 && GXboxMenu.InstantBots==6 && GXboxMenu.InstantSkill==3
+        && GXboxMenu.InstantFragLimit==5 && GXboxMenu.InstantTimeLimit==0
+        && (GXboxMenu.InstantMutatorMask[0]&1);
+    INT Maps=XboxInstantMapList(0);
+    Passed=Passed && Maps>0 && GXboxMenu.InstantMap[0]==Maps-1;
+    GXboxMenu.Active=1; GXboxMenu.Screen=XMS_InstantAction;
+    GXboxLog.Write("XMATCHPROOF mode=%s bots=%d skill=%d score=%d time=%d map=%d mutators=%u result=%s",
+        Write?"write":"read",GXboxMenu.InstantBots,GXboxMenu.InstantSkill,
+        GXboxFragLimits[GXboxMenu.InstantFragLimit],GXboxTimeLimits[GXboxMenu.InstantTimeLimit],
+        GXboxMenu.InstantMap[0],GXboxMenu.InstantMutatorMask[0],Passed?"PASS":"FAIL");
+}
+
+static void XboxPresentationProofTick(UXboxViewport* VP,UCanvas* Canvas)
+{
+    static INT Marker=-1,Phase=-1;
+    static DOUBLE Since=0,LastLog[4]={0,0,0,0};
+    if(!XboxSmokeMarkerExists("XboxPresentationProof.ini",Marker) || !VP || !VP->Actor || !Canvas || !Canvas->Frame
+        || XboxIsFrontendLevel(VP->Actor->GetLevel())) return;
+    INT Slot=XboxViewportIndex(VP);
+    if(Phase<0) { Phase=0; Since=appSeconds(); XboxSoakForceStartMatch(VP,"presentation-proof"); }
+    if(Slot==0 && appSeconds()-Since>8.0 && Phase<3)
+    {
+        ++Phase; Since=appSeconds(); XboxMenuOpen(VP);
+        GXboxMenu.Screen=XMS_SettingsVideo; GXboxMenuGameplayContinues=0;
+        GXboxMenu.SettingsFocus=Phase==1?0:Phase==2?6:10;
+    }
+    if(Phase==0) XboxMenuDrawRect(Canvas,40,40,60,60,0,255,255,1.0f);
+    if(Slot>=0 && Slot<4 && appSeconds()-Since>3.0 && appSeconds()-LastLog[Slot]>1.0)
+    {
+        LastLog[Slot]=appSeconds();
+        FLOAT SX=XboxCanvasPixelScaleX(Canvas->Frame);
+        UBOOL Pass=Abs(Canvas->ClipX*SX-Canvas->Frame->X)<1.0f && Abs(SX*VP->RenDev->GetPixelAspectRatio()-1.0f)<0.001f;
+        GXboxLog.Write("XUIPROOF phase=%d slot=%d buffer=%d,%d,%d,%d canvas=%.2f,%.2f sx=%.4f focus=%d result=%s",
+            Phase+1,Slot,Canvas->Frame->XB,Canvas->Frame->YB,Canvas->Frame->X,Canvas->Frame->Y,
+            Canvas->ClipX,Canvas->ClipY,SX,GXboxMenu.SettingsFocus,Pass?"PASS":"FAIL");
+        if(Slot==0) GXboxLog.Write("XUIPROOF capture=%d",Phase+1);
+    }
+}
+
 void XboxMenuPostRender( UViewport* Viewport, UCanvas* Canvas )
 {
     guard(XboxMenuPostRender);
     UXboxViewport* XboxViewport = Cast<UXboxViewport>(Viewport);
     // Frontend rendering continues while ordinary gameplay input is paused.
     XboxHaloPortraitProofTick( XboxViewport );
+    XboxProfileHUDProofTick( XboxViewport );
+    XboxMatchSettingsProofTick( XboxViewport );
+    XboxPresentationProofTick(XboxViewport,Canvas);
     INT WheelViewportIndex = XboxViewport ? Clamp<INT>( XboxViewportIndex(XboxViewport), 0, 3 ) : 0;
     if( !Viewport || !Canvas )
         return;
@@ -17404,6 +17825,9 @@ void UXboxViewport::OpenWindow( DWORD ParentWindow, UBOOL Temporary,
 {
     guard(UXboxViewport::OpenWindow);
 
+    static UBOOL MatchSettingsLoaded=0;
+    if(!MatchSettingsLoaded && GConfig) { MatchSettingsLoaded=1; XboxMenuMatchSettings(0); }
+
     GXboxLog.Write( "OpenWindow: entered (NewX=%d, NewY=%d)", NewX, NewY );
 
     ViewX      = 0;
@@ -17521,9 +17945,18 @@ void UXboxViewport::SetViewRegion( INT X, INT Y, INT W, INT H )
     ViewX = X; ViewY = Y; ViewWidth = W; ViewHeight = H;
 }
 
+static UBOOL XboxSensitivityProofEnabled();
+
 void UXboxViewport::PollController()
 {
     guard(UXboxViewport::PollController);
+    bControllerPolled = 1;
+    if( XboxUISafeZoneProofEnabled() && GXboxUISafeProofPhase==4
+    && XboxViewportIndex(this)==0 && !GXboxMenu.Active )
+    {
+        XboxMenuOpen(this);
+        if( !GXboxSplitActive ) GXboxMenu.Screen=XMS_SettingsVideo;
+    }
 
     // Travel/console replacement must happen before drawing, never inside a
     // console PostRender callback that it may destroy.
@@ -17546,6 +17979,21 @@ void UXboxViewport::PollController()
             ProcessControllerInput( ControllerState.Gamepad );
             return;
         }
+    }
+
+    // Standalone 1P proof needs no physical controller or host input. Split
+    // proofs above still run their normal setup before the fixed-stick override.
+    if( XboxSensitivityProofEnabled() || XboxUISafeZoneProofEnabled() )
+    {
+        PrevControllerState = ControllerState;
+        appMemzero(&ControllerState.Gamepad,sizeof(ControllerState.Gamepad));
+        ControllerState.Gamepad.bAnalogButtons[XINPUT_GAMEPAD_RIGHT_TRIGGER] = 255;
+        if( XboxUISafeZoneProofEnabled() && Actor && Actor->GetStateFrame()
+        && Actor->GetStateFrame()->StateNode
+        && Actor->GetStateFrame()->StateNode->GetFName()==FName(TEXT("PlayerWalking")) )
+            ControllerState.Gamepad.bAnalogButtons[XINPUT_GAMEPAD_RIGHT_TRIGGER]=0;
+        ProcessControllerInput(ControllerState.Gamepad);
+        return;
     }
 
     DWORD Insertions = 0;
@@ -17646,9 +18094,98 @@ void UXboxViewport::PollController()
     unguard;
 }
 
-void UXboxViewport::ProcessControllerInput( const XINPUT_GAMEPAD& Pad )
+struct FXboxSensitivityProofSample
+{
+    APlayerPawn* Player;
+    FLOAT Seconds, TotalSeconds;
+    INT Yaw, Pitch, Samples, BeforeYaw, BeforePitch;
+    UBOOL Active;
+};
+static FXboxSensitivityProofSample GXboxSensitivitySamples[4];
+
+static UBOOL XboxSensitivityProofEnabled()
+{
+    static INT Cached = -1;
+    return XboxSmokeMarkerExists( "XboxSensitivityProof.ini", Cached );
+}
+
+static void XboxSensitivityProofPad( UXboxViewport* Viewport, XINPUT_GAMEPAD& Pad )
+{
+    if( !XboxSensitivityProofEnabled() || Viewport->ControllerInputSeconds <= 0.0f
+    || !Viewport->Actor || GXboxMenu.Active )
+        return;
+    APlayerPawn* Player = Viewport->Actor;
+    if( !Player->GetStateFrame() || !Player->GetStateFrame()->StateNode
+    || Player->GetStateFrame()->StateNode->GetFName() != FName(TEXT("PlayerWalking")) )
+        return;
+    INT Slot = Clamp<INT>(XboxViewportIndex(Viewport),0,3);
+    FXboxSensitivityProofSample& Sample = GXboxSensitivitySamples[Slot];
+    if( Sample.Player != Player )
+    {
+        appMemzero(&Sample,sizeof(Sample));
+        Sample.Player = Player;
+    }
+    INT Phase = ((INT)(Sample.TotalSeconds / 4.0f)) % 4;
+    UXboxClient* Client = (UXboxClient*)Viewport->GetOuter();
+    Client->ScaleRUV = Phase == 1 ? 50.0f : 100.0f;
+    Client->ControllerSensitivity = 1.0f;
+    Client->DeadZone = 0.2f;
+    Client->StickLayout = XSL_Default;
+    Client->InvertVertical = 0;
+    FXboxRuntimeProfileControls* Controls = XboxSplitControlsForPort(Slot);
+    if( Controls )
+    {
+        Controls->LookSensitivity = Client->ScaleRUV;
+        Controls->DeadZone = 0.2f;
+        Controls->StickLayout = XSL_Default;
+        Controls->InvertY = 0;
+    }
+    Player->DesiredFOV = Player->FovAngle = 90.0f;
+    Player->ViewRotation.Pitch = 0;
+    appMemzero(&Pad,sizeof(Pad));
+    if( Phase == 3 ) Pad.sThumbRY = 32767;
+    else Pad.sThumbRX = Phase == 2 ? 19660 : 32767;
+    Sample.BeforeYaw = Player->ViewRotation.Yaw;
+    Sample.BeforePitch = Player->ViewRotation.Pitch;
+    Sample.Active = 1;
+}
+
+static void XboxSensitivityProofAfterMove( UXboxViewport* Viewport, FLOAT Seconds )
+{
+    if( !XboxSensitivityProofEnabled() ) return;
+    INT Slot = Clamp<INT>(XboxViewportIndex(Viewport),0,3);
+    FXboxSensitivityProofSample& S = GXboxSensitivitySamples[Slot];
+    if( !S.Active || S.Player != Viewport->Actor ) return;
+    S.Active = 0;
+    S.Yaw += ((Viewport->Actor->ViewRotation.Yaw - S.BeforeYaw + 32768) & 65535) - 32768;
+    S.Pitch += ((Viewport->Actor->ViewRotation.Pitch - S.BeforePitch + 32768) & 65535) - 32768;
+    S.Seconds += Seconds;
+    S.Samples++;
+    if( S.Seconds >= 4.0f )
+    {
+        GXboxLog.Write("XSENS slot=%d players=%d phase=%d seconds=%.4f samples=%d yawDPS=%.3f pitchDPS=%.3f",
+            Slot+1, ((UXboxClient*)Viewport->GetOuter())->Viewports.Num(),
+            ((INT)(S.TotalSeconds/4.0f))%4, S.Seconds, S.Samples,
+            S.Yaw*360.0f/(65536.0f*S.Seconds), S.Pitch*360.0f/(65536.0f*S.Seconds));
+        S.TotalSeconds += 4.0f;
+        S.Seconds = 0; S.Samples = 0; S.Yaw = 0; S.Pitch = 0;
+    }
+}
+
+void UXboxViewport::ProcessControllerInput( const XINPUT_GAMEPAD& InputPad )
 {
     guard(UXboxViewport::ProcessControllerInput);
+    XINPUT_GAMEPAD Pad = InputPad;
+    XboxSensitivityProofPad( this, Pad );
+    static INT ExitRepeatMarker=-1;
+    if( XboxSmokeMarkerExists("XboxSplitExitRepeatProof.ini",ExitRepeatMarker)
+    && !GXboxSplitActive && !GXboxMenu.Active && Actor && !XboxIsFrontendLevel(Actor->GetLevel()) )
+    {
+        appMemzero(&Pad,sizeof(Pad));
+        Pad.bAnalogButtons[XINPUT_GAMEPAD_RIGHT_TRIGGER]=255;
+        Pad.sThumbRX=16000;
+    }
+
 
     UXboxClient* Client = (UXboxClient*)GetOuter();
     if( !Client || !Client->Engine )
@@ -17710,6 +18247,11 @@ void UXboxViewport::ProcessControllerInput( const XINPUT_GAMEPAD& Pad )
         XboxMenuOpen( this );
         return;
     }
+
+    // Polls outside a simulation input read service menus only. Never leave
+    // gameplay axes or button events queued for the next simulation tick.
+    if( ControllerInputSeconds <= 0.0f )
+        return;
 
     if( Player && !bMenuCapturesGameplay )
         XboxTournamentLogReadyState( this, "poll", 0 );
@@ -17807,15 +18349,15 @@ void UXboxViewport::ProcessControllerInput( const XINPUT_GAMEPAD& Pad )
     }
 
     // ---- Analog sticks ----
-    // WinDrv feeds Unreal a normalized joystick delta multiplied by the
-    // configured joystick scale (Default.ini: ScaleXYZ=1000, ScaleRUV=2000).
-    // Feeding raw -1..1 Xbox values makes UInput's 0.01 axis multiplier crawl.
+    // UInput divides axis displacement by the simulation step. Convert the
+    // held stick rate into displacement using that same step, not render time.
+    // 60 preserves the former single-player baseline at 30 FPS (two polls).
     FLOAT DeadZone = ProfileDeadZone;
     if( DeadZone < 0.0f )
         DeadZone = 0.0f;
     if( DeadZone > 0.95f )
         DeadZone = 0.95f;
-    FLOAT Sensitivity = Client->ControllerSensitivity;
+    FLOAT Sensitivity = Client->ControllerSensitivity * 60.0f * ControllerInputSeconds;
 
     FLOAT LeftX = XboxStickAxis( Pad.sThumbLX, DeadZone );
     FLOAT LeftY = XboxStickAxis( Pad.sThumbLY, DeadZone );
@@ -17945,17 +18487,13 @@ UBOOL UXboxViewport::Lock( FPlane FlashScale, FPlane FlashFog, FPlane ScreenClea
                             DWORD RenderLockFlags, BYTE* HitData, INT* HitSize )
 {
     guard(UXboxViewport::Lock);
+    XboxSafePictureProofTick(this);
     INT LockX = ViewX;
     INT LockY = ViewY;
     INT LockW = ViewWidth  > 0 ? ViewWidth  : SizeX;
     INT LockH = ViewHeight > 0 ? ViewHeight : SizeY;
-    if( !GXboxSplitActive && !bXboxSplitDummy )
-    {
-        UXboxClient* Client = Cast<UXboxClient>( GetOuter() );
-        if( Client )
-            XboxViewportApplySafeArea( Client, LockX, LockY, LockW, LockH );
-    }
-    XboxRenderSetPendingViewRegion( LockX, LockY, Max<INT>( LockW, 1 ), Max<INT>( LockH, 1 ), !GXboxSplitActive && !bXboxSplitDummy );
+    XboxViewportApplyPictureSafeArea(Cast<UXboxClient>(GetOuter()),LockX,LockY,LockW,LockH);
+    XboxRenderSetPendingViewRegion( LockX, LockY, Max<INT>( LockW, 1 ), Max<INT>( LockH, 1 ), !bXboxSplitDummy && (!GXboxSplitActive || GXboxSplitRenderViewport==0) );
     return Super::Lock( FlashScale, FlashFog, ScreenClear, RenderLockFlags, HitData, HitSize );
     unguard;
 }
@@ -18001,6 +18539,28 @@ void UXboxViewport::UpdateInput( UBOOL Reset )
     XboxInstantRulesProofSmokeTick( this );
     XboxSystemLinkSmokeTick( this );
     unguard;
+}
+
+void UXboxViewport::ReadInput( FLOAT DeltaSeconds )
+{
+    // A negative read follows PlayerTick and clears axes; observe movement
+    // before that clear in opt-in, process-local sensitivity qualification.
+    if( DeltaSeconds < 0.0f )
+        XboxSensitivityProofAfterMove( this, ControllerInputSeconds );
+    ControllerInputSeconds = DeltaSeconds > 0.0f ? DeltaSeconds : 0.0f;
+    Super::ReadInput( DeltaSeconds );
+    // Keep the simulation step for the matching post-movement observation.
+    // PollControllerForFrame clears it before any fallback menu polling.
+}
+
+void UXboxViewport::PollControllerForFrame()
+{
+    ControllerInputSeconds = 0.0f;
+    // The simulation normally polls each real player. When paused, or when
+    // there is no player tick, retain one menu poll without gameplay input.
+    if( !bControllerPolled )
+        PollController();
+    bControllerPolled = 0;
 }
 
 void* UXboxViewport::GetWindow() { return NULL; }
